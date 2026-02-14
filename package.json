@@ -1,0 +1,14 @@
+{
+  "name": "vork-app-v2-main-root",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "frontend:dev": "npm run dev --workspace=frontend",
+    "frontend:build": "npm run build --workspace=frontend",
+    "dev": "npm run frontend:dev",
+    "build": "npm run frontend:build"
+  }
+}

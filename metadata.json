@@ -1,0 +1,8 @@
+{
+  "description": "Vork - Marketplace for skilled artisans with real-time AI-assisted urgent service matching.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ],
+  "name": "vork-app-v2"
+}
