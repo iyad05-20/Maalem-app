@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+dist-ssr/
+*.local
+
+# Environment
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Project specific
+.gemini/
+metadata.json
+UrgentView.tsx
+walkthrough.md
+task.md
+implementation_plan.md
+separation_plan.md
+backend/node_modules/
+frontend/node_modules/
