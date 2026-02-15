@@ -5,14 +5,14 @@ import { getStorage } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-s
 // Added missing getAuth import from Firebase Auth SDK
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
-// Using explicit configuration provided previously
+// Using environment variables for security
 const firebaseConfig = {
-  apiKey: "AIzaSyChaguaGghhYRdmKRJsO7AStFM7VeT1SHc",
-  authDomain: "vork-1092c.firebaseapp.com",
-  projectId: "vork-1092c",
-  storageBucket: "vork-1092c.firebasestorage.app",
-  messagingSenderId: "587012804050",
-  appId: "1:587012804050:web:d93a8a3f6345b9bebe4c0b"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // Initialize Firebase app

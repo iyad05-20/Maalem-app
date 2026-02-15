@@ -1,8 +1,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://zedjyffrerxwgcqrlyab.supabase.co';
-const supabaseKey = 'sb_publishable_oxJDptCT_nQeXPmv3V62Bw_HV0CWrxs';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -11,10 +11,10 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
  * Now strictly defaults to 'vork-profilepic-bucket'.
  */
 export const uploadToSupabase = async (bucket: string = 'vork-profilepic-bucket', path: string, file: File | Blob) => {
-  const targetBucket = (bucket === 'vork-profile pic bucket' || bucket === 'vork-profile%20pic%20bucket') 
-    ? 'vork-profilepic-bucket' 
+  const targetBucket = (bucket === 'vork-profile pic bucket' || bucket === 'vork-profile%20pic%20bucket')
+    ? 'vork-profilepic-bucket'
     : bucket;
-  
+
   const { data, error } = await supabase.storage.from(targetBucket).upload(path, file, {
     cacheControl: '3600',
     upsert: true
@@ -50,11 +50,11 @@ export const extractPathFromUrl = (url: string): string | null => {
   try {
     const parts = url.split('/public/');
     if (parts.length < 2) return null;
-    
+
     const pathWithBucket = parts[1];
     const bucketEndIndex = pathWithBucket.indexOf('/');
     if (bucketEndIndex === -1) return null;
-    
+
     const path = pathWithBucket.substring(bucketEndIndex + 1).split('?')[0];
     return decodeURIComponent(path);
   } catch (e) {
