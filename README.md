@@ -21,7 +21,7 @@ Le projet est organisé en un monorepo utilisant les workspaces npm :
 
 1. Clonez le dépôt :
    ```bash
-   git clone https://github.com/iyad05-20/MAALEM-app.git
+   git clone https://github.com/iyad05-20/Maalem-app.git
    ```
 
 2. Installez les dépendances à la racine :
