@@ -34,7 +34,7 @@ pnpm-debug.log*
 # Project specific
 .gemini/
 metadata.json
-UrgentView.tsx
+
 walkthrough.md
 task.md
 implementation_plan.md
