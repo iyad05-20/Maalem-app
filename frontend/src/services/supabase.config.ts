@@ -15,16 +15,30 @@ export const uploadToSupabase = async (bucket: string = 'vork-profilepic-bucket'
     ? 'vork-profilepic-bucket'
     : bucket;
 
-  const { data, error } = await supabase.storage.from(targetBucket).upload(path, file, {
+  const fileOptions: any = {
     cacheControl: '3600',
     upsert: true
-  });
+  };
+
+  // Explicitly set content type if available to prevent 400 errors
+  if (file.type) {
+    fileOptions.contentType = file.type;
+  }
+
+  const { data, error } = await supabase.storage.from(targetBucket).upload(path, file, fileOptions);
 
   if (error) {
+    console.group('Supabase Upload Debug Info');
+    console.error('Error Object:', error);
+    console.error('Target Bucket:', targetBucket);
+    console.error('File Name:', file.name);
+    console.error('File Type:', file.type);
+    console.error('File Size:', file.size);
+    console.groupEnd();
+
     if (error.message.includes('Bucket not found')) {
       console.error(`CRITICAL: The bucket "${targetBucket}" was not found. Please create it in your Supabase dashboard and set it to Public.`);
     }
-    console.error('Supabase Upload Error:', error);
     throw error;
   }
 
