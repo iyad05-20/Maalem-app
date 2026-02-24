@@ -8,7 +8,29 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png'],
-      manifest: false,
+      manifest: {
+        "id": "/",
+        "short_name": "Vork",
+        "name": "Marketplace Artisans Maroc",
+        "description": "Trouvez les meilleurs artisans au Maroc pour tous vos travaux de maison.",
+        "categories": ["business", "lifestyle", "productivity"],
+        "icons": [
+          { "src": "/icons/icon-72x72.png", "sizes": "72x72", "type": "image/png" },
+          { "src": "/icons/icon-96x96.png", "sizes": "96x96", "type": "image/png" },
+          { "src": "/icons/icon-128x128.png", "sizes": "128x128", "type": "image/png" },
+          { "src": "/icons/icon-144x144.png", "sizes": "144x144", "type": "image/png" },
+          { "src": "/icons/icon-152x152.png", "sizes": "152x152", "type": "image/png" },
+          { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" },
+          { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+          { "src": "/icons/icon-384x384.png", "sizes": "384x384", "type": "image/png" },
+          { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png" },
+          { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+        ],
+        "start_url": "/",
+        "display": "standalone",
+        "theme_color": "#6366f1",
+        "background_color": "#0a0a0c"
+      },
       devOptions: {
         enabled: true,
         type: 'module',
@@ -16,6 +38,22 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/esm\.sh\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'esm-sh-cache',
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 30 }
+            }
+          },
+          {
+            urlPattern: /^https:\/\/www\.gstatic\.com\/firebasejs\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'firebase-cache',
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 30 }
+            }
+          },
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/.*/i,
             handler: 'CacheFirst',

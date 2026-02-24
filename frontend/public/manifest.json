@@ -1,4 +1,5 @@
 {
+    "id": "/",
     "short_name": "Vork",
     "name": "Marketplace Artisans Maroc",
     "description": "Trouvez les meilleurs artisans au Maroc pour tous vos travaux de maison.",
@@ -49,6 +50,12 @@
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "maskable"
+        },
+        {
+            "src": "/icons/icon-384x384.png",
+            "sizes": "384x384",
+            "type": "image/png",
+            "purpose": "any"
         },
         {
             "src": "/icons/icon-512x512.png",

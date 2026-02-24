@@ -5,6 +5,12 @@ interface BeforeInstallPromptEvent extends Event {
     userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+declare global {
+    interface Window {
+        deferredPrompt?: BeforeInstallPromptEvent;
+    }
+}
+
 const IS_DEV = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 export default function InstallPWA() {
@@ -12,60 +18,102 @@ export default function InstallPWA() {
     const [showInstallButton, setShowInstallButton] = useState(false);
 
     useEffect(() => {
-        // Already installed as standalone — don't show button
-        if (window.matchMedia('(display-mode: standalone)').matches) {
-            return;
-        }
+        console.log('PWA: Component mounted, checking for captured prompt...');
 
-        // In dev mode, show the button anyway so we can test the UI
-        if (IS_DEV) {
+        // 1. Check if the prompt was already captured in index.html
+        if (window.deferredPrompt) {
+            console.log('PWA: Prompt found on window object!');
+            setDeferredPrompt(window.deferredPrompt);
             setShowInstallButton(true);
         }
 
+        // 2. Also listen in case it fires later
         const handler = (e: Event) => {
+            console.log('PWA: beforeinstallprompt event captured in component!', e);
             e.preventDefault();
-            setDeferredPrompt(e as BeforeInstallPromptEvent);
+            const promptEvent = e as BeforeInstallPromptEvent;
+            setDeferredPrompt(promptEvent);
+            window.deferredPrompt = promptEvent;
             setShowInstallButton(true);
         };
 
         window.addEventListener('beforeinstallprompt', handler);
-        return () => window.removeEventListener('beforeinstallprompt', handler);
-    }, []);
 
-    const handleInstall = async () => {
-        if (!deferredPrompt) {
-            // Dev mode: no real prompt available, just hide
+        // 3. Status check
+        console.log('PWA: Checking if already installed...');
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            console.log('PWA: App is already installed (standalone mode)');
             setShowInstallButton(false);
             return;
         }
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        if (outcome === 'accepted') {
-            setShowInstallButton(false);
+
+        // 4. Local Preview Hack (Force show on localhost so user can see it's NOT a CSS issue)
+        if (IS_DEV && !window.matchMedia('(display-mode: standalone)').matches) {
+            console.log('PWA: Local dev mode, forcing banner visibility for UI testing.');
+            setShowInstallButton(true);
         }
-        setDeferredPrompt(null);
+
+        return () => {
+            console.log('PWA: Component unmounting');
+            window.removeEventListener('beforeinstallprompt', handler);
+        };
+    }, []);
+
+    const handleInstall = async () => {
+        console.log('PWA: Install button clicked.');
+
+        if (!deferredPrompt) {
+            if (IS_DEV) {
+                alert("INFO DEV : Le prompt système n'est pas encore prêt.\n\nEn local, attendez 10-15s en scrollant ou interagissez avec la page.\n\nLe bandeau est ici forcé pour tester le design.");
+            } else {
+                console.warn('PWA: No prompt available.');
+            }
+            return;
+        }
+
+        try {
+            console.log('PWA: Triggering system prompt...');
+            await deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`PWA: Outcome: ${outcome}`);
+
+            if (outcome === 'accepted') {
+                setShowInstallButton(false);
+                window.deferredPrompt = undefined;
+            }
+        } catch (err) {
+            console.error('PWA: Install error:', err);
+        }
     };
 
     if (!showInstallButton) return null;
 
     return (
-        <div className="fixed bottom-20 left-0 right-0 z-50 px-4">
-            <div className="max-w-md mx-auto bg-blue-600 text-white rounded-2xl p-4 shadow-xl">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-2xl">
+        <div className="fixed bottom-[100px] sm:bottom-24 left-0 right-0 z-[9999] px-4 animate-in fade-in slide-in-from-bottom-5 duration-500 pb-[env(safe-area-inset-bottom)]">
+            <div className="max-w-md mx-auto bg-indigo-600 text-white rounded-2xl p-4 shadow-[0_20px_50px_rgba(99,102,241,0.4)] border border-white/20">
+                <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center text-2xl shadow-inner border border-white/10">
                         📱
                     </div>
-                    <div className="flex-1">
-                        <p className="font-bold text-sm">Installer l'application</p>
-                        <p className="text-xs text-blue-100">
-                            {IS_DEV && !deferredPrompt ? '⚙️ Dev preview — build requis' : 'Accès rapide depuis votre écran'}
+                    <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm tracking-tight text-white truncate">Installer Vork</p>
+                        <p className="text-[10px] text-indigo-100 font-medium leading-tight opacity-90">
+                            {IS_DEV && !deferredPrompt
+                                ? "Mode test : En attente du système..."
+                                : "Accès rapide depuis votre écran d'accueil."}
                         </p>
                     </div>
                     <button
                         onClick={handleInstall}
-                        className="bg-white text-blue-600 px-4 py-2 rounded-xl font-bold text-sm"
+                        className="flex-shrink-0 bg-white text-indigo-700 hover:bg-indigo-50 active:scale-95 transition-all px-4 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-wider shadow-md"
                     >
                         Installer
+                    </button>
+                    <button
+                        onClick={() => setShowInstallButton(false)}
+                        className="p-1 opacity-50 hover:opacity-100 transition-opacity"
+                    >
+                        ✕
                     </button>
                 </div>
             </div>
