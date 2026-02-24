@@ -10,6 +10,7 @@ import { db } from './services/firebase.config';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { updateDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import InstallPWA from './components/common/InstallPWA';
+import { OfflineView } from './views/common/OfflineView';
 
 // --- Lazy-loaded Views (code-split into separate chunks) ---
 const HomeView = React.lazy(() => import('./views/client/HomeView').then(m => ({ default: m.HomeView })));
@@ -94,8 +95,26 @@ const AppContent = () => {
     } = useAppLogic();
 
     const [authMode, setAuthMode] = React.useState<'login' | 'signup-client' | 'signup-artisan'>('login');
+    const [isOnline, setIsOnline] = React.useState(navigator.onLine);
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
 
     useEffect(() => { window.scrollTo(0, 0); }, [view]);
+
+    if (!isOnline) {
+        return <OfflineView onRetry={() => setIsOnline(navigator.onLine)} />;
+    }
 
     const liveSelectedOrder = useMemo(() => selectedOrder
         ? (orders.find(o => o.id === selectedOrder.id) || archivedOrders.find(o => o.id === selectedOrder.id) || selectedOrder)

@@ -1,7 +1,12 @@
 {
-    "short_name": "Artisans",
+    "short_name": "Vork",
     "name": "Marketplace Artisans Maroc",
-    "description": "Trouvez les meilleurs artisans près de chez vous",
+    "description": "Trouvez les meilleurs artisans au Maroc pour tous vos travaux de maison.",
+    "categories": [
+        "business",
+        "lifestyle",
+        "productivity"
+    ],
     "icons": [
         {
             "src": "/icons/icon-72x72.png",
@@ -52,10 +57,45 @@
             "purpose": "any"
         }
     ],
+    "screenshots": [
+        {
+            "src": "/screenshots/mobile-main.png",
+            "sizes": "1080x1920",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Écran d'accueil Vork"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Nouvelle Demande",
+            "short_name": "Demander",
+            "description": "Publier une nouvelle demande de service",
+            "url": "/?view=create-order",
+            "icons": [
+                {
+                    "src": "/icons/icon-192x192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        },
+        {
+            "name": "Messages",
+            "short_name": "Messages",
+            "description": "Voir vos conversations",
+            "url": "/?view=chats",
+            "icons": [
+                {
+                    "src": "/icons/icon-192x192.png",
+                    "sizes": "192x192"
+                }
+            ]
+        }
+    ],
     "start_url": "/",
     "display": "standalone",
-    "theme_color": "#2563eb",
-    "background_color": "#ffffff",
+    "theme_color": "#6366f1",
+    "background_color": "#0a0a0c",
     "orientation": "portrait",
     "scope": "/"
 }
