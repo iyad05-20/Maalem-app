@@ -10,6 +10,8 @@ import { collection, onSnapshot, query, orderBy, doc, updateDoc, setDoc, addDoc,
 import { rejectQuote, archiveOrder } from '../../services/order.actions';
 import { uploadToSupabase } from '../../services/supabase.config';
 
+import { useFilePreviews } from '../../hooks/useFilePreview';
+
 interface Props {
     order: Order;
     onBack: () => void;
@@ -17,22 +19,25 @@ interface Props {
     onOpenChat: (artisan: Partial<Artisan>) => void;
     onOpenArtisanProfile: (id: string | undefined) => void;
     onViewImage?: (url: string) => void;
+    showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 // --- COMPLETION MODAL COMPONENT ---
-const CompletionModal = ({ isOpen, onClose, onConfirm, artisanName, artisanImage, orderId }: {
+const CompletionModal = ({ isOpen, onClose, onConfirm, artisanName, artisanImage, orderId, showToast }: {
     isOpen: boolean;
     onClose: () => void;
     onConfirm: (rating: number, comment: string, images: string[]) => Promise<void>;
     artisanName: string;
     artisanImage?: string;
     orderId: string;
+    showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }) => {
     const [rating, setRating] = useState(0);
     const [comment, setComment] = useState('');
     const [step, setStep] = useState<'rate' | 'uploading' | 'processing' | 'success'>('rate');
     const [images, setImages] = useState<File[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const previews = useFilePreviews(images);
 
     if (!isOpen) return null;
 
@@ -66,7 +71,7 @@ const CompletionModal = ({ isOpen, onClose, onConfirm, artisanName, artisanImage
         } catch (error) {
             console.error("Error submitting review:", error);
             setStep('rate');
-            alert("Erreur lors de l'envoi. Veuillez réessayer.");
+            showToast("Erreur lors de l'envoi. Veuillez réessayer.", "error");
         }
     };
 
@@ -104,7 +109,7 @@ const CompletionModal = ({ isOpen, onClose, onConfirm, artisanName, artisanImage
                                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" multiple onChange={handleFileChange} />
                                 {images.map((file, idx) => (
                                     <div key={idx} className="size-20 shrink-0 rounded-2xl relative overflow-hidden border border-white/10 group">
-                                        <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" alt="Preview" />
+                                        <img src={previews[idx]} className="w-full h-full object-cover" alt="Preview" />
                                         <button onClick={() => removeImage(idx)} className="absolute top-1 right-1 size-5 bg-red-600 rounded-full flex items-center justify-center text-white shadow-lg"><X size={10} /></button>
                                     </div>
                                 ))}
@@ -148,7 +153,7 @@ const CompletionModal = ({ isOpen, onClose, onConfirm, artisanName, artisanImage
     );
 };
 
-export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenChat, onOpenArtisanProfile }) => {
+export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenChat, onOpenArtisanProfile, showToast }) => {
     const [quotes, setQuotes] = useState<Quote[]>([]);
     const [isAccepting, setIsAccepting] = useState<string | null>(null);
     const [isRejecting, setIsRejecting] = useState<string | null>(null);
@@ -157,7 +162,7 @@ export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenCh
     const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
 
     useEffect(() => {
-        const q = query(collection(db, "orders", order.id, "quotes"), orderBy("timestamp", "desc"));
+        const q = query(collection(db, "orders", order.id, "quotes"), orderBy("createdAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const list = snapshot.docs.map(doc => ({ ...sanitizeFirestoreData(doc.data()), id: doc.id })) as Quote[];
             setQuotes(list.filter(q => q.status !== 'rejected'));
@@ -176,13 +181,23 @@ export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenCh
 
     const handleAcceptQuote = async (quote: Quote) => {
         setIsAccepting(quote.id);
+        // Compute a display price with fallback
+        const displayPrice = quote.price || (quote.amount ? `${quote.amount} dh` : 'Prix convenu');
+        // Ensure we have the clientId - fallback to auth UID if order.userId is missing
+        const clientId = order.userId || auth.currentUser?.uid;
+        if (!clientId) {
+            showToast("Erreur: impossible d'identifier le client.", "error");
+            setIsAccepting(null);
+            return;
+        }
         try {
             await updateDoc(doc(db, "orders", order.id), {
                 artisanId: quote.artisanId,
                 artisanName: quote.artisanName,
                 artisanImage: quote.artisanImage,
                 artisanRating: quote.artisanRating,
-                assignedPrice: quote.price,
+                assignedPrice: displayPrice,
+                userId: clientId, // Ensure userId is always saved back
                 status: 'En cours',
                 updatedAt: new Date().toISOString()
             });
@@ -197,41 +212,68 @@ export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenCh
                 }
             }
 
-            const chatDocId = `${order.userId}_${quote.artisanId}`;
+            const chatDocId = `${clientId}_${quote.artisanId}`;
             await setDoc(doc(db, "chats", chatDocId), {
-                id: chatDocId, userId: order.userId, userName: myName, userImage: myImage,
+                id: chatDocId, userId: clientId, userName: myName, userImage: myImage,
                 artisanId: quote.artisanId, artisanName: quote.artisanName, artisanImage: quote.artisanImage,
-                lastMessage: `Commande acceptée (${quote.price}).`, timestamp: new Date().toISOString(),
-                unreadCount: 0, isOnline: true
+                lastMessage: `Commande acceptée (${displayPrice}).`, timestamp: new Date().toISOString(),
+                lastMessageTime: new Date().toISOString(),
+                unreadCount: 0, unreadCountClient: 0, unreadCountArtisan: 1, isOnline: true
             }, { merge: true });
 
             await addDoc(collection(db, "chats", chatDocId, "messages"), {
-                text: `Bonjour ! J'ai accepté votre devis de ${quote.price}. Quand pouvez-vous intervenir ?`,
+                text: `Bonjour ! J'ai accepté votre devis de ${displayPrice}. Quand pouvez-vous intervenir ?`,
                 sender: 'user', timestamp: new Date().toISOString(), status: 'sent'
             });
-        } catch (err) { console.error(err); } finally { setIsAccepting(null); }
+            await addDoc(collection(db, "notifications"), {
+                userId: quote.artisanId,
+                title: "Devis Accepté !",
+                message: `Le client a accepté votre devis de ${displayPrice} pour ${order.category}.`,
+                type: 'order_accepted',
+                read: false,
+                createdAt: new Date().toISOString(),
+                relatedId: order.id
+            });
+            showToast("Devis accepté ! L'artisan a été notifié.", "success");
+        } catch (err) {
+            console.error("Error accepting quote:", err);
+            showToast("Erreur lors de l'acceptation. Veuillez réessayer.", "error");
+        } finally { setIsAccepting(null); }
     };
 
     const handleRejectQuote = async (quote: Quote) => {
-        if (!confirm("Refuser cette offre ?")) return;
         setIsRejecting(quote.id);
         try { await rejectQuote(order.id, quote.artisanId, quote.id); }
-        catch (err) { console.error(err); } finally { setIsRejecting(null); }
+        catch (err) { console.error(err); showToast("Erreur lors du rejet.", "error"); } finally { setIsRejecting(null); }
     };
 
     const handleConfirmCompletion = async (rating: number, comment: string, images: string[]) => {
         try {
             await archiveOrder(order, { rating, comment, images });
             if (order.artisanId) {
-                const chatDocId = `${order.userId}_${order.artisanId}`;
+                const chatDocId = `${order.userId || auth.currentUser?.uid}_${order.artisanId}`;
                 await addDoc(collection(db, "chats", chatDocId, "messages"), {
                     text: `✅ Mission terminée et validée ! Note: ${rating}/5. Photos ajoutées au portfolio.`,
                     sender: 'user', timestamp: new Date().toISOString(), status: 'sent'
                 });
+                // Notify the artisan that the mission is complete
+                await addDoc(collection(db, "notifications"), {
+                    userId: order.artisanId,
+                    title: "Mission Terminée ! ✅",
+                    message: `Le client a validé votre travail sur "${order.category}" et vous a attribué une note de ${rating}/5.`,
+                    type: 'order_accepted',
+                    read: false,
+                    createdAt: new Date().toISOString(),
+                    relatedId: order.id
+                });
             }
             await new Promise(resolve => setTimeout(resolve, 1500));
             onBack();
-        } catch (err) { console.error(err); alert("Erreur lors de l'archivage."); setShowCompletionModal(false); }
+        } catch (err) {
+            console.error(err);
+            showToast("Erreur lors de l'archivage.", "error");
+            setShowCompletionModal(false);
+        }
     };
 
     const handleExpandSearch = async () => {
@@ -243,8 +285,8 @@ export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenCh
                 searchRadius: newRadius, targetedArtisans: Array.from(newTargetedSet), contactedArtisanIds: Array.from(newTargetedSet)
             });
             setCanExpand(false);
-            alert("Recherche élargie !");
-        } catch (err) { console.error(err); }
+            showToast("Recherche élargie !", "success");
+        } catch (err) { console.error(err); showToast("Impossible d'élargir la recherche.", "error"); }
     };
 
     const isAssigned = ['En cours', 'Accepté', 'Terminé', 'En attente de clôture'].includes(order.status);
@@ -390,7 +432,7 @@ export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenCh
                 )}
             </div>
 
-            <CompletionModal isOpen={showCompletionModal} onClose={() => setShowCompletionModal(false)} onConfirm={handleConfirmCompletion} artisanName={order.artisanName || 'Expert'} artisanImage={order.artisanImage} orderId={order.id} />
+            <CompletionModal isOpen={showCompletionModal} onClose={() => setShowCompletionModal(false)} onConfirm={handleConfirmCompletion} artisanName={order.artisanName || 'Expert'} artisanImage={order.artisanImage} orderId={order.id} showToast={showToast} />
 
             {fullScreenImage && (
                 <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 animate-in fade-in" onClick={() => setFullScreenImage(null)}>

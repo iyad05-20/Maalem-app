@@ -10,5 +10,8 @@
     "frontend:build": "npm run build --workspace=frontend",
     "dev": "npm run frontend:dev",
     "build": "npm run frontend:build"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1"
   }
 }

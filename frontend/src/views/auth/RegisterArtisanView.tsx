@@ -61,8 +61,8 @@ export const RegisterArtisanView: React.FC<Props> = ({ onRegisterSuccess, onSwit
                 services: [specialty],
                 portfolio: [],
                 reviews: [],
-                city: 'Dakar',
-                location: 'Dakar'
+                city: 'Marrakech',
+                location: 'Marrakech'
             };
 
             const result = await registerUser(email, password, 'artisan', additionalData);

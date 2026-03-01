@@ -120,14 +120,13 @@ const getArtisansInRadius = async (
 
 // --- Core Logic ---
 
+const MARRAKECH_CENTER: Coordinates = { lat: 31.6295, lng: -7.9811 };
+
 /**
  * Finds the top artisans for a new order.
  */
-export const findBestArtisans = async (category: string, initialRadius: number = 1, excludeIds: string[] = []): Promise<string[]> => {
-  // Fallback case: we need location context. 
-  // Ideally CreateOrderView passes it. For now, default to Dakar for safety.
-  const DAKAR_CENTER = { lat: 14.7167, lng: -17.4677 };
-  return findBestArtisansWithLocation(category, DAKAR_CENTER, excludeIds);
+export const findBestArtisans = async (category: string, initialRadius: number = 1, excludeIds: string[] = [], center?: Coordinates): Promise<string[]> => {
+  return findBestArtisansWithLocation(category, center || MARRAKECH_CENTER, excludeIds);
 };
 
 export const findBestArtisansWithLocation = async (
@@ -181,7 +180,7 @@ export const getNextBestArtisan = async (orderId: string): Promise<string | null
     }
 
     const category = order.category;
-    const center = order.locationCoords || { lat: 14.7167, lng: -17.4677 };
+    const center = order.locationCoords || MARRAKECH_CENTER;
 
     const excludeIds = [
       ...(order.contactedArtisanIds || []),

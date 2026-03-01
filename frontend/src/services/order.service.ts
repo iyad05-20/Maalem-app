@@ -86,9 +86,9 @@ export const archiveOrder = async (order: Order, review?: { rating: number, comm
           comment: review.comment,
           images: review.images || [], // Store review images
           createdAt: serverTimestamp(),
-          userName: 'Client Vork', // In production, fetch user profile
-          userAvatar: 'CV',
-          date: new Date().toLocaleDateString() // Simple string for UI fallback
+          userName: order.userName || 'Client Vork',
+          userAvatar: order.userAvatar || 'CV',
+          date: new Date().toLocaleDateString('fr-FR') // Consistent date format
         });
       }
 

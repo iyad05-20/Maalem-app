@@ -2,18 +2,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Zap, ShieldAlert, Clock, CheckCircle2, Search, Send, Sparkles, AlertTriangle, Camera, Image as ImageIcon, Trash2, Loader2, MapPin, Edit2, Mic, StopCircle } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
-import { Order } from '../../types';
+import { Order, Coordinates } from '../../types';
 import { uploadToSupabase, base64ToBlob } from '../../services/supabase.config';
 import { CATEGORIES } from '../../data/mockData';
+import { reverseGeocode, MARRAKECH_CENTER } from '../../services/location.service';
+import { getInitialArtisans } from '../../services/recommendation.service';
 
 interface Props {
   onClose: () => void;
   onAddOrder?: (order: Order) => void;
+  userLocation?: Coordinates | null;
 }
 
 type Step = 'input' | 'analyzing' | 'proposal' | 'matching';
 
-export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder }) => {
+export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder, userLocation }) => {
   const [step, setStep] = useState<Step>('input');
   const [description, setDescription] = useState('');
   const [images, setImages] = useState<string[]>([]);
@@ -83,7 +86,7 @@ export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder }) => {
         2. Estime la priorité (Basse, Moyenne, Haute, Critique).
         3. Rédige un résumé technique court (1 phrase).
         4. Donne un conseil de sécurité immédiat (très important).
-        5. Estime une fourchette de prix approximative en FCFA (ex: "15.000 - 30.000").
+        5. Estime une fourchette de prix approximative en dh (ex: "150 - 300").
         
         Retourne un JSON.` }
       ];
@@ -181,22 +184,31 @@ export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder }) => {
       minute: '2-digit'
     });
 
+    let initialTargeted: string[] = [];
+    let detectedCity = 'Marrakech';
+    const effectiveLocation = userLocation || MARRAKECH_CENTER;
+
+    if (userLocation) {
+      detectedCity = await reverseGeocode(userLocation.lat, userLocation.lng);
+    }
+
+    // Call matching engine for urgent orders as well
+    initialTargeted = await getInitialArtisans(orderId, finalCategory, effectiveLocation);
+
     const newUrgentOrder: any = {
       id: orderId,
       category: finalCategory,
       status: "EN ATTENTE D'EXPERT",
       date: numericDate, // Accurate numeric date
-      description: (analysis?.summary || description) + (analysis?.estimatedPriceRange ? ` (Budget est.: ${analysis.estimatedPriceRange} FCFA)` : ''),
-      location: 'Dakar, Localisation GPS',
-      city: 'Dakar',
+      description: (analysis?.summary || description) + (analysis?.estimatedPriceRange ? ` (Budget est.: ${analysis.estimatedPriceRange} dh)` : ''),
+      location: userLocation ? 'Ma position actuelle (GPS)' : 'Marrakech, Centre',
+      locationCoords: effectiveLocation,
+      city: detectedCity,
       isUrgent: true,
-      priority: finalPriority,
-      responses: {
-        userId: ''
-      },
+      responses: [],
       images: imageUrls,
-      targetedArtisans: [],
-      contactedArtisanIds: [],
+      targetedArtisans: initialTargeted,
+      contactedArtisanIds: initialTargeted,
       currentRadius: 1,
       createdAt: new Date().toISOString()
     };
@@ -262,8 +274,8 @@ export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder }) => {
               </div>
               <div>
                 <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Localisation</p>
-                <p className={`text-xs font-bold ${locationStatus === 'locked' ? 'text-white' : 'text-slate-400'}`}>
-                  {locationStatus === 'locked' ? 'Précision: 5 mètres' : 'Recherche GPS...'}
+                <p className={`text-xs font-bold ${userLocation ? 'text-white' : 'text-slate-400'}`}>
+                  {userLocation ? 'GPS Verrouillé: 5m' : 'Recherche GPS...'}
                 </p>
               </div>
             </div>
@@ -438,7 +450,7 @@ export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder }) => {
             {/* Estimated Price */}
             <div className="flex items-center justify-between px-6 py-4 bg-white/5 border border-white/5 rounded-3xl">
               <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Budget Estimé</span>
-              <span className="text-white font-black text-sm tracking-tight">{analysis.estimatedPriceRange || 'Sur devis'} FCFA</span>
+              <span className="text-white font-black text-sm tracking-tight">{analysis.estimatedPriceRange || 'Sur devis'} dh</span>
             </div>
 
             <button

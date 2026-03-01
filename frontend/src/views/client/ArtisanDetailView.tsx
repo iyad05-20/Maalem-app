@@ -37,7 +37,7 @@ const ShareBottomSheet: React.FC<ShareBottomSheetProps> = ({ isOpen, onClose, ar
   };
 
   const handleSocialShare = (platform: string) => {
-    console.log(`Sharing ${artisan.name}'s profile on ${platform}`);
+    // console.log(`Sharing ${artisan.name}'s profile on ${platform}`);
   };
 
   return (
@@ -148,6 +148,8 @@ export const ArtisanDetailView: React.FC<Props> = ({ art, setView, onBack, onOpe
           // Prioritize result images (the final work) over initial problem images
           image: (o.resultImages && o.resultImages.length > 0) ? o.resultImages[0] : o.images![0],
           description: o.description,
+          category: o.category,
+          date: o.completedAt || o.date,
           customerReview: o.finalReview ? {
             id: `rev-${o.id}`,
             userName: 'Client Vork',
@@ -260,14 +262,23 @@ export const ArtisanDetailView: React.FC<Props> = ({ art, setView, onBack, onOpe
             <div className="flex justify-between items-center">
               <div className="space-y-1 flex-1">
                 <div className="flex items-center gap-2 mb-1">
-                  <div className="flex items-center gap-1.5 bg-[#1a2e26]/80 px-2 py-0.5 rounded-md border border-[#34d399]/20">
-                    <div className="size-1.5 bg-[#34d399] rounded-full animate-pulse"></div>
-                    <span className="text-[7px] text-[#34d399] font-black uppercase tracking-widest">Disponible</span>
-                  </div>
-                  <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md border border-white/5 text-[#34d399]">
-                    <ShieldCheck className="size-2.5" />
-                    <span className="text-[7px] font-black uppercase tracking-widest">Vérifié</span>
-                  </div>
+                  {liveArtisan.isExplicitlyOnline ? (
+                    <div className="flex items-center gap-1.5 bg-[#1a2e26]/80 px-2 py-0.5 rounded-md border border-[#34d399]/20">
+                      <div className="size-1.5 bg-[#34d399] rounded-full animate-pulse"></div>
+                      <span className="text-[7px] text-[#34d399] font-black uppercase tracking-widest">En ligne</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-700/50">
+                      <div className="size-1.5 bg-slate-500 rounded-full"></div>
+                      <span className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Hors ligne</span>
+                    </div>
+                  )}
+                  {liveArtisan.verified && (
+                    <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md border border-white/5 text-[#34d399]">
+                      <ShieldCheck className="size-2.5" />
+                      <span className="text-[7px] font-black uppercase tracking-widest">Vérifié</span>
+                    </div>
+                  )}
                 </div>
 
                 <>

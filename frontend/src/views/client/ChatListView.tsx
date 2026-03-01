@@ -1,22 +1,30 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Search, ChevronLeft, Edit, Camera, Home, User, X, MessageSquare } from 'lucide-react';
-import { Chat } from '../../types';
+import { Chat, Artisan } from '../../types';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
 import { auth } from '../../services/firebase.config';
 
 interface Props {
   chats: Chat[];
+  artisans: Artisan[];
   onSelectChat: (chat: Chat) => void;
   onBack: () => void;
   backLabel?: string;
   onHome?: () => void;
 }
 
-export const ChatListView: React.FC<Props> = ({ chats, onSelectChat, onBack, backLabel = "Précédent", onHome }) => {
+export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, onBack, backLabel = "Précédent", onHome }) => {
   const [showQuickNav, setShowQuickNav] = useState(false);
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [tick, setTick] = useState(0);
+
+  // Periodic refresh to expire online status
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const currentUserId = auth.currentUser?.uid;
 
@@ -131,6 +139,7 @@ export const ChatListView: React.FC<Props> = ({ chats, onSelectChat, onBack, bac
           const isArtisan = currentUserId === chat.artisanId;
           const displayName = isArtisan ? (chat.userName || 'Client') : chat.artisanName;
           const displayImage = isArtisan ? (chat.userImage || '') : chat.artisanImage;
+          const myUnreadCount = isArtisan ? (chat.unreadCountArtisan || 0) : (chat.unreadCountClient || 0);
 
           return (
             <div
@@ -142,9 +151,21 @@ export const ChatListView: React.FC<Props> = ({ chats, onSelectChat, onBack, bac
                 <div className="size-16 rounded-[1.5rem] overflow-hidden border border-white/10 shadow-lg group-hover:scale-105 transition-transform">
                   <SmartAvatar src={displayImage} name={displayName} initialsClassName="text-lg font-black text-white" />
                 </div>
-                {chat.isOnline && (
-                  <div className="absolute -bottom-1 -right-1 size-4 bg-emerald-500 rounded-full border-2 border-[#0a0a0c]"></div>
-                )}
+                {(() => {
+                  // Only artisans have a manual online status in this new approach
+                  if (isArtisan) return null; // Hide status for clients
+
+                  // For clients viewing artisans: check the chat-level status
+                  const isOnline = chat.isArtisanOnline === true;
+
+                  if (!isOnline) return null;
+
+                  return (
+                    <div className="absolute -bottom-0.5 -right-0.5 size-4 bg-emerald-500 rounded-full border-[3px] border-[#0a0a0c] shadow-lg shadow-emerald-500/20">
+                      <div className="absolute inset-0 bg-emerald-400 rounded-full animate-ping opacity-40"></div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex-1 min-w-0 py-1">
@@ -152,13 +173,15 @@ export const ChatListView: React.FC<Props> = ({ chats, onSelectChat, onBack, bac
                   <h3 className="text-white font-black text-sm uppercase tracking-tight truncate group-hover:text-purple-400 transition-colors">
                     {displayName}
                   </h3>
-                  <span className="text-[9px] text-slate-600 font-black uppercase tracking-widest">{chat.timestamp}</span>
+                  <span className="text-[9px] text-slate-600 font-black uppercase tracking-widest leading-none">
+                    {chat.lastMessageTime ? new Date(chat.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : chat.timestamp}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className={`text-xs truncate max-w-[85%] leading-relaxed ${chat.unreadCount > 0 ? 'text-white font-bold' : 'text-slate-500 font-medium'}`}>
-                    {chat.unreadCount > 0 ? 'A envoyé un message' : chat.lastMessage}
+                  <p className={`text-xs truncate max-w-[85%] leading-relaxed ${myUnreadCount > 0 ? 'text-white font-bold' : 'text-slate-500 font-medium'}`}>
+                    {myUnreadCount > 0 ? 'A envoyé un message' : chat.lastMessage}
                   </p>
-                  {chat.unreadCount > 0 && (
+                  {myUnreadCount > 0 && (
                     <div className="size-2.5 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.5)]"></div>
                   )}
                 </div>

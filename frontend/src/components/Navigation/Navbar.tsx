@@ -3,7 +3,7 @@ import React from 'react';
 import { Home, Search, MessageSquare, User, PlusCircle, Calendar, Zap } from 'lucide-react';
 import { View } from '../../types';
 
-export const Navbar = ({ activeView, setView, onPlusClick, userRole }: { activeView: View; setView: (v: View) => void; onPlusClick: () => void, userRole?: string }) => {
+export const Navbar = ({ activeView, setView, onPlusClick, userRole, hasUnread }: { activeView: View; setView: (v: View) => void; onPlusClick: () => void, userRole?: string, hasUnread?: boolean }) => {
     const isNavVisible = !['urgent', 'create-order', 'order-detail', 'generic-form', 'chat-detail', 'artisan-detail', 'category-detail', 'all-categories', 'portfolio', 'work-detail', 'reviews', 'favorites-list', 'settings', 'update-email', 'notifications', 'artisan-history'].includes(activeView);
     if (!isNavVisible) return null;
 
@@ -14,7 +14,7 @@ export const Navbar = ({ activeView, setView, onPlusClick, userRole }: { activeV
                     <>
                         <NavItem icon={<Home />} label="Stats" active={activeView === 'home'} onClick={() => setView('home')} />
                         <NavItem icon={<Zap />} label="Marché" active={activeView === 'marketplace'} onClick={() => setView('marketplace')} />
-                        <NavItem icon={<MessageSquare />} label="Messages" active={activeView === 'chats'} onClick={() => { setView('chats'); }} />
+                        <NavItem icon={<MessageSquare />} label="Messages" active={activeView === 'chats'} onClick={() => { setView('chats'); }} badge={hasUnread} />
                         <NavItem icon={<User />} label="Profil" active={activeView === 'profile'} onClick={() => setView('profile')} />
                     </>
                 ) : (
@@ -39,11 +39,12 @@ export const Navbar = ({ activeView, setView, onPlusClick, userRole }: { activeV
     );
 };
 
-const NavItem = ({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) => (
+const NavItem = ({ icon, label, active, onClick, badge }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void, badge?: boolean }) => (
     <button onClick={onClick} className={`flex flex-col items-center gap-1 transition-all ${active ? 'text-[#34d399]' : 'text-slate-500 hover:text-slate-300'}`}>
         <div className="relative">
             {React.cloneElement(icon as React.ReactElement<any>, { size: 28, className: active ? 'fill-current' : '' })}
             {active && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#34d399] rounded-full shadow-[0_0_5px_#34d399]"></div>}
+            {badge && !active && <div className="absolute -top-1 -right-1 size-2 bg-purple-500 rounded-full animate-pulse border border-[#0a0a0c]"></div>}
         </div>
         <span className={`text-[10px] font-bold mt-0.5 tracking-tight ${active ? 'text-[#34d399]' : ''}`}>{label}</span>
     </button>

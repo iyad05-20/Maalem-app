@@ -221,7 +221,7 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
             </button>
           </div>
         )}
-        <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.25em] mt-2">Dakar • Sénégal</p>
+        <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.25em] mt-2">Marrakech • Maroc</p>
 
         <div className="flex gap-2 mt-6">
           {!isEditing && (

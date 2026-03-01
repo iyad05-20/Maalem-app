@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Zap, MapPin, Clock, Send, ChevronRight, X, DollarSign, Loader2, Sparkles, Globe, Target, LayoutGrid, Maximize2, Image as ImageIcon } from 'lucide-react';
 import { Order, Artisan, Quote } from '../../types';
 import { db, auth } from '../../services/firebase.config';
-import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDocs, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
 import { sanitizeFirestoreData } from '../../utils';
 
@@ -48,7 +48,7 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
       const finalOrders: Order[] = [];
       const replied = new Set<string>();
 
-      const artisanCity = (artisan.city || 'Dakar').toLowerCase().trim();
+      const artisanCity = (artisan.city || 'Marrakech').toLowerCase().trim();
       const artisanCategory = (artisan.category || '').toLowerCase().trim();
 
       // Filter loop handling async check for existing quotes
@@ -61,29 +61,31 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
         }
 
         // VISIBILITY LOGIC
+        const isTargetedToMe = order.targetedArtisans?.includes(artisan.id);
+
         if (activeTab === 'public') {
-          // LE MARCHÉ: Only show orders that are NOT direct bookings
+          // LE MARCHÉ: Only show orders that are NOT direct bookings 
+          // (Public orders are for everyone matching category/city)
           if (order.isDirect) continue;
 
           // 1. Category Match
           if (order.category.toLowerCase().trim() !== artisanCategory) continue;
 
           // 2. Location Match
-          const orderCity = (order.city || 'Dakar').toLowerCase().trim();
+          const orderCity = (order.city || 'Marrakech').toLowerCase().trim();
           const orderLoc = (order.location || '').toLowerCase().trim();
 
           const isSameCity = orderCity === artisanCity;
-          const isLocationMatch = orderLoc.includes(artisanCity);
-          const isDakarDefault = orderLoc.includes('dakar') || orderCity === 'dakar';
+          const isLocationMatch = orderLoc.includes(artisanCity) || orderLoc.includes('position actuelle');
 
-          if (artisanCity === 'dakar' && !isDakarDefault) continue;
-          if (artisanCity !== 'dakar' && !isSameCity && !isLocationMatch) continue;
+          if (!isSameCity && !isLocationMatch) continue;
 
           finalOrders.push(order);
         } else {
-          // POUR MOI: Only Specific/Direct bookings intended for this artisan
-          if (!order.isDirect || !order.targetedArtisans?.includes(artisan.id)) continue;
-          finalOrders.push(order);
+          // POUR MOI: Show ONLY direct bookings targeting this artisan
+          if (order.isDirect && isTargetedToMe) {
+            finalOrders.push(order);
+          }
         }
       }
 
@@ -102,17 +104,36 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
     try {
       const quoteData: Omit<Quote, 'id'> = {
         artisanId: artisan.id,
+        orderId: selectedOrder.id,
         artisanName: artisan.name,
-        // Safety check: ensure undefined is handled as empty string or 0
         artisanImage: artisan.image || '',
         artisanRating: artisan.rating || 0,
-        price: `${bidPrice} FCFA`,
+        amount: Number(bidPrice),
+        price: `${bidPrice} dh`,
         description: bidDescription,
-        timestamp: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
         status: 'pending'
       };
 
       await addDoc(collection(db, "orders", selectedOrder.id, "quotes"), quoteData);
+
+      // Sync artisan ID to responses array for quick counting in UI
+      await updateDoc(doc(db, "orders", selectedOrder.id), {
+        responses: arrayUnion(artisan.id)
+      });
+
+      // Notify the client with a persistent notification
+      if (selectedOrder.userId) {
+        await addDoc(collection(db, "notifications"), {
+          userId: selectedOrder.userId,
+          title: "Nouveau Devis !",
+          message: `${artisan.name} a proposé ${bidPrice} dh pour votre demande de ${selectedOrder.category}.`,
+          type: 'system',
+          read: false,
+          createdAt: new Date().toISOString(),
+          relatedId: selectedOrder.id
+        });
+      }
 
       setSelectedOrder(null);
       setBidPrice('');
@@ -195,7 +216,7 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
                     <div>
                       <h3 className="text-white font-black text-lg leading-none uppercase tracking-tight">{order.category}</h3>
                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
-                        <MapPin size={10} /> {order.city || 'Dakar'} • {order.searchRadius || 1} km
+                        <MapPin size={10} /> {order.city || 'Marrakech'} • {order.searchRadius || 1} km
                       </p>
                     </div>
                   </div>
@@ -226,7 +247,7 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600 mt-2">
               {activeTab === 'targeted'
                 ? "Les clients peuvent vous réserver depuis votre profil"
-                : `Aucune mission ${artisan.category} disponible à ${artisan.city || 'Dakar'}`}
+                : `Aucune mission ${artisan.category} disponible à ${artisan.city || 'Marrakech'}`}
             </p>
           </div>
         )}
@@ -273,7 +294,7 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
               )}
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Prix proposé (FCFA)</label>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Prix proposé (dh)</label>
                 <div className="relative">
                   <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-slate-600" />
                   <input

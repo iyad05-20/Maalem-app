@@ -13,7 +13,7 @@ interface Props {
   artisans: Artisan[];
   userLocation: Coordinates | null;
   setSelectedArtisan: (a: Artisan) => void;
-  openCategory: (c: Category, source: View) => void;
+  openCategory: (c: Category) => void;
   onReserve: (a: Artisan) => void;
   onOpenAllCategories: () => void;
 }
@@ -44,9 +44,11 @@ const ArtisanCard: React.FC<{ art: Artisan, userLocation: Coordinates | null, on
               <div className="w-[72px] h-[72px] rounded-full border-2 border-[#a855f7] shadow-[0_0_15px_rgba(168,85,247,0.2)] overflow-hidden">
                 <SmartAvatar src={art.image} name={art.name} initialsClassName="text-xl font-black text-white" />
               </div>
-              {art.available && (
-                <div className="absolute -bottom-0.5 -right-0.5 bg-[#0a0a0c] rounded-full p-1 z-20">
-                  <div className="w-3.5 h-3.5 bg-[#34d399] rounded-full border border-[#0a0a0c]"></div>
+              {art.isExplicitlyOnline && (
+                <div className="absolute -bottom-0.5 -right-0.5 bg-[#0a0a0c] rounded-full p-0.5 z-20">
+                  <div className="w-4 h-4 bg-[#34d399] rounded-full border-[3px] border-[#0a0a0c] shadow-[0_0_10px_rgba(52,211,153,0.3)] relative">
+                    <div className="absolute inset-0 bg-[#34d399] rounded-full animate-ping opacity-40"></div>
+                  </div>
                 </div>
               )}
             </div>

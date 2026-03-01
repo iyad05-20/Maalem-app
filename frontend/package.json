@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.48.1",
     "clsx": "^2.1.1",
     "geofire-common": "^6.0.0",
@@ -26,10 +27,10 @@
     "vite-plugin-pwa": "^1.2.0"
   },
   "optionalDependencies": {
+    "@rollup/rollup-darwin-arm64": "latest",
+    "@rollup/rollup-darwin-x64": "latest",
     "@rollup/rollup-linux-x64-gnu": "latest",
     "@rollup/rollup-linux-x64-musl": "latest",
-    "@rollup/rollup-win32-x64-msvc": "latest",
-    "@rollup/rollup-darwin-x64": "latest",
-    "@rollup/rollup-darwin-arm64": "latest"
+    "@rollup/rollup-win32-x64-msvc": "latest"
   }
 }

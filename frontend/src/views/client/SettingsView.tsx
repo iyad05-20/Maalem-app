@@ -12,8 +12,8 @@ export const SettingsView: React.FC<Props> = ({ onBack, isDarkMode, setIsDarkMod
   return (
     <div className="min-h-screen bg-[#0a0a0c] animate-in slide-in-from-right duration-500 pb-32 overflow-y-auto no-scrollbar">
       <header className="px-6 pt-12 pb-6 sticky top-0 bg-[#0a0a0c]/90 backdrop-blur-xl z-50 border-b border-white/5 flex items-center gap-4">
-        <button 
-          onClick={onBack} 
+        <button
+          onClick={onBack}
           className="size-10 bg-white/5 rounded-xl flex items-center justify-center text-white border border-white/10 hover:bg-white/10 transition-colors active:scale-90"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -40,12 +40,12 @@ export const SettingsView: React.FC<Props> = ({ onBack, isDarkMode, setIsDarkMod
           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] px-2">Préférences</h3>
           <div className="space-y-2">
             <SettingsItem icon={<Bell size={18} />} label="Notifications Push" toggle active />
-            <SettingsItem 
-              icon={<Moon size={18} />} 
-              label="Mode Sombre" 
-              toggle 
-              active={isDarkMode} 
-              onToggle={() => setIsDarkMode(!isDarkMode)} 
+            <SettingsItem
+              icon={<Moon size={18} />}
+              label="Mode Sombre"
+              toggle
+              active={isDarkMode}
+              onToggle={() => setIsDarkMode(!isDarkMode)}
             />
             <SettingsItem icon={<Globe size={18} />} label="Langue" value="Français" />
           </div>
@@ -78,16 +78,16 @@ export const SettingsView: React.FC<Props> = ({ onBack, isDarkMode, setIsDarkMod
   );
 };
 
-const SettingsItem = ({ icon, label, value, toggle, active, onToggle }: { 
-  icon: React.ReactNode, 
-  label: string, 
-  value?: string, 
+const SettingsItem = ({ icon, label, value, toggle, active, onToggle }: {
+  icon: React.ReactNode,
+  label: string,
+  value?: string,
   toggle?: boolean,
   active?: boolean,
   onToggle?: () => void
 }) => (
-  <button 
-    onClick={() => !toggle && console.log('Click settings item')} 
+  <button
+    onClick={() => !toggle && null}
     className="w-full flex items-center gap-4 bg-white/[0.03] border border-white/5 rounded-3xl p-5 hover:bg-white/[0.06] transition-all group"
   >
     <div className="size-10 bg-white/5 rounded-2xl flex items-center justify-center text-slate-500 group-hover:text-indigo-400 transition-colors">
@@ -100,7 +100,7 @@ const SettingsItem = ({ icon, label, value, toggle, active, onToggle }: {
       <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mr-2">{value}</span>
     )}
     {toggle ? (
-      <div 
+      <div
         onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
         className={`w-10 h-6 rounded-full relative transition-all duration-300 p-1 cursor-pointer ${active ? 'bg-indigo-600' : 'bg-slate-800'}`}
       >

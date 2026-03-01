@@ -1,22 +1,23 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, MoreVertical, Send, Image as ImageIcon, Smile, Phone, Plus, Mic, Check, CheckCheck, Info, UserCircle } from 'lucide-react';
-import { Chat, Message } from '../../types';
+import { Chat, Message, Artisan } from '../../types';
 import { db, auth } from '../../services/firebase.config';
-import { collection, addDoc, doc, updateDoc, onSnapshot, query, orderBy, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, addDoc, doc, updateDoc, onSnapshot, query, orderBy, getDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
 import { sanitizeFirestoreData } from '../../utils';
 
 interface Props {
   chat: Chat;
   onBack: () => void;
-  onOpenProfile?: (id: string) => void;
+  onOpenProfile: (artisanId: string) => void;
 }
 
 export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [counterpartPhone, setCounterpartPhone] = useState<string | null>(null);
+  const [showPhoneError, setShowPhoneError] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Determine current user role in this chat
@@ -28,39 +29,44 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
   const [dynamicUserName, setDynamicUserName] = useState(chat.userName);
   const [dynamicUserImage, setDynamicUserImage] = useState(chat.userImage);
 
-  // Effect: If I am an Artisan and the user name is "Client" (generic) or missing, fetch the real profile.
+  // Effect: Fetch counterpart details if generic or missing
   useEffect(() => {
-    if (isArtisan && (!dynamicUserName || dynamicUserName === 'Client') && chat.userId) {
-      const fetchUser = async () => {
-        try {
-          const userDoc = await getDoc(doc(db, "users", chat.userId));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
+    const fetchCounterpartDetails = async () => {
+      const collectionName = isArtisan ? "users" : "artisans";
+      const idToFetch = isArtisan ? chat.userId : chat.artisanId;
+
+      if (!idToFetch) return;
+
+      try {
+        const docSnap = await getDoc(doc(db, collectionName, idToFetch));
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+
+          // Set phone number
+          if (data.phone) setCounterpartPhone(data.phone);
+
+          // If I am an Artisan and the user name is generic, update it
+          if (isArtisan && (!dynamicUserName || dynamicUserName === 'Client')) {
             const realName = data.name || 'Client';
             const realImage = data.avatar || data.image || '';
-
             setDynamicUserName(realName);
             setDynamicUserImage(realImage);
 
-            // Update Firestore so list view also gets fixed
             await updateDoc(doc(db, "chats", chat.id), {
               userName: realName,
               userImage: realImage
             });
           }
-        } catch (e) {
-          console.error("Error fetching user details for chat", e);
         }
-      };
-      fetchUser();
-    } else {
-      // Update local state if props change (e.g. from list view update)
-      if (chat.userName && chat.userName !== dynamicUserName) setDynamicUserName(chat.userName);
-      if (chat.userImage && chat.userImage !== dynamicUserImage) setDynamicUserImage(chat.userImage);
-    }
-  }, [chat.id, isArtisan, chat.userId, chat.userName, chat.userImage]);
+      } catch (e) {
+        console.error("Error fetching counterpart details", e);
+      }
+    };
 
-  // Determine Display Name/Image of the COUNTERPART
+    fetchCounterpartDetails();
+  }, [chat.id, isArtisan, chat.userId, chat.artisanId, dynamicUserName]);
+
+
   const counterpartName = isArtisan ? (dynamicUserName || 'Client') : chat.artisanName;
   const counterpartImage = isArtisan ? (dynamicUserImage || '') : chat.artisanImage;
   const counterpartId = isArtisan ? chat.userId : chat.artisanId;
@@ -80,6 +86,38 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
 
     return () => unsubscribe();
   }, [chat.id]);
+
+  // Listen to the chat document to clear unread count in real-time
+  useEffect(() => {
+    const chatRef = doc(db, "chats", chat.id);
+    const unsubscribe = onSnapshot(chatRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        const updateField = isArtisan ? "unreadCountArtisan" : "unreadCountClient";
+        const currentUnread = data[updateField] || 0;
+
+        if (currentUnread > 0) {
+          updateDoc(chatRef, { [updateField]: 0 }).catch(console.error);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [chat.id, isArtisan]);
+
+  // Mark messages as read
+  useEffect(() => {
+    const unreadMessages = messages.filter(
+      (msg) => msg.sender !== myRole && msg.status !== 'read'
+    );
+
+    if (unreadMessages.length > 0) {
+      const updatePromises = unreadMessages.map(msg =>
+        updateDoc(doc(db, "chats", chat.id, "messages", msg.id), { status: 'read' })
+      );
+      Promise.all(updatePromises).catch(console.error);
+    }
+  }, [messages, chat.id, myRole]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -101,13 +139,28 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
 
     try {
       // 1. Add message to Firestore
-      const msgRef = await addDoc(collection(db, "chats", chat.id, "messages"), messageData);
+      await addDoc(collection(db, "chats", chat.id, "messages"), messageData);
 
-      // 2. Update parent chat doc for the list view
+      // 2. Update parent chat doc
+      // Increment counterpart's unread count
+      const incrementField = isArtisan ? "unreadCountClient" : "unreadCountArtisan";
+
       await updateDoc(doc(db, "chats", chat.id), {
         lastMessage: inputText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        unreadCount: 0 // Resetting unread count might need more logic in real app (only if I read it)
+        timestamp: new Date().toISOString(),
+        lastMessageTime: new Date().toISOString(),
+        [incrementField]: increment(1)
+      });
+
+      // 3. Add persistent notification for global alerts
+      await addDoc(collection(db, "notifications"), {
+        userId: counterpartId,
+        title: `Nouveau message de ${isArtisan ? chat.artisanName : chat.userName}`,
+        message: inputText.substring(0, 50) + (inputText.length > 50 ? '...' : ''),
+        type: 'message',
+        read: false,
+        createdAt: new Date().toISOString(),
+        relatedId: chat.id
       });
 
     } catch (err) {
@@ -143,13 +196,10 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
               <div className="size-10 rounded-full overflow-hidden border border-white/10 shadow-lg">
                 <SmartAvatar src={counterpartImage} name={counterpartName} initialsClassName="text-[10px] font-black text-white" />
               </div>
-              {chat.isOnline && <div className="absolute bottom-0 right-0 size-3 bg-emerald-500 rounded-full border-2 border-[#0a0a0c]"></div>}
             </div>
             <div>
               <h2 className="text-sm font-black text-white uppercase tracking-tight leading-none">{counterpartName}</h2>
               <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
-                {chat.isOnline ? 'En ligne' : 'Inactif'}
-                <span className="size-1 bg-slate-800 rounded-full"></span>
                 Voir Profil
               </p>
             </div>
@@ -158,13 +208,20 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
 
         <div className="flex items-center gap-1">
           {/* Native Phone Link */}
-          <a
-            href={`tel:+221770000000`}
+          <button
+            onClick={() => {
+              if (counterpartPhone) {
+                window.location.href = `tel:${counterpartPhone}`;
+              } else {
+                setShowPhoneError(true);
+                setTimeout(() => setShowPhoneError(false), 3000);
+              }
+            }}
             className="p-2.5 text-emerald-400 hover:bg-emerald-500/10 rounded-full transition-colors active:scale-90"
             title="Appeler"
           >
             <Phone size={20} />
-          </a>
+          </button>
 
           {/* Profile Info Button */}
           <button
@@ -176,6 +233,13 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
           </button>
         </div>
       </header>
+
+      {/* Phone Error Message */}
+      {showPhoneError && (
+        <div className="mx-4 mt-2 bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest py-3 px-4 rounded-xl flex items-center justify-center gap-2 animate-in slide-in-from-top duration-300">
+          <Info size={14} /> Aucun numéro enregistré. Utilisez le chat VORK.
+        </div>
+      )}
 
       {/* Messages Area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1 no-scrollbar pb-32 flex flex-col pt-6">
@@ -203,8 +267,8 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
           return (
             <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${sameSender ? 'mb-0.5' : 'mb-4'}`}>
               <div className={`group relative max-w-[85%] px-4 py-2.5 text-sm font-medium leading-relaxed transition-all active:scale-[0.98] ${isMe
-                  ? `bg-gradient-to-br from-purple-600 to-indigo-600 text-white shadow-lg ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tr-none'}`
-                  : `bg-[#1a1a20] text-slate-200 border border-white/5 ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tl-none'}`
+                ? `bg-gradient-to-br from-purple-600 to-indigo-600 text-white shadow-lg ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tr-none'}`
+                : `bg-[#1a1a20] text-slate-200 border border-white/5 ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tl-none'}`
                 }`}>
                 {msg.text}
               </div>

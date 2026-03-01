@@ -1,28 +1,35 @@
 
 import React, { useState, useRef } from 'react';
 import { ChevronLeft, Camera, MapPin, Sparkles, Send, Trash2, Loader2, User } from 'lucide-react';
-import { Category, View, Order, Artisan } from '../../types';
+import { Category, View, Order, Artisan, Coordinates } from '../../types';
 import { uploadToSupabase } from '../../services/supabase.config';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
 import { getInitialArtisans } from '../../services/recommendation.service';
+import { reverseGeocode, MARRAKECH_CENTER } from '../../services/location.service';
 
 interface Props {
   category: Category;
   preSelectedArtisan?: Artisan;
   hideArtisanName?: boolean;
   onBack: () => void;
-  onSubmit: (order: Order) => Promise<void>; // Updated to return Promise
+  onSubmit: (order: Order) => Promise<void>;
+  showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
+  userLocation?: Coordinates | null;
 }
 
-export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan, hideArtisanName, onBack, onSubmit }) => {
+import { useFilePreviews } from '../../hooks/useFilePreview';
+
+export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan, hideArtisanName, onBack, onSubmit, showToast, userLocation }) => {
   const [description, setDescription] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState<string>(''); // Track specific loading step
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previews = useFilePreviews(images);
 
-  // Default Dakar Center for Demo
-  const DAKAR_CENTER = { lat: 14.7167, lng: -17.4677 };
+  // Use real location if available, otherwise fallback to Marrakech Center
+  const effectiveLocation = userLocation || MARRAKECH_CENTER;
+  const isUsingRealGPS = !!userLocation;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -62,7 +69,13 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
         initialTargeted = [preSelectedArtisan.id];
       } else {
         // Smart Matching Engine
-        initialTargeted = await getInitialArtisans(orderId, category.name, DAKAR_CENTER);
+        initialTargeted = await getInitialArtisans(orderId, category.name, effectiveLocation);
+      }
+
+      let detectedCity = 'Marrakech';
+      if (isUsingRealGPS) {
+        setSubmitStep('geocoding'); // Optional: Add a step for geocoding
+        detectedCity = await reverseGeocode(effectiveLocation.lat, effectiveLocation.lng);
       }
 
       // 3. Construct Order Object
@@ -72,9 +85,9 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
         status: "EN ATTENTE D'EXPERT",
         date: new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
         description: description,
-        location: 'Dakar, Localisation Actuelle',
-        locationCoords: DAKAR_CENTER,
-        city: 'Dakar',
+        location: isUsingRealGPS ? 'Ma position actuelle' : 'Marrakech, Centre',
+        locationCoords: effectiveLocation,
+        city: detectedCity,
         responses: [],
         images: imageUrls,
         targetedArtisans: initialTargeted,
@@ -94,7 +107,7 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
 
     } catch (err) {
       console.error("Error publishing order:", err);
-      alert("Une erreur est survenue lors de la publication.");
+      showToast("Une erreur est survenue lors de la publication.", "error");
       setIsSubmitting(false);
     }
   };
@@ -162,7 +175,7 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
             />
             {images.map((file, idx) => (
               <div key={idx} className="size-24 shrink-0 rounded-2xl relative overflow-hidden border border-white/10 group">
-                <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" alt="Preview" />
+                <img src={previews[idx]} className="w-full h-full object-cover" alt="Preview" />
                 <button
                   onClick={() => removeImage(idx)}
                   className="absolute top-1 right-1 size-6 bg-red-600 rounded-full flex items-center justify-center text-white"
@@ -183,7 +196,7 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
             <input
               type="text"
               readOnly
-              value="Dakar, Localisation Actuelle"
+              value={isUsingRealGPS ? "Localisation GPS Active" : "Marrakech, Localisation Actuelle"}
               className="w-full bg-[#121214] border border-white/5 rounded-2xl py-5 pl-14 pr-16 text-white font-medium shadow-xl"
             />
             <button className="absolute right-6 top-1/2 -translate-y-1/2 text-purple-400 text-xs font-black uppercase tracking-widest hover:text-white transition-colors">
@@ -221,6 +234,7 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
 
           <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-4 animate-pulse">
             {submitStep === 'upload' && 'Envoi des photos...'}
+            {submitStep === 'geocoding' && 'Détection de la ville...'}
             {submitStep === 'matching' && 'Analyse en cours...'}
             {submitStep === 'saving' && 'Demande Publiée !'}
           </h2>

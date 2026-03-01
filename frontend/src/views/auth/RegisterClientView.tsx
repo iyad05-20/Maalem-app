@@ -51,7 +51,7 @@ export const RegisterClientView: React.FC<Props> = ({ onRegisterSuccess, onSwitc
                 phone,
                 avatar: avatarUrl,
                 image: avatarUrl,
-                city: 'Dakar',
+                city: 'Marrakech',
                 favorites: []
             };
 

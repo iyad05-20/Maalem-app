@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Category, Artisan, PortfolioItem, Chat, Order } from '../types';
+import { View, Category, Artisan, PortfolioItem, Chat, Order, Notification } from '../types';
 import { CATEGORIES } from '../data/mockData';
 import { sanitizeFirestoreData, migrateUrl } from '../utils';
 import { db, auth } from '../services/firebase.config';
@@ -13,6 +13,7 @@ import {
     updateDoc,
     setDoc,
     deleteDoc,
+    getDocs,
     onSnapshot,
     query,
     orderBy,
@@ -38,6 +39,7 @@ export const useAppLogic = () => {
     const [userProfile, setUserProfile] = useState<any>(null);
     const [userRole, setUserRole] = useState<'user' | 'artisan'>('user');
     const [showVerifyEmail, setShowVerifyEmail] = useState(false);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
 
     const [favorites, setFavorites] = useState<string[]>([]);
 
@@ -61,6 +63,11 @@ export const useAppLogic = () => {
     const [searchFilterCategory, setSearchFilterCategory] = useState<string>('Tous');
     const [searchFilterRating, setSearchFilterRating] = useState<number | 'Tous'>('Tous');
     const [reviewRatingFilter, setReviewRatingFilter] = useState<number | 'Tous'>('Tous');
+
+    const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+    const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+        setToast({ message, type });
+    };
 
     const loadUserProfile = useCallback(async (uid: string, roleToTry: 'user' | 'artisan') => {
         try {
@@ -112,7 +119,7 @@ export const useAppLogic = () => {
 
         setLoading(true);
 
-        const qArt = query(collection(db, "artisans"), orderBy("createdAt", "desc"), limit(20));
+        const qArt = query(collection(db, "artisans"), orderBy("rating", "desc"), limit(20));
         const unsubArt = onSnapshot(qArt, (snapshot) => {
             setArtisans(snapshot.docs.map(doc => {
                 const data = sanitizeFirestoreData(doc.data());
@@ -149,10 +156,43 @@ export const useAppLogic = () => {
             : query(collection(db, "chats"), where("userId", "==", userProfile.id));
 
         const unsubChat = onSnapshot(qChat, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "modified") {
+                    const data = change.doc.data();
+                    const oldData = snapshot.docs.find(d => d.id === change.doc.id)?.data();
+                    const field = userRole === 'artisan' ? 'unreadCountArtisan' : 'unreadCountClient';
+                    if (data[field] > (oldData?.[field] || 0)) {
+                        showToast(`Nouveau message de ${userRole === 'artisan' ? data.userName : data.artisanName}`, "info");
+                    }
+                }
+            });
             setChats(snapshot.docs.map(doc => ({ ...sanitizeFirestoreData(doc.data()), id: doc.id })) as Chat[]);
         });
 
-        return () => { unsubArt(); unsubOrd(); unsubChat(); unsubArchived(); };
+        // Query without orderBy to avoid composite index requirement - sort client-side
+        const qNotif = query(
+            collection(db, "notifications"),
+            where("userId", "==", userProfile.id),
+            limit(50)
+        );
+        const unsubNotif = onSnapshot(qNotif, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added") {
+                    const data = change.doc.data();
+                    // Show toast only for notifications received in last 5 seconds (real-time)
+                    if (data.createdAt && new Date().getTime() - new Date(data.createdAt).getTime() < 5000) {
+                        showToast(data.title, data.type === 'order_accepted' ? 'success' : 'info');
+                    }
+                }
+            });
+            // Sort client-side descending by createdAt
+            const sorted = snapshot.docs
+                .map(doc => ({ ...sanitizeFirestoreData(doc.data()), id: doc.id }))
+                .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            setNotifications(sorted as Notification[]);
+        });
+
+        return () => { unsubArt(); unsubOrd(); unsubChat(); unsubArchived(); unsubNotif(); };
     }, [userProfile?.id, userRole]);
 
     useEffect(() => {
@@ -168,6 +208,35 @@ export const useAppLogic = () => {
             setView('home');
         } catch (e) {
             console.error("Logout failed", e);
+        }
+    };
+
+    const markNotificationAsRead = async (id: string) => {
+        try {
+            await updateDoc(doc(db, "notifications", id), { read: true });
+        } catch (e) {
+            console.error("Error marking notification read", e);
+        }
+    };
+
+    const markAllNotificationsAsRead = async () => {
+        try {
+            const unread = notifications.filter(n => !n.read);
+            for (const n of unread) {
+                await updateDoc(doc(db, "notifications", n.id), { read: true });
+            }
+        } catch (e) {
+            console.error("Error marking all notifications read", e);
+        }
+    };
+
+    const clearNotifications = async () => {
+        try {
+            for (const n of notifications) {
+                await deleteDoc(doc(db, "notifications", n.id));
+            }
+        } catch (e) {
+            console.error("Error clearing notifications", e);
         }
     };
 
@@ -243,9 +312,13 @@ export const useAppLogic = () => {
                     artisanName: artisanName || 'Expert',
                     artisanImage: artisanImage || '',
                     lastMessage: "Début de la conversation",
-                    timestamp: new Date().toISOString(),
+                    lastMessageTime: new Date().toISOString(),
                     unreadCount: 0,
-                    isOnline: true
+                    unreadCountClient: 0,
+                    unreadCountArtisan: 0,
+                    isArtisanOnline: userRole === 'artisan'
+                        ? (userProfile?.isExplicitlyOnline || false)
+                        : (artisans.find(a => a.id === artisanId)?.isExplicitlyOnline || false)
                 };
                 await setDoc(doc(db, "chats", chatDocId), newChat);
                 setSelectedChat(newChat as Chat);
@@ -287,6 +360,9 @@ export const useAppLogic = () => {
         const orderData: any = {
             ...newOrder,
             userId: userProfile.id,
+            userName: userProfile.name,
+            userAvatar: userProfile.avatar || userProfile.image || '',
+            locationCoords: userLocation || newOrder.locationCoords,
             targetedArtisans: Array.isArray(targetedIds) ? targetedIds : [],
             searchRadius: 1,
             createdAt: new Date().toISOString()
@@ -298,15 +374,23 @@ export const useAppLogic = () => {
 
     const handleDeleteOrder = async (order: Order) => {
         if (order.status !== "EN ATTENTE D'EXPERT") {
-            alert("Impossible de supprimer une commande acceptée ou terminée.");
+            showToast("Impossible de supprimer une commande acceptée ou terminée.", "error");
             return;
         }
+
         try {
-            await deleteDoc(doc(doc(db, "orders", order.id).parent, order.id)); // Safer deletion
+            // 1. Delete quotes sub-collection first
+            const quotesRef = collection(db, "orders", order.id, "quotes");
+            const quotesSnap = await getDocs(quotesRef);
+            const deletePromises = quotesSnap.docs.map(d => deleteDoc(d.ref));
+            await Promise.all(deletePromises);
+
+            // 2. Delete the order document
             await deleteDoc(doc(db, "orders", order.id));
+            showToast("Commande supprimée avec succès.", "success");
         } catch (e) {
             console.error("Error deleting order:", e);
-            alert("Erreur lors de la suppression de la commande.");
+            showToast("Erreur lors de la suppression de la commande.", "error");
         }
     };
 
@@ -317,14 +401,47 @@ export const useAppLogic = () => {
         const collectionName = userRole === 'artisan' ? 'artisans' : 'users';
         try {
             await updateDoc(doc(db, collectionName, userProfile.id), { favorites: newFavorites });
-        } catch (e) { console.warn("Fav update failed", e); }
+        } catch (e) {
+            console.warn("Fav update failed", e);
+            showToast("Impossible de mettre à jour les favoris.", "error");
+        }
     };
 
     const toggleRole = () => {
         const newRole = userRole === 'user' ? 'artisan' : 'user';
         setUserRole(newRole);
+
+        // Reset interactive selection states to avoid stale UI
+        setSelectedArtisan(null);
+        setSelectedOrder(null);
+        setSelectedChat(null);
+        setSelectedCategory(null);
+        setSelectedPortfolioItem(null);
+
         loadUserProfile(authUser!.uid, newRole);
         setView('home');
+    };
+
+    const handleToggleOnline = async (status: boolean) => {
+        if (!userProfile || userRole !== 'artisan') return;
+        try {
+            await updateDoc(doc(db, "artisans", userProfile.id), {
+                isExplicitlyOnline: status
+            });
+
+            // Propagation logic for Batch 6
+            const myChats = chats.filter(c => c.artisanId === userProfile.id);
+            const updatePromises = myChats.map(c =>
+                updateDoc(doc(db, "chats", c.id), { isArtisanOnline: status })
+            );
+            await Promise.all(updatePromises);
+
+            setUserProfile({ ...userProfile, isExplicitlyOnline: status });
+            showToast(`Statut mis à jour: ${status ? 'En ligne' : 'Hors ligne'}`, status ? "success" : "info");
+        } catch (e) {
+            console.error("Error toggling online status", e);
+            showToast("Erreur lors de la mise à jour du statut", "error");
+        }
     };
 
     return {
@@ -362,7 +479,15 @@ export const useAppLogic = () => {
         handleDeleteOrder,
         toggleFavorite,
         toggleRole,
+        handleToggleOnline,
         userLocation,
-        refreshLocation
+        refreshLocation,
+        toast,
+        showToast,
+        setToast,
+        notifications,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearNotifications
     };
 };

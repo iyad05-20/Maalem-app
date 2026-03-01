@@ -18,11 +18,13 @@ export const OrdersView: React.FC<Props> = ({ setView, orders, archivedOrders = 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
   // STRICT SEPARATION:
   // 'En cours' tab shows only the 'orders' collection (Active)
   // 'Terminé' tab shows only the 'archivedOrders' collection (History)
-  const filteredOrders = activeTab === 'En cours' ? orders : archivedOrders;
+  const filteredOrders = (activeTab === 'En cours' ? orders : archivedOrders)
+    .filter(o => !deletedIds.has(o.id));
 
   const handleExecuteDelete = async (e: React.MouseEvent, order: Order) => {
     e.preventDefault();
@@ -32,6 +34,7 @@ export const OrdersView: React.FC<Props> = ({ setView, orders, archivedOrders = 
     try {
       if (onDeleteOrder) {
         await onDeleteOrder(order);
+        setDeletedIds(prev => new Set(prev).add(order.id));
       }
     } catch (err) {
       console.error("Critical failure deleting order:", err);
@@ -59,8 +62,8 @@ export const OrdersView: React.FC<Props> = ({ setView, orders, archivedOrders = 
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`flex-1 py-4 rounded-[1.5rem] text-[11px] font-black uppercase tracking-widest border transition-all ${activeTab === tab
-                ? 'bg-[#1a1a20] border-white/20 text-white shadow-[0_10px_30px_rgba(0,0,0,0.5)]'
-                : 'bg-transparent border-transparent text-slate-600'
+              ? 'bg-[#1a1a20] border-white/20 text-white shadow-[0_10px_30px_rgba(0,0,0,0.5)]'
+              : 'bg-transparent border-transparent text-slate-600'
               }`}
           >
             {tab}
@@ -71,7 +74,7 @@ export const OrdersView: React.FC<Props> = ({ setView, orders, archivedOrders = 
       <div className="px-6 mt-8 space-y-6">
         {filteredOrders.length > 0 ? (
           filteredOrders.map((order) => {
-            const hasResponses = order.responses && order.responses.length > 0;
+            const hasResponses = Array.isArray(order.responses) ? order.responses.length > 0 : (order.responses && typeof order.responses === 'object' && Object.keys(order.responses).length > 0);
             const isDeleting = deletingId === order.id;
             const isConfirming = confirmDeleteId === order.id;
 
@@ -157,9 +160,9 @@ export const OrdersView: React.FC<Props> = ({ setView, orders, archivedOrders = 
                       </div>
 
                       <div className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-[0.15em] border ${activeTab === 'Terminé' ? 'bg-white/5 text-slate-500 border-white/10' :
-                          isWaiting ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' :
-                            isEnCours ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                              (isPendingClosure ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20')
+                        isWaiting ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' :
+                          isEnCours ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            (isPendingClosure ? 'bg-orange-500/10 text-orange-400 border-orange-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20')
                         }`}>
                         {activeTab === 'Terminé'
                           ? 'ARCHIVÉ'

@@ -135,6 +135,7 @@ export const ARTISANS: Artisan[] = [
     location: 'Guéliz',
     available: true,
     image: 'https://images.unsplash.com/photo-1544724123-107001479262?q=80&w=1974&auto=format&fit=crop',
+    locationCoords: { lat: 31.6346, lng: -8.0150 }, // Guéliz center
     experience: 8,
     jobsDone: 124,
     about: "Maître Plombier spécialisé dans la rénovation résidentielle et commerciale.",
@@ -153,9 +154,10 @@ export const ARTISANS: Artisan[] = [
     rating: 4.8,
     reviewsCount: 56,
     distance: '1.5 km',
-    location: 'Ngor',
+    location: 'Hivernage',
     available: true,
     image: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?q=80&w=1974&auto=format&fit=crop',
+    locationCoords: { lat: 31.6215, lng: -8.0125 }, // Hivernage area
     experience: 10,
     jobsDone: 89,
     about: "Expert en systèmes multi-split et climatisation centrale pour bureaux.",

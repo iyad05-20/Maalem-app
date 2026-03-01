@@ -231,8 +231,12 @@ export const SearchView: React.FC<Props> = ({
                 <div className="size-20 rounded-[1.8rem] overflow-hidden border border-white/10 group-hover:scale-105 transition-transform duration-500 shadow-xl">
                   <SmartAvatar src={art.image} name={art.name} initialsClassName="text-2xl font-black text-white" />
                 </div>
-                {art.available && (
-                  <div className="absolute -bottom-1 -right-1 size-5 bg-emerald-500 rounded-full border-4 border-[#121214]"></div>
+                {art.isExplicitlyOnline && (
+                  <div className="absolute -bottom-1 -right-1 size-5 bg-[#0a0a0c] rounded-full p-0.5 z-20">
+                    <div className="w-full h-full bg-emerald-500 rounded-full border-[3px] border-[#0a0a0c] shadow-[0_0_10px_rgba(16,185,129,0.3)] relative">
+                      <div className="absolute inset-0 bg-emerald-400 rounded-full animate-ping opacity-40"></div>
+                    </div>
+                  </div>
                 )}
               </div>
 

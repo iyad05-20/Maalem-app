@@ -42,3 +42,8 @@ implementation_plan.md
 separation_plan.md
 backend/node_modules/
 frontend/node_modules/
+
+# Ignore legacy and tests
+vork_app_v1/
+*.mjs
+output.png

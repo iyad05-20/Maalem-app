@@ -28,6 +28,10 @@ export interface PortfolioItem {
   image: string;
   description?: string;
   customerReview?: Review;
+  category?: string;
+  date?: string;
+  likes?: number;
+  views?: number;
 }
 
 export interface Category {
@@ -74,17 +78,31 @@ export interface Artisan {
     last30DaysResponseTime: number;
     acceptanceRate: number;
   };
+
+  // Legacy/Compatibility fields
+  avatar?: string;
+  reviewCount?: number;
+  priceRange?: string;
+  verified?: boolean;
+  responseTime?: string;
+  availability?: boolean;
+  specialties?: string[];
+  yearsExperience?: number;
+  badges?: string[];
+  isExplicitlyOnline?: boolean;
 }
 
 export interface Quote {
   id: string;
+  orderId: string;
   artisanId: string;
   artisanName: string;
   artisanImage: string;
   artisanRating: number;
+  amount: number;
   price: string;
   description: string;
-  timestamp: string;
+  createdAt: string;
   status: 'pending' | 'accepted' | 'rejected';
 }
 
@@ -113,8 +131,14 @@ export interface Chat {
 
 export interface Order {
   id: string;
+  userId?: string;
+  artisanId?: string;
+  artisanName?: string;
+  artisanImage?: string;
+  artisanRating?: number;
+  assignedPrice?: string;
   category: string;
-  status: "EN ATTENTE D'EXPERT" | 'En cours' | 'Accepté' | 'Terminé' | 'En attente de clôture';
+  status: string; // Unified status
   date: string;
   description: string;
   location: string;
@@ -127,17 +151,12 @@ export interface Order {
   rejectedArtisanIds?: string[];
   targetedArtisans?: string[];
 
-  artisanId?: string;
-  artisanName?: string;
-  artisanImage?: string;
-  artisanRating?: number;
-  assignedPrice?: string;
   isUrgent?: boolean;
   priority?: string;
   images?: string[]; // Initial problem images
   resultImages?: string[]; // Final result images from review
-  userId?: string;
   createdAt?: string;
+  updatedAt?: string;
   isDirect?: boolean;
   searchRadius?: number;
   responses?: any;
@@ -152,4 +171,34 @@ export interface Order {
     comment: string;
     images?: string[];
   };
+
+  // Legacy/Compatibility fields
+  title?: string;
+  artisanAvatar?: string;
+  userName?: string;
+  userAvatar?: string;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'order_accepted' | 'message' | 'system';
+  read: boolean;
+  createdAt: string;
+  relatedId?: string; // e.g., orderId or chatId
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  image?: string;
+  phone?: string;
+  role?: 'user' | 'artisan';
+  location?: Coordinates;
+  createdAt?: string;
+  favorites?: string[];
 }

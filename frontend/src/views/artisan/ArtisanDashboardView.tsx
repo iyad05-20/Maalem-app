@@ -11,13 +11,16 @@ interface Props {
     archivedOrders: Order[];
     onViewOrder: (o: Order) => void;
     setView: (v: View) => void;
+    onToggleOnline: (status: boolean) => void;
 }
 
-export const ArtisanDashboardView: React.FC<Props> = ({ artisan, activeOrders, archivedOrders, onViewOrder, setView }) => {
+export const ArtisanDashboardView: React.FC<Props> = ({ artisan, activeOrders, archivedOrders, onViewOrder, setView, onToggleOnline }) => {
+    const isOnline = artisan.isExplicitlyOnline || false;
+
     // Calculate real earnings from archived orders
     const earnings = archivedOrders.reduce((sum, order) => {
         if (!order.assignedPrice) return sum;
-        // Extract numbers from string like "15.000 FCFA" or "15000"
+        // Extract numbers from string like "150 dh" or "150"
         const price = parseInt(order.assignedPrice.replace(/[^0-9]/g, ''), 10);
         return isNaN(price) ? sum : sum + price;
     }, 0);
@@ -27,16 +30,30 @@ export const ArtisanDashboardView: React.FC<Props> = ({ artisan, activeOrders, a
             <div className="mb-10">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">TABLEAU DE BORD EXPERT</h2>
-                    <div className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border border-emerald-500/20">
-                        EN LIGNE
-                    </div>
+
+                    <button
+                        onClick={() => onToggleOnline(!isOnline)}
+                        className={`flex items-center gap-3 px-4 py-2 rounded-2xl border transition-all active:scale-95 ${isOnline
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]'
+                            : 'bg-slate-800/40 border-white/5 text-slate-500'
+                            }`}
+                    >
+                        <div className={`size-3 rounded-full transition-all ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`}></div>
+                        <span className="text-[9px] font-black uppercase tracking-widest">
+                            {isOnline ? 'EN LIGNE' : 'HORS LIGNE'}
+                        </span>
+                        {/* Switch Track */}
+                        <div className={`w-8 h-4 rounded-full relative transition-colors ${isOnline ? 'bg-emerald-500/40' : 'bg-slate-700'}`}>
+                            <div className={`absolute top-0.5 size-3 bg-white rounded-full transition-all ${isOnline ? 'left-[18px]' : 'left-0.5'}`}></div>
+                        </div>
+                    </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="bg-[#121214] border border-white/5 p-6 rounded-[2.5rem] shadow-xl relative overflow-hidden group">
                         <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 blur-2xl group-hover:bg-emerald-500/10 transition-all"></div>
                         <Wallet size={16} className="text-emerald-500 mb-2" />
-                        <h3 className="text-2xl font-black text-white tracking-tighter">{earnings.toLocaleString()} F</h3>
+                        <h3 className="text-2xl font-black text-white tracking-tighter">{earnings.toLocaleString()} dh</h3>
                         <p className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Revenus Estimés</p>
                     </div>
                     <div className="bg-[#121214] border border-white/5 p-6 rounded-[2.5rem] shadow-xl relative overflow-hidden group">
