@@ -2,9 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChevronLeft, MoreVertical, Send, Image as ImageIcon, Smile, Phone, Plus, Mic, Check, CheckCheck, Info, UserCircle } from 'lucide-react';
 import { Chat, Message, Artisan } from '../../types';
 import { db, auth } from '../../services/firebase.config';
-import { collection, addDoc, doc, updateDoc, onSnapshot, query, orderBy, getDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, addDoc, doc, updateDoc, onSnapshot, query, orderBy, getDoc, increment } from "firebase/firestore";
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { sanitizeFirestoreData } from '../../utils';
+import { UserAvatar } from '../../components/Shared/UserAvatar';
+import { sanitizeFirestoreData, formatDisplayName } from '../../utils';
 
 interface Props {
   chat: Chat;
@@ -68,6 +69,7 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
 
 
   const counterpartName = isArtisan ? (dynamicUserName || 'Client') : chat.artisanName;
+  const maskedName = isArtisan ? formatDisplayName(counterpartName) : counterpartName;
   const counterpartImage = isArtisan ? (dynamicUserImage || '') : chat.artisanImage;
   const counterpartId = isArtisan ? chat.userId : chat.artisanId;
 
@@ -155,7 +157,7 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
       // 3. Add persistent notification for global alerts
       await addDoc(collection(db, "notifications"), {
         userId: counterpartId,
-        title: `Nouveau message de ${isArtisan ? chat.artisanName : chat.userName}`,
+        title: `Nouveau message de ${isArtisan ? chat.artisanName : chat.userName} `,
         message: inputText.substring(0, 50) + (inputText.length > 50 ? '...' : ''),
         type: 'message',
         read: false,
@@ -189,19 +191,25 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
           <button onClick={onBack} className="p-2 text-white hover:bg-white/5 rounded-full transition-colors active:scale-90"><ChevronLeft size={24} /></button>
 
           <div
-            onClick={() => onOpenProfile?.(counterpartId)}
-            className="flex items-center gap-3 active:scale-95 transition-transform cursor-pointer hover:bg-white/5 p-1 rounded-2xl pr-3"
+            onClick={() => !isArtisan && onOpenProfile?.(counterpartId)}
+            className={`flex items - center gap - 3 transition - transform ${isArtisan ? '' : 'active:scale-95 cursor-pointer hover:bg-white/5 p-1 rounded-2xl pr-3'} `}
           >
             <div className="relative">
               <div className="size-10 rounded-full overflow-hidden border border-white/10 shadow-lg">
-                <SmartAvatar src={counterpartImage} name={counterpartName} initialsClassName="text-[10px] font-black text-white" />
+                {isArtisan ? (
+                  <UserAvatar name={counterpartName} textClassName="text-[10px] font-black text-white" />
+                ) : (
+                  <SmartAvatar src={counterpartImage} name={counterpartName} initialsClassName="text-[10px] font-black text-white" />
+                )}
               </div>
             </div>
             <div>
-              <h2 className="text-sm font-black text-white uppercase tracking-tight leading-none">{counterpartName}</h2>
-              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
-                Voir Profil
-              </p>
+              <h2 className="text-sm font-black text-white uppercase tracking-tight leading-none">{maskedName}</h2>
+              {!isArtisan && (
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
+                  Voir Profil
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -211,7 +219,7 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
           <button
             onClick={() => {
               if (counterpartPhone) {
-                window.location.href = `tel:${counterpartPhone}`;
+                window.location.href = `tel:${counterpartPhone} `;
               } else {
                 setShowPhoneError(true);
                 setTimeout(() => setShowPhoneError(false), 3000);
@@ -223,14 +231,17 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
             <Phone size={20} />
           </button>
 
-          {/* Profile Info Button */}
-          <button
-            onClick={() => onOpenProfile?.(counterpartId)}
-            className="p-2.5 text-purple-400 hover:bg-purple-500/10 rounded-full transition-colors active:scale-90"
-            title="Informations"
-          >
-            <Info size={20} />
-          </button>
+          {/* Profile Info Button (Hidden for Artisans) */}
+          {!isArtisan && (
+            <button
+              onClick={() => onOpenProfile?.(counterpartId)}
+              className="p-2.5 text-purple-400 hover:bg-purple-500/10 rounded-full transition-colors active:scale-90"
+              title="Informations"
+            >
+              <span className="sr-only">Informations</span>
+              <Info size={20} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -245,19 +256,25 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1 no-scrollbar pb-32 flex flex-col pt-6">
         {/* Thread Header Card */}
         <div
-          onClick={() => onOpenProfile?.(counterpartId)}
-          className="text-center py-10 flex flex-col items-center gap-4 cursor-pointer group"
+          onClick={() => !isArtisan && onOpenProfile?.(counterpartId)}
+          className={`text - center py - 10 flex flex - col items - center gap - 4 ${isArtisan ? '' : 'cursor-pointer group'} `}
         >
           <div className="size-20 rounded-[2rem] overflow-hidden border-4 border-white/5 shadow-2xl group-hover:scale-105 transition-transform duration-500">
-            <SmartAvatar src={counterpartImage} name={counterpartName} initialsClassName="text-3xl font-black text-white" />
+            {isArtisan ? (
+              <UserAvatar name={counterpartName} textClassName="text-3xl font-black text-white" />
+            ) : (
+              <SmartAvatar src={counterpartImage} name={counterpartName} initialsClassName="text-3xl font-black text-white" />
+            )}
           </div>
           <div className="space-y-1">
-            <h3 className="text-white font-black text-xl uppercase tracking-tighter">{counterpartName}</h3>
+            <h3 className="text-white font-black text-xl uppercase tracking-tighter">{maskedName}</h3>
             <p className="text-[10px] text-purple-500/60 font-black uppercase tracking-[0.2em]">{isArtisan ? 'Client VORK' : 'Expert certifié VORK'}</p>
           </div>
-          <button className="px-4 py-2 bg-white/5 rounded-full border border-white/5 text-[9px] font-black uppercase tracking-widest text-slate-500 group-hover:bg-white/10 transition-colors">
-            Ouvrir le profil complet
-          </button>
+          {!isArtisan && (
+            <button className="px-4 py-2 bg-white/5 rounded-full border border-white/5 text-[9px] font-black uppercase tracking-widest text-slate-500 group-hover:bg-white/10 transition-colors">
+              Ouvrir le profil complet
+            </button>
+          )}
         </div>
 
         {messages.map((msg, idx) => {
@@ -265,16 +282,16 @@ export const ChatDetailView: React.FC<Props> = ({ chat, onBack, onOpenProfile })
           const isMe = msg.sender === myRole;
 
           return (
-            <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} ${sameSender ? 'mb-0.5' : 'mb-4'}`}>
-              <div className={`group relative max-w-[85%] px-4 py-2.5 text-sm font-medium leading-relaxed transition-all active:scale-[0.98] ${isMe
-                ? `bg-gradient-to-br from-purple-600 to-indigo-600 text-white shadow-lg ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tr-none'}`
-                : `bg-[#1a1a20] text-slate-200 border border-white/5 ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tl-none'}`
-                }`}>
+            <div key={msg.id} className={`flex flex - col ${isMe ? 'items-end' : 'items-start'} ${sameSender ? 'mb-0.5' : 'mb-4'} `}>
+              <div className={`group relative max - w - [85 %] px - 4 py - 2.5 text - sm font - medium leading - relaxed transition - all active: scale - [0.98] ${isMe
+                  ? `bg-gradient-to-br from-purple-600 to-indigo-600 text-white shadow-lg ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tr-none'}`
+                  : `bg-[#1a1a20] text-slate-200 border border-white/5 ${sameSender ? 'rounded-2xl' : 'rounded-2xl rounded-tl-none'}`
+                } `}>
                 {msg.text}
               </div>
 
               {!sameSender && (
-                <div className={`flex items-center gap-1.5 mt-1 px-1 ${isMe ? 'flex-row-reverse' : ''}`}>
+                <div className={`flex items - center gap - 1.5 mt - 1 px - 1 ${isMe ? 'flex-row-reverse' : ''} `}>
                   <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">{formatTime(msg.timestamp)}</span>
                   {isMe && msg.status && (
                     <div className="flex items-center animate-in zoom-in duration-300">

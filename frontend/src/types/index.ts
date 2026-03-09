@@ -3,6 +3,48 @@ import React from 'react';
 
 export type View = 'onboarding' | 'home' | 'search' | 'chats' | 'chat-detail' | 'bookings' | 'orders' | 'order-detail' | 'create-order' | 'profile' | 'urgent' | 'generic-form' | 'artisan-detail' | 'category-detail' | 'all-categories' | 'portfolio' | 'work-detail' | 'reviews' | 'favorites-list' | 'settings' | 'verify-email' | 'update-email' | 'marketplace' | 'notifications' | 'artisan-history';
 
+// ─── AI Chatbot Types ────────────────────────────────────────────────────────
+
+export interface GeminiResponse {
+  clarity_score: number;
+  has_user_photo: boolean;
+  photo_quality: 'good' | 'bad' | 'null';
+  photo_sufficient: boolean | null;
+  ask_for_photo: boolean;
+  needs_image_gen: boolean;
+  image_gen_purpose: 'damage' | 'room_context' | 'renovation' | 'construction' | null;
+  model: 'flux-1-schnell' | 'flux-2-dev' | null;
+  image_prompt: string | null;
+  image_steps: number | null;
+  order_ready: boolean;
+  order_title: string | null;
+  order_description: string | null;
+  risk_level: 'none' | 'low' | 'medium' | 'high';
+  safety_warning: string | null;
+  category_valid: boolean;
+  suggested_category: string | null;
+  multi_order_detected: boolean;
+  pending_orders: string[] | null;
+  order_sequence: 'first' | 'second' | null;
+  reason: string;
+  suggestion: string | null;
+  message_to_user: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'bot' | 'user';
+  type: 'text' | 'image' | 'order-preview';
+  text?: string;
+  imageUrl?: string;
+  photoFile?: File;
+  suggestions?: string[]; // Pipe-separated options from AI
+  isPhotoError?: boolean;  // Indicator for "bad" photo quality
+  safetyWarning?: string | null;
+  riskLevel?: 'none' | 'low' | 'medium' | 'high';
+}
+
+
 export interface Coordinates {
   lat: number;
   lng: number;
@@ -124,8 +166,12 @@ export interface Chat {
   userImage?: string;
   lastMessage: string;
   timestamp: string;
+  lastMessageTime?: string | any;
   unreadCount: number;
+  unreadCountArtisan?: number;
+  unreadCountClient?: number;
   isOnline: boolean;
+  isArtisanOnline?: boolean;
   messages?: Message[];
 }
 
@@ -177,6 +223,7 @@ export interface Order {
   artisanAvatar?: string;
   userName?: string;
   userAvatar?: string;
+  userImage?: string;
 }
 
 export interface Notification {

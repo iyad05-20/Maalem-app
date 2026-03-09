@@ -1,0 +1,15 @@
+# Exclude documentation and temporary folders
+vork/
+vork_app_v1/
+backend/
+*.png
+*.jpeg
+*.jpg
+*.txt
+*.sql
+*.mjs
+node_modules/
+.git/
+dist/
+.env*
+! .env.example

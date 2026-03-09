@@ -3,8 +3,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronLeft, Star, Loader2, Filter, BarChart3 } from 'lucide-react';
 import { Artisan, Review } from '../../types';
 import { db } from '../../services/firebase.config';
-import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, doc, documentId } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { sanitizeFirestoreData } from '../../utils';
+import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, doc, documentId } from "firebase/firestore";
+import { sanitizeFirestoreData, formatDisplayName } from '../../utils';
+import { UserAvatar } from '../../components/Shared/UserAvatar';
 
 interface Props {
   art: Artisan;
@@ -191,8 +192,8 @@ export const AllReviewsView: React.FC<Props> = ({ art: initialArtisan, onBack })
             key={val}
             onClick={() => setFilter(val as any)}
             className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all whitespace-nowrap active:scale-95 ${filter === val
-                ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-600/20'
-                : 'bg-white/5 border-white/5 text-slate-500 hover:bg-white/10'
+              ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-600/20'
+              : 'bg-white/5 border-white/5 text-slate-500 hover:bg-white/10'
               }`}
           >
             {val === 'Tous' ? 'TOUS' : `${val} ÉTOILES`}
@@ -211,11 +212,13 @@ export const AllReviewsView: React.FC<Props> = ({ art: initialArtisan, onBack })
             >
               <div className="flex justify-between items-start mb-5">
                 <div className="flex items-center gap-4">
-                  <div className="size-12 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-white/5 flex items-center justify-center text-indigo-400 font-black text-sm shadow-inner">
-                    {rev.userAvatar}
+                  <div className="size-12 rounded-2xl overflow-hidden border border-white/5 shadow-inner">
+                    <UserAvatar name={rev.userName || 'Client'} textClassName="text-sm font-black text-white" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-black text-white uppercase tracking-tight">{rev.userName}</h4>
+                    <h4 className="text-sm font-black text-white uppercase tracking-tight">
+                      {formatDisplayName(rev.userName || 'Client')}
+                    </h4>
                     <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest mt-0.5">{rev.date}</p>
                   </div>
                 </div>

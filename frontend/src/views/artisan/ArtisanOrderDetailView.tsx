@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 import { ChevronLeft, ImageIcon, MoreVertical, MessageCircle, Phone, MapPin, X, Maximize2, Clock } from 'lucide-react';
 import { Order, Artisan } from '../../types';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
+import { UserAvatar } from '../../components/Shared/UserAvatar';
+import { formatDisplayName } from '../../utils';
 
 interface Props {
     order: Order;
@@ -17,8 +19,8 @@ export const ArtisanOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenC
     const handleChatWithClient = () => {
         onOpenChat({
             id: order.userId,
-            name: "Client",
-            image: ""
+            name: order.userName || "Client",
+            image: order.userImage || ""
         });
     };
 
@@ -39,8 +41,10 @@ export const ArtisanOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenC
                     <div className="flex items-center gap-5">
                         <div className="size-16 bg-purple-600/20 rounded-2xl flex items-center justify-center text-purple-500 border border-purple-500/10"><ImageIcon size={28} /></div>
                         <div className="flex-1">
-                            <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-1">{order.category}</h2>
-                            <div className="flex items-center gap-2 text-slate-600">
+                            <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-1">{order.title || order.category}</h2>
+                            <div className="flex items-center gap-2 text-slate-400">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">{order.category}</span>
+                                <span className="text-slate-700">•</span>
                                 <MapPin size={12} /><span className="text-[10px] font-black uppercase tracking-widest">{order.location || 'Localisation inconnue'}</span>
                             </div>
                         </div>
@@ -72,9 +76,13 @@ export const ArtisanOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenC
                     <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">CLIENT</h3>
                     <div className="glass-card p-6 rounded-[2.5rem] bg-[#121214] border border-white/10 shadow-2xl relative overflow-hidden">
                         <div className="flex items-center gap-5">
-                            <div className="size-16 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 border-2 border-slate-700"><span className="text-xl font-black">C</span></div>
+                            <div className="size-16 rounded-full overflow-hidden border-2 border-slate-700">
+                                <UserAvatar name={order.userName || 'Client'} textClassName="text-xl font-black text-white" />
+                            </div>
                             <div className="flex-1">
-                                <h4 className="text-xl font-black text-white tracking-tighter mb-2">Client</h4>
+                                <h4 className="text-xl font-black text-white tracking-tighter mb-2">
+                                    {formatDisplayName(order.userName || 'Client')}
+                                </h4>
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Voir détails dans le chat</p>
                             </div>
                         </div>

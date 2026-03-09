@@ -6,8 +6,8 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   verifyBeforeUpdateEmail
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+} from "firebase/auth";
+import { doc, updateDoc } from "firebase/firestore";
 
 interface Props {
   onBack: () => void;

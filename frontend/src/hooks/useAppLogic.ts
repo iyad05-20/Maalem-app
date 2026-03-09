@@ -1,52 +1,47 @@
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { View, Category, Artisan, PortfolioItem, Chat, Order, Notification } from '../types';
 import { CATEGORIES } from '../data/mockData';
 import { sanitizeFirestoreData, migrateUrl } from '../utils';
 import { db, auth } from '../services/firebase.config';
 import { findBestArtisans } from '../services/recommendation.service';
 import { useLocationTracker } from './useLocationTracker';
+import { useAuthLogic } from './useAuthLogic';
+import { useOrdersLogic } from './useOrdersLogic';
+import { useChatsLogic } from './useChatsLogic';
 import {
     collection,
+    onSnapshot,
+    query,
+    orderBy,
     doc,
     getDoc,
     updateDoc,
     setDoc,
     deleteDoc,
     getDocs,
-    onSnapshot,
-    query,
-    orderBy,
     limit,
     where,
     or
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { onAuthStateChanged, signOut, User as FirebaseUser } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+} from "firebase/firestore";
 
 export const useAppLogic = () => {
     const [view, setView] = useState<View>('home');
     const [artisans, setArtisans] = useState<Artisan[]>([]);
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [archivedOrders, setArchivedOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
-    const [authLoading, setAuthLoading] = useState(true);
-    const [isDarkMode, setIsDarkMode] = useState(() => {
-        const saved = localStorage.getItem('vork-theme');
-        return saved === null ? true : saved === 'dark';
-    });
 
-    const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
-    const [userProfile, setUserProfile] = useState<any>(null);
-    const [userRole, setUserRole] = useState<'user' | 'artisan'>('user');
-    const [showVerifyEmail, setShowVerifyEmail] = useState(false);
-    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const {
+        authUser, setAuthUser, userProfile, setUserProfile, userRole, setUserRole,
+        authLoading, showVerifyEmail, setShowVerifyEmail, favorites, setFavorites,
+        isDarkMode, setIsDarkMode, handleLogout: _handleLogout
+    } = useAuthLogic();
 
-    const [favorites, setFavorites] = useState<string[]>([]);
+    const { orders, archivedOrders, notifications, ordersLoading } = useOrdersLogic(userProfile?.id, userRole);
+    const { chats, chatsLoading } = useChatsLogic(userProfile?.id);
 
     // Initialize Location Tracker
     const { location: userLocation, refreshLocation } = useLocationTracker(userProfile?.id, userRole);
 
-    const [chats, setChats] = useState<Chat[]>([]);
     const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
 
     const [selectedArtisan, setSelectedArtisan] = useState<Artisan | null>(null);
@@ -60,6 +55,7 @@ export const useAppLogic = () => {
     const [chatSource, setChatSource] = useState<View>('home');
     const [workSource, setWorkSource] = useState<View>('portfolio');
 
+    const [authMode, setAuthMode] = useState<'login' | 'signup-client' | 'signup-artisan'>('login');
     const [searchFilterCategory, setSearchFilterCategory] = useState<string>('Tous');
     const [searchFilterRating, setSearchFilterRating] = useState<number | 'Tous'>('Tous');
     const [reviewRatingFilter, setReviewRatingFilter] = useState<number | 'Tous'>('Tous');
@@ -70,55 +66,23 @@ export const useAppLogic = () => {
     };
 
     const loadUserProfile = useCallback(async (uid: string, roleToTry: 'user' | 'artisan') => {
+        // Redirection logic stays here if complex, but data fetching is now inside useAuthLogic
+        // This is kept for manual triggers like role switching
         try {
             const collectionName = roleToTry === 'artisan' ? 'artisans' : 'users';
             let docSnap = await getDoc(doc(db, collectionName, uid));
-
-            if (!docSnap.exists()) {
-                const otherRole = roleToTry === 'user' ? 'artisan' : 'user';
-                const otherCollection = otherRole === 'artisan' ? 'artisans' : 'users';
-                docSnap = await getDoc(doc(db, otherCollection, uid));
-
-                if (docSnap.exists()) {
-                    setUserRole(otherRole);
-                }
-            }
-
             if (docSnap.exists()) {
                 const data = sanitizeFirestoreData(docSnap.data());
-                const profileData = { ...data, id: docSnap.id };
-                profileData.image = migrateUrl(profileData.image || profileData.avatar);
-                setUserProfile(profileData);
-                setFavorites(data.favorites || []);
+                setUserProfile({ ...data, id: docSnap.id });
             }
         } catch (e) {
-            console.error("Error loading profile:", e);
+            console.error(e);
         }
-    }, []);
-
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            setAuthUser(user);
-            if (user) {
-                if (!user.emailVerified && false) {
-                    setShowVerifyEmail(true);
-                } else {
-                    setShowVerifyEmail(false);
-                    await loadUserProfile(user.uid, userRole);
-                }
-            } else {
-                setUserProfile(null);
-            }
-            setAuthLoading(false);
-        });
-        return () => unsubscribe();
-    }, [userRole, loadUserProfile]);
+    }, [setUserProfile]);
 
     useEffect(() => {
         if (!userProfile?.id) return;
-
         setLoading(true);
-
         const qArt = query(collection(db, "artisans"), orderBy("rating", "desc"), limit(20));
         const unsubArt = onSnapshot(qArt, (snapshot) => {
             setArtisans(snapshot.docs.map(doc => {
@@ -128,72 +92,8 @@ export const useAppLogic = () => {
             }) as Artisan[]);
             setLoading(false);
         });
-
-        const qOrd = userRole === 'artisan'
-            ? query(collection(db, "orders"), or(where("artisanId", "==", userProfile.id), where("targetedArtisans", "array-contains", userProfile.id)))
-            : query(collection(db, "orders"), where("userId", "==", userProfile.id));
-
-        const unsubOrd = onSnapshot(qOrd, (snapshot) => {
-            const sorted = snapshot.docs
-                .map(doc => ({ ...sanitizeFirestoreData(doc.data()), id: doc.id }))
-                .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            setOrders(sorted as Order[]);
-        });
-
-        const qArchived = userRole === 'artisan'
-            ? query(collection(db, "archivedOrders"), where("artisanId", "==", userProfile.id))
-            : query(collection(db, "archivedOrders"), where("userId", "==", userProfile.id));
-
-        const unsubArchived = onSnapshot(qArchived, (snapshot) => {
-            const sorted = snapshot.docs
-                .map(doc => ({ ...sanitizeFirestoreData(doc.data()), id: doc.id }))
-                .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            setArchivedOrders(sorted as Order[]);
-        });
-
-        const qChat = userRole === 'artisan'
-            ? query(collection(db, "chats"), where("artisanId", "==", userProfile.id))
-            : query(collection(db, "chats"), where("userId", "==", userProfile.id));
-
-        const unsubChat = onSnapshot(qChat, (snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-                if (change.type === "modified") {
-                    const data = change.doc.data();
-                    const oldData = snapshot.docs.find(d => d.id === change.doc.id)?.data();
-                    const field = userRole === 'artisan' ? 'unreadCountArtisan' : 'unreadCountClient';
-                    if (data[field] > (oldData?.[field] || 0)) {
-                        showToast(`Nouveau message de ${userRole === 'artisan' ? data.userName : data.artisanName}`, "info");
-                    }
-                }
-            });
-            setChats(snapshot.docs.map(doc => ({ ...sanitizeFirestoreData(doc.data()), id: doc.id })) as Chat[]);
-        });
-
-        // Query without orderBy to avoid composite index requirement - sort client-side
-        const qNotif = query(
-            collection(db, "notifications"),
-            where("userId", "==", userProfile.id),
-            limit(50)
-        );
-        const unsubNotif = onSnapshot(qNotif, (snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-                if (change.type === "added") {
-                    const data = change.doc.data();
-                    // Show toast only for notifications received in last 5 seconds (real-time)
-                    if (data.createdAt && new Date().getTime() - new Date(data.createdAt).getTime() < 5000) {
-                        showToast(data.title, data.type === 'order_accepted' ? 'success' : 'info');
-                    }
-                }
-            });
-            // Sort client-side descending by createdAt
-            const sorted = snapshot.docs
-                .map(doc => ({ ...sanitizeFirestoreData(doc.data()), id: doc.id }))
-                .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            setNotifications(sorted as Notification[]);
-        });
-
-        return () => { unsubArt(); unsubOrd(); unsubChat(); unsubArchived(); unsubNotif(); };
-    }, [userProfile?.id, userRole]);
+        return () => unsubArt();
+    }, [userProfile?.id]);
 
     useEffect(() => {
         document.documentElement.classList.toggle('dark', isDarkMode);
@@ -202,13 +102,8 @@ export const useAppLogic = () => {
     }, [isDarkMode]);
 
     const handleLogout = async () => {
-        try {
-            await signOut(auth);
-            setUserProfile(null);
-            setView('home');
-        } catch (e) {
-            console.error("Logout failed", e);
-        }
+        await _handleLogout();
+        setView('home');
     };
 
     const markNotificationAsRead = async (id: string) => {
@@ -444,6 +339,10 @@ export const useAppLogic = () => {
         }
     };
 
+    const liveSelectedOrder = useMemo(() => selectedOrder
+        ? (orders.find(o => o.id === selectedOrder.id) || archivedOrders.find(o => o.id === selectedOrder.id) || selectedOrder)
+        : null, [selectedOrder, orders, archivedOrders]);
+
     return {
         view, setView,
         artisans,
@@ -457,7 +356,7 @@ export const useAppLogic = () => {
         userRole, setUserRole,
         showVerifyEmail, setShowVerifyEmail,
         favorites, setFavorites,
-        chats, setChats,
+        chats,
         selectedChat, setSelectedChat,
         selectedArtisan, setSelectedArtisan,
         selectedOrder, setSelectedOrder,
@@ -488,6 +387,8 @@ export const useAppLogic = () => {
         notifications,
         markNotificationAsRead,
         markAllNotificationsAsRead,
-        clearNotifications
+        clearNotifications,
+        authMode, setAuthMode,
+        liveSelectedOrder
     };
 };

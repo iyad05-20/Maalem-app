@@ -11,8 +11,8 @@ export default defineConfig({
       manifest: {
         "id": "/",
         "short_name": "Vork",
-        "name": "Marketplace Artisans Maroc",
-        "description": "Trouvez les meilleurs artisans au Maroc pour tous vos travaux de maison.",
+        "name": "Vork - Marketplace Artisans",
+        "description": "Trouvez les meilleurs artisans pour tous vos travaux de maison avec Vork.",
         "categories": ["business", "lifestyle", "productivity"],
         "icons": [
           { "src": "/icons/icon-72x72.png", "sizes": "72x72", "type": "image/png" },
@@ -102,6 +102,9 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: '0.0.0.0',
+    host: '0.0.0.0'
+  },
+  preview: {
+    port: 4173
   }
 });

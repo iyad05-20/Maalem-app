@@ -3,6 +3,8 @@ import React from 'react';
 import { ChevronLeft, Star, Quote } from 'lucide-react';
 import { Artisan, PortfolioItem } from '../../types';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
+import { UserAvatar } from '../../components/Shared/UserAvatar';
+import { formatDisplayName } from '../../utils';
 
 interface Props {
   item: PortfolioItem;
@@ -78,11 +80,13 @@ export const WorkDetailView: React.FC<Props> = ({ item, art, onBack }) => {
 
                 <div className="flex justify-between items-start mb-4 relative z-10">
                   <div className="flex items-center gap-3">
-                    <div className="size-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-black text-base shadow-lg overflow-hidden">
-                      <SmartAvatar src={item.customerReview.userAvatar} name={item.customerReview.userName} />
+                    <div className="size-12 rounded-2xl overflow-hidden border border-white/5 shadow-lg flex items-center justify-center">
+                      <UserAvatar name={item.customerReview.userName || 'Client'} textClassName="text-sm font-black text-white" />
                     </div>
                     <div>
-                      <h5 className="text-sm font-bold text-white">{item.customerReview.userName}</h5>
+                      <h5 className="text-sm font-bold text-white uppercase tracking-tight">
+                        {formatDisplayName(item.customerReview.userName || 'Client')}
+                      </h5>
                       <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{item.customerReview.date}</p>
                     </div>
                   </div>

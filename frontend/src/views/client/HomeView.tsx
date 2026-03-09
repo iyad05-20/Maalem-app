@@ -6,6 +6,7 @@ import { getFormattedDistance } from '../../services/location.service';
 import { CATEGORIES } from '../../data/mockData';
 import { CategoryIcon } from '../../components/Shared/CategoryIcon';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
+import { HomeSkeleton } from './HomeSkeleton';
 
 interface Props {
   userRole?: 'user' | 'artisan';
@@ -16,9 +17,10 @@ interface Props {
   openCategory: (c: Category) => void;
   onReserve: (a: Artisan) => void;
   onOpenAllCategories: () => void;
+  loading?: boolean;
 }
 
-const SectionHeader = ({ title, onSeeAll }: { title: string, onSeeAll?: () => void }) => (
+const SectionHeader = React.memo(({ title, onSeeAll }: { title: string, onSeeAll?: () => void }) => (
   <div className="flex justify-between items-end mb-4 px-6">
     <h2 className="text-xl font-bold text-white tracking-tight">{title}</h2>
     {onSeeAll && (
@@ -27,9 +29,9 @@ const SectionHeader = ({ title, onSeeAll }: { title: string, onSeeAll?: () => vo
       </button>
     )}
   </div>
-);
+));
 
-const ArtisanCard: React.FC<{ art: Artisan, userLocation: Coordinates | null, onSelect: () => void, onReserve: (a: Artisan) => void }> = ({ art, userLocation, onSelect, onReserve }) => {
+const ArtisanCard: React.FC<{ art: Artisan, userLocation: Coordinates | null, onSelect: () => void, onReserve: (a: Artisan) => void }> = React.memo(({ art, userLocation, onSelect, onReserve }) => {
   const displayDistance = getFormattedDistance(userLocation, art.locationCoords) || art.distance;
   return (
     <div
@@ -86,9 +88,11 @@ const ArtisanCard: React.FC<{ art: Artisan, userLocation: Coordinates | null, on
       </div>
     </div>
   );
-}
+});
 
-export const HomeView: React.FC<Props> = ({ userRole, setView, artisans, userLocation, setSelectedArtisan, openCategory, onReserve, onOpenAllCategories }) => {
+export const HomeView: React.FC<Props> = ({ userRole, setView, artisans, userLocation, setSelectedArtisan, openCategory, onReserve, onOpenAllCategories, loading }) => {
+  if (loading) return <HomeSkeleton />;
+
   // Strict Role Check to hide Urgent Banner for Artisans
   const showUrgentBanner = userRole !== 'artisan';
 
@@ -116,16 +120,7 @@ export const HomeView: React.FC<Props> = ({ userRole, setView, artisans, userLoc
         <SectionHeader title="Catégories" onSeeAll={onOpenAllCategories} />
         <div className="flex overflow-x-auto gap-4 px-6 hide-scrollbar">
           {CATEGORIES.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => openCategory(cat, 'home')}
-              className="flex flex-col items-center gap-3 min-w-[100px] p-5 glass-card rounded-[2rem] hover:bg-white/10 transition-all active:scale-90"
-            >
-              <div className={`${cat.color.split(' ')[0]} w-12 h-12 rounded-2xl flex items-center justify-center shadow-xl shadow-white/5`}>
-                <CategoryIcon name={cat.icon} className={cat.color.split(' ')[1]} />
-              </div>
-              <span className="text-[11px] font-bold text-slate-300 uppercase tracking-tight">{cat.name}</span>
-            </button>
+            <CategoryCard key={cat.id} cat={cat} openCategory={openCategory} />
           ))}
         </div>
       </div>
@@ -141,3 +136,15 @@ export const HomeView: React.FC<Props> = ({ userRole, setView, artisans, userLoc
     </div>
   );
 };
+
+const CategoryCard = React.memo(({ cat, openCategory }: { cat: Category; openCategory: (c: Category) => void }) => (
+  <button
+    onClick={() => openCategory(cat)}
+    className="flex flex-col items-center gap-3 min-w-[100px] p-5 glass-card rounded-[2rem] hover:bg-white/10 transition-all active:scale-90"
+  >
+    <div className={`${cat.color.split(' ')[0]} w-12 h-12 rounded-2xl flex items-center justify-center shadow-xl shadow-white/5`}>
+      <CategoryIcon name={cat.icon} className={cat.color.split(' ')[1]} />
+    </div>
+    <span className="text-[11px] font-bold text-slate-300 uppercase tracking-tight">{cat.name}</span>
+  </button>
+));

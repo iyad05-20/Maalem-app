@@ -1,6 +1,6 @@
 
 import { db } from './firebase.config';
-import { collection, query, orderBy, startAt, endAt, getDocs, doc, getDoc, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, orderBy, startAt, endAt, getDocs, doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import * as geofire from 'geofire-common';
 import { Artisan, Order, Coordinates } from '../types';
 import { sanitizeFirestoreData } from '../utils';

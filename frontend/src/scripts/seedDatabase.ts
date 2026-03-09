@@ -1,6 +1,7 @@
 
 import { db } from '../services/firebase.config';
-import { collection, addDoc, getDocs, query, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc, getDocs, doc, setDoc, query, limit } from "firebase/firestore";
 
 // Export EXAMPLE_PROFILES to resolve import error in index.tsx
 export const EXAMPLE_PROFILES = [

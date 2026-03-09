@@ -31,7 +31,7 @@ export const uploadToSupabase = async (bucket: string = 'vork-profilepic-bucket'
     console.group('Supabase Upload Debug Info');
     console.error('Error Object:', error);
     console.error('Target Bucket:', targetBucket);
-    console.error('File Name:', file.name);
+    console.error('File Name:', file instanceof File ? file.name : 'Blob Object');
     console.error('File Type:', file.type);
     console.error('File Size:', file.size);
     console.groupEnd();

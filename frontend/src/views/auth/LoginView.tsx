@@ -41,8 +41,8 @@ export const LoginView: React.FC<Props> = ({ onLoginSuccess, onSwitchToSignup })
             <div className="absolute top-[-10%] left-[-10%] w-[120%] h-[120%] bg-gradient-to-tr from-purple-900/20 via-transparent to-pink-900/10 blur-[120px] pointer-events-none" />
 
             <div className="flex flex-col items-center text-center mb-8 z-10">
-                <div className="size-16 bg-gradient-to-br from-[#a855f7] to-[#ec4899] rounded-[1.5rem] flex items-center justify-center mb-4 shadow-2xl">
-                    <Diamond className="size-8 text-white" fill="white" />
+                <div className="size-16 bg-gradient-to-br from-[#a855f7] to-[#ec4899] rounded-[1.5rem] flex items-center justify-center mb-4 shadow-2xl overflow-hidden">
+                    <img src="/icons/icon-512x512.png" alt="Vork Logo" className="w-10 h-10 object-contain" />
                 </div>
                 <h1 className="text-4xl font-black text-white tracking-tighter mb-1 uppercase">VORK</h1>
                 <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.4em]">Connexion</p>

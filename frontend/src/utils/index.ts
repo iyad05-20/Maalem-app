@@ -82,6 +82,26 @@ export const isImageUrl = (str: string | undefined | null) => {
   return str.startsWith('data:') || str.startsWith('http') || str.startsWith('blob:');
 };
 
+export const formatDisplayName = (fullName: string): string => {
+  if (!fullName || typeof fullName !== 'string') return 'Client';
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return 'Client';
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[1][0]}.`;
+};
+
+export const generateColorFromName = (name: string): string => {
+  const colors = [
+    'bg-blue-500', 'bg-purple-500', 'bg-indigo-500', 'bg-pink-500',
+    'bg-emerald-500', 'bg-orange-500', 'bg-teal-500', 'bg-rose-500'
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+};
+
 export const migrateUrl = (url: string | undefined): string => {
   if (!url || typeof url !== 'string') return '';
   return url.replace(/vork-profile%20pic%20bucket/g, 'vork-profilepic-bucket')

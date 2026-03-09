@@ -2,11 +2,12 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ChevronLeft, Share2, MapPin, ShieldCheck, Star, Phone, Mail, X, Info, MessageCircle, Heart, MessageSquareText, MessageSquare, Users, CheckCircle2 } from 'lucide-react';
 import { Artisan, View, PortfolioItem, Order, Review } from '../../types';
-import { isImageUrl, getInitials, sanitizeFirestoreData, migrateUrl } from '../../utils';
+import { isImageUrl, getInitials, sanitizeFirestoreData, migrateUrl, formatDisplayName } from '../../utils';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
+import { UserAvatar } from '../../components/Shared/UserAvatar';
 import { uploadToSupabase, deleteFromSupabase, extractPathFromUrl } from '../../services/supabase.config';
 import { db } from '../../services/firebase.config';
-import { doc, updateDoc, collection, query, where, onSnapshot, orderBy, limit, documentId } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, updateDoc, collection, query, where, onSnapshot, orderBy, limit, documentId } from "firebase/firestore";
 
 interface Props {
   art: Artisan;
@@ -258,72 +259,72 @@ export const ArtisanDetailView: React.FC<Props> = ({ art, setView, onBack, onOpe
             </div>
           )}
 
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <div className="space-y-1 flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  {liveArtisan.isExplicitlyOnline ? (
-                    <div className="flex items-center gap-1.5 bg-[#1a2e26]/80 px-2 py-0.5 rounded-md border border-[#34d399]/20">
-                      <div className="size-1.5 bg-[#34d399] rounded-full animate-pulse"></div>
-                      <span className="text-[7px] text-[#34d399] font-black uppercase tracking-widest">En ligne</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 bg-slate-900/80 px-2 py-0.5 rounded-md border border-slate-700/50">
-                      <div className="size-1.5 bg-slate-500 rounded-full"></div>
-                      <span className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Hors ligne</span>
-                    </div>
-                  )}
-                  {liveArtisan.verified && (
-                    <div className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md border border-white/5 text-[#34d399]">
-                      <ShieldCheck className="size-2.5" />
-                      <span className="text-[7px] font-black uppercase tracking-widest">Vérifié</span>
-                    </div>
-                  )}
+          <div className="flex flex-col items-center text-center">
+            {/* Status & Verification Badges */}
+            <div className="flex items-center justify-center gap-3 mb-6">
+              {liveArtisan.isExplicitlyOnline ? (
+                <div className="flex items-center gap-2 bg-[#34d399]/10 px-3 py-1.5 rounded-xl border border-[#34d399]/20 shadow-sm">
+                  <div className="size-2 bg-[#34d399] rounded-full animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.5)]"></div>
+                  <span className="text-[10px] text-[#34d399] font-black uppercase tracking-widest">En ligne</span>
                 </div>
+              ) : (
+                <div className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-xl border border-white/10 shadow-sm">
+                  <div className="size-2 bg-slate-600 rounded-full"></div>
+                  <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Hors ligne</span>
+                </div>
+              )}
+              {liveArtisan.verified && (
+                <div className="flex items-center gap-2 bg-indigo-500/10 px-3 py-1.5 rounded-xl border border-indigo-500/20 text-[#34d399] shadow-sm">
+                  <ShieldCheck className="size-3.5 text-[#34d399]" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Vérifié</span>
+                </div>
+              )}
+            </div>
 
-                <>
-                  <h2 className="text-[1.8rem] font-black text-white tracking-tighter leading-[0.85] mb-1">
-                    {liveArtisan.name.split(' ')[0]}<br />
-                    <span className="text-slate-500">{liveArtisan.name.split(' ').slice(1).join(' ')}</span>
-                  </h2>
-                  <div className="flex items-center gap-2">
-                    <div className="bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20">
-                      <span className="text-purple-400 font-black text-[7px] uppercase tracking-[0.2em]">{liveArtisan.category}</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-slate-500">
-                      <MapPin className="size-3 text-slate-600" />
-                      <span className="text-[10px] font-bold tracking-tight">{liveArtisan.location}</span>
-                    </div>
-                  </div>
-                </>
+            {/* Name Section */}
+            <h2 className="text-[2.5rem] font-black text-white tracking-tighter leading-none mb-4 uppercase">
+              {liveArtisan.name}
+            </h2>
+
+            {/* Specialty & Location */}
+            <div className="flex items-center justify-center gap-4 mb-10">
+              <div className="bg-purple-600/15 px-4 py-2 rounded-2xl border border-purple-500/20 shadow-lg shadow-purple-500/5">
+                <span className="text-purple-400 font-black text-[10px] uppercase tracking-[0.25em]">{liveArtisan.category}</span>
               </div>
-
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => setShowContactOverlay(true)}
-                  className="size-11 bg-white/[0.04] border border-white/10 rounded-xl flex items-center justify-center text-slate-300 shadow-xl active:scale-90 transition-transform group"
-                  title="Voir contact"
-                >
-                  <Info size={20} className="group-hover:scale-110 transition-transform" />
-                </button>
-                <button
-                  onClick={onOpenChats}
-                  className="size-11 bg-white/[0.04] border border-white/10 rounded-xl flex items-center justify-center text-blue-400 shadow-xl active:scale-90 transition-transform group"
-                  title="Envoyer un message"
-                >
-                  <MessageCircle size={20} className="fill-blue-400/5 group-hover:scale-110 transition-transform" />
-                </button>
+              <div className="flex items-center gap-2 py-2 px-1">
+                <MapPin className="size-4 text-slate-500" />
+                <span className="text-xs font-bold text-slate-400 tracking-tight">{liveArtisan.location}</span>
               </div>
             </div>
 
-            <div className="flex gap-2.5">
+            {/* Action Buttons Row */}
+            <div className="flex items-center gap-3 w-full">
               <button
                 onClick={() => onReserve(liveArtisan)}
-                className="flex-1 py-4 rounded-2xl bg-gradient-to-r from-purple-600 via-purple-500 to-pink-500 text-white font-black text-[11px] uppercase tracking-[0.2em] shadow-[0_10px_20px_rgba(168,85,247,0.3)] active:scale-[0.98] transition-all relative overflow-hidden group"
+                className="flex-1 py-5 rounded-[1.8rem] bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-500 text-white font-black text-xs uppercase tracking-[0.25em] shadow-[0_15px_30px_-5px_rgba(168,85,247,0.4)] active:scale-[0.97] transition-all relative overflow-hidden group"
               >
-                <span className="relative z-10">Réserver l'expert</span>
-                <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                <span className="relative z-10 flex items-center justify-center gap-2">
+                  Réserver l'expert
+                </span>
+                <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               </button>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowContactOverlay(true)}
+                  className="size-14 bg-[#1a1a20] border border-white/5 rounded-[1.8rem] flex items-center justify-center text-slate-400 shadow-xl active:scale-90 transition-all hover:bg-white/5 hover:text-white"
+                  title="Voir contact"
+                >
+                  <Info size={24} />
+                </button>
+                <button
+                  onClick={onOpenChats}
+                  className="size-14 bg-[#1a1a20] border border-white/5 rounded-[1.8rem] flex items-center justify-center text-indigo-400 shadow-xl active:scale-90 transition-all hover:bg-indigo-600/10 hover:text-indigo-300"
+                  title="Envoyer un message"
+                >
+                  <MessageCircle size={24} className="fill-indigo-400/5" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -405,11 +406,13 @@ export const ArtisanDetailView: React.FC<Props> = ({ art, setView, onBack, onOpe
             <div key={rev.id} className="glass-card p-5 rounded-[2.2rem] bg-[#121214]/40 border border-white/5 shadow-xl">
               <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-black text-xs">
-                    {rev.userAvatar}
+                  <div className="size-10 rounded-xl overflow-hidden border border-white/5">
+                    <UserAvatar name={rev.userName || 'Client'} textClassName="text-[10px] font-black text-white" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-black text-white uppercase tracking-tight">{rev.userName}</h4>
+                    <h4 className="text-xs font-black text-white uppercase tracking-tight">
+                      {formatDisplayName(rev.userName || 'Client')}
+                    </h4>
                     <p className="text-[8px] text-slate-600 font-bold uppercase tracking-widest mt-0.5">{rev.date}</p>
                   </div>
                 </div>

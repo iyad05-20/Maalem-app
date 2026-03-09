@@ -3,9 +3,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { User, Mail, MapPin, Phone, LogOut, Edit2, Check, Camera, ShieldCheck, Heart, Clock, X, Settings, Trash2, Loader2, CheckCircle2, ChevronRight, Lock, AlertCircle, Send } from 'lucide-react';
 import { getInitials, isImageUrl } from '../../utils';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
+import { UserAvatar } from '../../components/Shared/UserAvatar';
 import { uploadToSupabase, deleteFromSupabase, extractPathFromUrl } from '../../services/supabase.config';
 import { db } from '../../services/firebase.config';
-import { doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDoc, getDocs, arrayUnion } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 interface UserProfile {
   id: string;
@@ -39,10 +41,25 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setFormData(user);
+    // Ensure legacy phone numbers or missing ones get the +212 prefix on load if needed
+    const ensurePrefix = (p: string) => {
+      if (!p) return '+212';
+      if (p.startsWith('+212')) return p;
+      if (p.startsWith('0')) return '+212' + p.slice(1);
+      return '+212' + p;
+    };
+    setFormData({ ...user, phone: ensurePrefix(user.phone) });
   }, [user]);
 
+  const isArtisan = user.role === 'artisan';
+
   const handleSave = async () => {
+    // Basic validation for phone
+    if (activeField === 'phone' && formData.phone.length !== 13) {
+      alert("Le numéro de téléphone doit contenir 9 chiffres après +212.");
+      return;
+    }
+
     let finalAvatarUrl = formData.avatar;
     setIsUploading(true);
 
@@ -113,6 +130,7 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
   };
 
   const handleAvatarClick = () => {
+    if (!isArtisan) return; // Clients cannot change avatars
     if (isEditing) {
       fileInputRef.current?.click();
     } else {
@@ -140,6 +158,18 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
     }
   };
 
+  const handlePhoneChange = (value: string) => {
+    // Keep +212 prefix and limit to 9 digits
+    if (value.startsWith('+212')) {
+      const digits = value.slice(4).replace(/\D/g, '');
+      if (digits.length <= 9) {
+        setFormData({ ...formData, phone: '+212' + digits });
+      }
+    } else if (value.length < 4) {
+      setFormData({ ...formData, phone: '+212' });
+    }
+  };
+
   const hasCustomImage = isImageUrl(formData.avatar);
 
   return (
@@ -153,13 +183,20 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
           >
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 group-hover:opacity-100 transition-opacity"></div>
 
-            <SmartAvatar
-              src={formData.avatar}
-              name={formData.name}
-              className="w-full h-full relative z-10"
-              initialsClassName="text-3xl font-black text-slate-700 relative z-10 group-hover:scale-110 transition-transform duration-500"
-              timeout={2000}
-            />
+            {isArtisan ? (
+              <SmartAvatar
+                src={formData.avatar}
+                name={formData.name}
+                className="w-full h-full relative z-10"
+                initialsClassName="text-3xl font-black text-slate-700 relative z-10 group-hover:scale-110 transition-transform duration-500"
+              />
+            ) : (
+              <UserAvatar
+                name={formData.name}
+                className="size-full relative z-10"
+                textClassName="text-4xl font-black text-white relative z-10 group-hover:scale-110 transition-transform duration-500"
+              />
+            )}
 
             {isUploading && (
               <div className="absolute inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center animate-in fade-in duration-300">
@@ -167,7 +204,7 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
               </div>
             )}
 
-            {isEditing && !isUploading && (
+            {isEditing && isArtisan && !isUploading && (
               <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20 gap-2">
                 <Camera className="text-white drop-shadow-lg" size={28} />
                 <span className="text-[8px] font-black text-white uppercase tracking-widest">Changer</span>
@@ -214,14 +251,18 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-3">
-            <h2 className="text-3xl font-black text-white tracking-tight uppercase">{user.name || 'Utilisateur'}</h2>
-            <button onClick={() => setIsEditing(true)} className="p-2 bg-white/5 rounded-full text-slate-500 hover:text-white transition-colors">
+          <div className="flex items-center justify-center gap-3 relative w-full">
+            <h2 className="text-3xl font-black text-white tracking-tight uppercase text-center">{user.name || 'Utilisateur'}</h2>
+            <button
+              onClick={() => setIsEditing(true)}
+              className="p-2 bg-white/5 rounded-full text-slate-500 hover:text-white transition-colors absolute -right-8 sm:static"
+              title="Modifier le nom"
+            >
               <Edit2 size={14} />
             </button>
           </div>
         )}
-        <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.25em] mt-2">Marrakech • Maroc</p>
+        <p className="text-[10px] text-indigo-400 font-black uppercase tracking-[0.25em] mt-2">Expertise & Qualité</p>
 
         <div className="flex gap-2 mt-6">
           {!isEditing && (
@@ -274,14 +315,14 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
         <ProfileField
           icon={<Phone size={18} />}
           label="Téléphone"
-          value={isEditing && activeField === 'phone' ? formData.phone : user.phone}
+          value={isEditing && activeField === 'phone' ? formData.phone : (user.phone ? (user.phone.startsWith('+212') ? user.phone : '+212' + (user.phone.startsWith('0') ? user.phone.slice(1) : user.phone)) : '+212')}
           isEditing={isEditing && activeField === 'phone'}
           onClick={() => handleStartEdit('phone')}
-          onChange={(v) => setFormData({ ...formData, phone: v })}
+          onChange={handlePhoneChange}
           onSave={handleSave}
           onCancel={handleCancel}
           isSaving={isUploading && activeField === 'phone'}
-          placeholder="77 123 45 67"
+          placeholder="+212 ..."
           type="tel"
           isPhoneField={true}
           finishEdit={() => { setIsEditing(false); setActiveField(null); }}
@@ -317,7 +358,7 @@ const ProfileField = ({ icon, label, value, isEditing, onChange, onClick, onSave
   isPhoneField?: boolean,
   finishEdit?: () => void
 }) => {
-  const isEmpty = !value || value.trim() === '';
+  const isEmpty = !value || value.trim() === '' || (isPhoneField && value.trim() === '+212');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {

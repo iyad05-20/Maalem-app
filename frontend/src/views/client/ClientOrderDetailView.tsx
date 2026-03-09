@@ -6,7 +6,7 @@ import { SmartAvatar } from '../../components/Shared/SmartAvatar';
 import { sanitizeFirestoreData } from '../../utils';
 import { findBestArtisans } from '../../services/recommendation.service';
 import { db, auth } from '../../services/firebase.config';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, setDoc, addDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, getDoc, onSnapshot, updateDoc, arrayUnion, addDoc, collection, serverTimestamp, query, orderBy, setDoc } from "firebase/firestore";
 import { rejectQuote, archiveOrder } from '../../services/order.actions';
 import { uploadToSupabase } from '../../services/supabase.config';
 
@@ -306,8 +306,10 @@ export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenCh
                     <div className="flex items-center gap-5">
                         <div className="size-16 bg-indigo-600/20 rounded-2xl flex items-center justify-center text-indigo-500 border border-indigo-500/10"><ImageIcon size={28} /></div>
                         <div className="flex-1">
-                            <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-1">{order.category}</h2>
-                            <div className="flex items-center gap-2 text-slate-600">
+                            <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-1">{order.title || order.category}</h2>
+                            <div className="flex items-center gap-2 text-slate-400">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">{order.category}</span>
+                                <span className="text-slate-700">•</span>
                                 <Clock size={12} /><span className="text-[10px] font-black uppercase tracking-widest">{order.date}</span>
                             </div>
                         </div>
@@ -318,6 +320,14 @@ export const ClientOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenCh
                             <div className={`size-2 rounded-full ${order.status === 'Terminé' ? 'bg-emerald-500' : 'bg-orange-500 animate-pulse'}`}></div>
                             <span className="text-[9px] font-black uppercase tracking-widest">{isPendingClosure ? 'VALIDATION...' : order.status}</span>
                         </div>
+                    </div>
+                </div>
+
+                {/* Description Section */}
+                <div className="space-y-4">
+                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-1">DESCRIPTION DÉTAILLÉE</h3>
+                    <div className="glass-card p-6 rounded-[2rem] bg-[#121214] border border-white/5 shadow-inner">
+                        <p className="text-slate-400 text-sm font-medium italic leading-relaxed">"{order.description}"</p>
                     </div>
                 </div>
 

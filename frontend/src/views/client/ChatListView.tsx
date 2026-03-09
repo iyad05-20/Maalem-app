@@ -3,7 +3,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, ChevronLeft, Edit, Camera, Home, User, X, MessageSquare } from 'lucide-react';
 import { Chat, Artisan } from '../../types';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
+import { UserAvatar } from '../../components/Shared/UserAvatar';
 import { auth } from '../../services/firebase.config';
+import { formatDisplayName } from '../../utils';
 
 interface Props {
   chats: Chat[];
@@ -49,7 +51,8 @@ export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, o
   const filteredChats = chats.filter(chat => {
     // Determine name to display for filtering
     const isArtisan = currentUserId === chat.artisanId;
-    const display = isArtisan ? (chat.userName || 'Client') : chat.artisanName;
+    const name = isArtisan ? (chat.userName || 'Client') : chat.artisanName;
+    const display = isArtisan ? formatDisplayName(name) : name;
     return display.toLowerCase().includes(searchQuery.toLowerCase()) ||
       chat.lastMessage.toLowerCase().includes(searchQuery.toLowerCase());
   });
@@ -137,7 +140,8 @@ export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, o
         {filteredChats.map((chat) => {
           // Dynamic display logic
           const isArtisan = currentUserId === chat.artisanId;
-          const displayName = isArtisan ? (chat.userName || 'Client') : chat.artisanName;
+          const counterpartName = isArtisan ? (chat.userName || 'Client') : chat.artisanName;
+          const displayName = isArtisan ? formatDisplayName(counterpartName) : counterpartName;
           const displayImage = isArtisan ? (chat.userImage || '') : chat.artisanImage;
           const myUnreadCount = isArtisan ? (chat.unreadCountArtisan || 0) : (chat.unreadCountClient || 0);
 
@@ -149,7 +153,11 @@ export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, o
             >
               <div className="relative shrink-0">
                 <div className="size-16 rounded-[1.5rem] overflow-hidden border border-white/10 shadow-lg group-hover:scale-105 transition-transform">
-                  <SmartAvatar src={displayImage} name={displayName} initialsClassName="text-lg font-black text-white" />
+                  {isArtisan ? (
+                    <UserAvatar name={counterpartName} textClassName="text-lg font-black text-white" />
+                  ) : (
+                    <SmartAvatar src={displayImage} name={displayName} initialsClassName="text-lg font-black text-white" />
+                  )}
                 </div>
                 {(() => {
                   // Only artisans have a manual online status in this new approach

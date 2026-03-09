@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Maximize2, Loader2, Image as ImageIcon } from 'lucide-react';
 import { Artisan, PortfolioItem, Order } from '../../types';
 import { db } from '../../services/firebase.config';
-import { collection, query, where, orderBy, onSnapshot, documentId } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, orderBy, onSnapshot, documentId } from "firebase/firestore";
 import { sanitizeFirestoreData } from '../../utils';
 
 interface Props {

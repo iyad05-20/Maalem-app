@@ -1,18 +1,25 @@
 
 import {
-  getAuth,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  setPersistence,
   browserLocalPersistence,
-  setPersistence
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  onAuthStateChanged,
+  sendEmailVerification,
+  updateProfile,
+  updateEmail,
+  verifyBeforeUpdateEmail,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
+  confirmPasswordReset
+} from "firebase/auth";
 import {
-  getFirestore,
   doc,
   setDoc,
-  getDoc
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+  getDoc,
+  updateDoc
+} from "firebase/firestore";
 import app, { db, auth } from "./firebase.config";
 import { sanitizeFirestoreData } from "../utils";
 

@@ -1,6 +1,6 @@
 
 import { db } from './firebase.config';
-import { doc, updateDoc, arrayUnion, runTransaction, serverTimestamp, collection, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, updateDoc, getDoc, deleteDoc, collection, addDoc, arrayUnion, runTransaction, serverTimestamp, increment } from "firebase/firestore";
 import { getNextBestArtisan } from './recommendation.service';
 import { Order } from '../types';
 

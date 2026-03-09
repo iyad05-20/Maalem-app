@@ -1,6 +1,5 @@
-
 import { db } from './firebase.config';
-import { doc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import * as geofire from 'geofire-common';
 import { Coordinates } from '../types';
 

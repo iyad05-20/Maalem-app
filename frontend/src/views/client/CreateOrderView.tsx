@@ -1,11 +1,12 @@
 
 import React, { useState, useRef } from 'react';
-import { ChevronLeft, Camera, MapPin, Sparkles, Send, Trash2, Loader2, User } from 'lucide-react';
+import { ChevronLeft, Camera, MapPin, Sparkles, Trash2, User } from 'lucide-react';
 import { Category, View, Order, Artisan, Coordinates } from '../../types';
 import { uploadToSupabase } from '../../services/supabase.config';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
 import { getInitialArtisans } from '../../services/recommendation.service';
 import { reverseGeocode, MARRAKECH_CENTER } from '../../services/location.service';
+import { ChatbotModal } from '../../components/chatbot/ChatbotModal';
 
 interface Props {
   category: Category;
@@ -22,8 +23,7 @@ import { useFilePreviews } from '../../hooks/useFilePreview';
 export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan, hideArtisanName, onBack, onSubmit, showToast, userLocation }) => {
   const [description, setDescription] = useState('');
   const [images, setImages] = useState<File[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitStep, setSubmitStep] = useState<string>(''); // Track specific loading step
+  const [chatbotOpen, setChatbotOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previews = useFilePreviews(images);
 
@@ -42,74 +42,12 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handlePublish = async () => {
-    setIsSubmitting(true);
-    setSubmitStep('upload'); // Step 1: Uploading
+  // No longer using internal submitting state here, 
+  // as the ChatbotModal handles the flow from now on.
 
-    const orderId = `ord-${Date.now()}`;
-    const imageUrls: string[] = [];
-
-    try {
-      // 1. Upload Images
-      if (images.length > 0) {
-        for (const [index, file] of images.entries()) {
-          const fileExt = file.name.split('.').pop();
-          const fileName = `orders/${orderId}/initial_${index}_${Date.now()}.${fileExt}`;
-          const url = await uploadToSupabase('vork-profilepic-bucket', fileName, file);
-          imageUrls.push(url);
-        }
-      }
-
-      setSubmitStep('matching'); // Step 2: Matching
-
-      // 2. Determine Targeted Artisans
-      let initialTargeted: string[] = [];
-
-      if (preSelectedArtisan) {
-        initialTargeted = [preSelectedArtisan.id];
-      } else {
-        // Smart Matching Engine
-        initialTargeted = await getInitialArtisans(orderId, category.name, effectiveLocation);
-      }
-
-      let detectedCity = 'Marrakech';
-      if (isUsingRealGPS) {
-        setSubmitStep('geocoding'); // Optional: Add a step for geocoding
-        detectedCity = await reverseGeocode(effectiveLocation.lat, effectiveLocation.lng);
-      }
-
-      // 3. Construct Order Object
-      const newOrder: Order = {
-        id: orderId,
-        category: category.name,
-        status: "EN ATTENTE D'EXPERT",
-        date: new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        description: description,
-        location: isUsingRealGPS ? 'Ma position actuelle' : 'Marrakech, Centre',
-        locationCoords: effectiveLocation,
-        city: detectedCity,
-        responses: [],
-        images: imageUrls,
-        targetedArtisans: initialTargeted,
-        isDirect: !!preSelectedArtisan,
-        contactedArtisanIds: initialTargeted,
-        currentRadius: 1,
-        rejectedArtisanIds: []
-      };
-
-      setSubmitStep('saving'); // Step 3: Saving to Firestore
-
-      // 4. Submit to Parent (Async Firestore Write)
-      await onSubmit(newOrder);
-
-      // NOTE: We do not set isSubmitting(false) here because the parent component 
-      // will change the view (unmounting this component) immediately after promise resolves.
-
-    } catch (err) {
-      console.error("Error publishing order:", err);
-      showToast("Une erreur est survenue lors de la publication.", "error");
-      setIsSubmitting(false);
-    }
+  const handleStartChat = () => {
+    if (!description.trim()) return;
+    setChatbotOpen(true);
   };
 
   return (
@@ -117,7 +55,6 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
       <header className="px-6 pt-12 pb-6 flex items-center gap-4 sticky top-0 bg-[#0a0a0c]/90 backdrop-blur-xl z-50 border-b border-white/5">
         <button
           onClick={onBack}
-          disabled={isSubmitting}
           className="size-10 bg-white/5 rounded-xl flex items-center justify-center text-white border border-white/10"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -207,46 +144,30 @@ export const CreateOrderView: React.FC<Props> = ({ category, preSelectedArtisan,
 
         <div className="pt-4 mt-auto">
           <button
-            onClick={handlePublish}
-            disabled={!description.trim() || isSubmitting}
+            onClick={handleStartChat}
+            disabled={!description.trim()}
             className="w-full py-6 rounded-[1.8rem] bg-gradient-to-r from-purple-800 to-purple-500 text-white/90 font-black text-base transition-all active:scale-[0.98] disabled:opacity-50 shadow-2xl shadow-purple-900/40 relative overflow-hidden group"
           >
-            {isSubmitting ? (
-              <div className="flex items-center justify-center gap-3">
-                <Loader2 className="size-4 animate-spin text-white" />
-                <span className="uppercase tracking-[0.2em]">Traitement...</span>
-              </div>
-            ) : (
-              <span className="uppercase tracking-[0.1em]">Publier la demande</span>
-            )}
+            <div className="flex items-center justify-center gap-3">
+              <Sparkles size={20} className="text-white animate-pulse" />
+              <span className="uppercase tracking-[0.1em]">Valider avec Vork AI</span>
+            </div>
 
             <div className="absolute inset-0 bg-white/5 translate-x-full group-hover:translate-x-0 transition-transform duration-500 pointer-events-none"></div>
           </button>
         </div>
       </div>
 
-      {isSubmitting && (
-        <div className="fixed inset-0 z-[110] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-300">
-          <div className="size-32 rounded-full border-4 border-purple-500/20 flex items-center justify-center mb-8 relative">
-            <Sparkles size={48} className="text-purple-500 animate-pulse z-10" />
-            <div className="absolute inset-0 border-t-4 border-purple-500 rounded-full animate-spin"></div>
-          </div>
-
-          <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-4 animate-pulse">
-            {submitStep === 'upload' && 'Envoi des photos...'}
-            {submitStep === 'geocoding' && 'Détection de la ville...'}
-            {submitStep === 'matching' && 'Analyse en cours...'}
-            {submitStep === 'saving' && 'Demande Publiée !'}
-          </h2>
-
-          <p className="text-slate-400 text-sm font-medium">
-            {preSelectedArtisan
-              ? `Nous notifions ${preSelectedArtisan.name}...`
-              : "Nous contactons les experts de la zone..."
-            }
-          </p>
-        </div>
-      )}
+      <ChatbotModal
+        isOpen={chatbotOpen}
+        initialDescription={description}
+        category={category}
+        preSelectedArtisan={preSelectedArtisan}
+        userLocation={userLocation}
+        onSubmit={onSubmit}
+        showToast={showToast}
+        onClose={() => setChatbotOpen(false)}
+      />
     </div>
   );
 };

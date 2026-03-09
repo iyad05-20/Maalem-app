@@ -3,9 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { Zap, MapPin, Clock, Send, ChevronRight, X, DollarSign, Loader2, Sparkles, Globe, Target, LayoutGrid, Maximize2, Image as ImageIcon } from 'lucide-react';
 import { Order, Artisan, Quote } from '../../types';
 import { db, auth } from '../../services/firebase.config';
-import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, getDocs, arrayUnion } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDoc, getDocs, arrayUnion } from "firebase/firestore";
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { sanitizeFirestoreData } from '../../utils';
+import { sanitizeFirestoreData, formatDisplayName } from '../../utils';
 
 interface Props {
   artisan: Artisan;
@@ -213,16 +213,23 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
                     <div className={`size-12 rounded-2xl flex items-center justify-center border ${activeTab === 'targeted' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20' : 'bg-white/5 text-slate-400 border-white/5'}`}>
                       {activeTab === 'targeted' ? <Sparkles size={24} /> : <LayoutGrid size={24} />}
                     </div>
-                    <div>
-                      <h3 className="text-white font-black text-lg leading-none uppercase tracking-tight">{order.category}</h3>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
-                        <MapPin size={10} /> {order.city || 'Marrakech'} • {order.searchRadius || 1} km
-                      </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-white font-black text-lg leading-tight uppercase tracking-tight line-clamp-1">
+                          {order.title || order.category}
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-[9px] text-indigo-400 font-black uppercase tracking-widest py-1 px-2 bg-indigo-500/10 rounded-lg border border-indigo-500/10">
+                          {formatDisplayName(order.userName || 'Client')}
+                        </span>
+                        <span className="text-slate-800 text-[10px]">•</span>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-1">
+                          <MapPin size={10} /> {order.city || 'Marrakech'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                  <p className="text-slate-400 text-sm font-medium line-clamp-2 italic leading-relaxed">
-                    "{order.description}"
-                  </p>
                   <div className="flex justify-between items-center pt-4 border-t border-white/5">
                     <div className="flex items-center gap-2 text-slate-500">
                       <Clock size={14} />
@@ -267,6 +274,16 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
             </header>
 
             <div className="space-y-6">
+              {/* AI Title & Full Description */}
+              <div className="space-y-3 bg-white/5 p-5 rounded-3xl border border-white/5">
+                <h4 className="text-indigo-400 font-black text-base uppercase tracking-tight">
+                  {selectedOrder.title || selectedOrder.category}
+                </h4>
+                <p className="text-slate-300 text-xs leading-relaxed italic">
+                  "{selectedOrder.description}"
+                </p>
+              </div>
+
               {/* Images Section */}
               {selectedOrder.images && selectedOrder.images.length > 0 ? (
                 <div className="space-y-2">

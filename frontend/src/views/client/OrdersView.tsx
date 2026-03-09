@@ -171,8 +171,8 @@ export const OrdersView: React.FC<Props> = ({ setView, orders, archivedOrders = 
                     </div>
                   </div>
 
-                  <p className="text-slate-400 text-sm mb-5 line-clamp-1 italic font-medium leading-relaxed bg-white/5 p-3 rounded-2xl border border-white/5">
-                    "{order.description}"
+                  <p className="text-purple-400 text-base font-black uppercase tracking-tight leading-tight line-clamp-2 mb-3">
+                    {order.title || order.category}
                   </p>
 
                   {/* Result Images Thumbnail Strip */}

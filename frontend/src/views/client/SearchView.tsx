@@ -5,9 +5,10 @@ import { Artisan, View, Category, Coordinates } from '../../types';
 import { getFormattedDistance, calculateDistanceMeters } from '../../services/location.service';
 import { CATEGORIES } from '../../data/mockData';
 import { db } from '../../services/firebase.config';
-import { collection, getDocs, query, orderBy, limit, startAfter, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { collection, query, where, getDocs, onSnapshot, limit, orderBy, startAfter } from "firebase/firestore";
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { sanitizeFirestoreData } from '../../utils';
+import { sanitizeFirestoreData, migrateUrl } from '../../utils';
+import { SearchSkeleton } from './SearchSkeleton';
 interface Props {
   setView: (v: View) => void;
   artisans: Artisan[];
@@ -17,6 +18,7 @@ interface Props {
   setSearchFilterCategory: (c: string) => void;
   searchFilterRating: number | 'Tous';
   setSearchFilterRating: (r: number | 'Tous') => void;
+  loading?: boolean;
 }
 
 const ArtisanSkeleton = () => (
@@ -35,6 +37,69 @@ const ArtisanSkeleton = () => (
   </div>
 );
 
+const CategoryFilterButton = React.memo(({ cat, searchFilterCategory, onSelect }: { cat: string, searchFilterCategory: string, onSelect: (c: string) => void }) => (
+  <button
+    onClick={() => onSelect(cat)}
+    className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all shrink-0 ${searchFilterCategory === cat
+      ? 'bg-emerald-600/10 border-emerald-500/50 text-emerald-400 shadow-lg'
+      : 'bg-white/5 border-white/5 text-slate-600 hover:bg-white/10 hover:text-slate-400'
+      }`}
+  >
+    {cat}
+  </button>
+));
+
+const ArtisanSearchCard = React.memo(({ art, userLocation, onSelect }: { art: Artisan, userLocation: Coordinates | null, onSelect: () => void }) => (
+  <div
+    onClick={onSelect}
+    className="bg-[#121214] border border-white/5 rounded-[2.5rem] p-5 relative transition-all hover:border-purple-500/20 group cursor-pointer active:scale-[0.98] shadow-2xl"
+  >
+    <div className="flex items-start gap-4">
+      <div className="relative shrink-0">
+        <div className="size-20 rounded-[1.8rem] overflow-hidden border border-white/10 group-hover:scale-105 transition-transform duration-500 shadow-xl">
+          <SmartAvatar src={art.image} name={art.name} initialsClassName="text-2xl font-black text-white" />
+        </div>
+        {art.isExplicitlyOnline && (
+          <div className="absolute -bottom-1 -right-1 size-5 bg-[#0a0a0c] rounded-full p-0.5 z-20">
+            <div className="w-full h-full bg-emerald-500 rounded-full border-[3px] border-[#0a0a0c] shadow-[0_0_10px_rgba(16,185,129,0.3)] relative">
+              <div className="absolute inset-0 bg-emerald-400 rounded-full animate-ping opacity-40"></div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 py-1">
+        <div className="flex justify-between items-start">
+          <div>
+            <h3 className="text-white font-black text-lg uppercase tracking-tight group-hover:text-purple-400 transition-colors leading-none mb-1">{art.name}</h3>
+            <p className="text-purple-400 text-[10px] font-black uppercase tracking-[0.1em]">{art.category} Expert</p>
+          </div>
+          <div className="flex items-center gap-1 bg-white/5 px-2 py-1 rounded-lg border border-white/5">
+            <Star className="size-3 text-yellow-400 fill-yellow-400" />
+            <span className="text-white text-[10px] font-black">{art.rating}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 mt-3">
+          <ShieldCheck className="size-4 text-emerald-500" />
+          <span className="text-emerald-500 text-[9px] font-bold uppercase tracking-widest">Vérifié par VORK</span>
+        </div>
+
+        <div className="flex items-center gap-3 mt-3">
+          <div className="flex items-center gap-1 text-slate-500">
+            <MapPin className="size-3" />
+            <span className="text-[10px] font-bold">{art.location}</span>
+          </div>
+          <div className="h-1 w-1 bg-slate-800 rounded-full"></div>
+          <span className="text-[10px] text-slate-500 font-bold uppercase">
+            {getFormattedDistance(userLocation, art.locationCoords) || art.distance}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+));
+
 export const SearchView: React.FC<Props> = ({
   setView,
   artisans: initialArtisans,
@@ -43,8 +108,10 @@ export const SearchView: React.FC<Props> = ({
   searchFilterCategory,
   setSearchFilterCategory,
   searchFilterRating,
-  setSearchFilterRating
+  setSearchFilterRating,
+  loading
 }) => {
+  if (loading) return <SearchSkeleton />;
   const [activeSort, setActiveSort] = useState('Tous');
   const [searchQuery, setSearchQuery] = useState('');
   const [dbArtisans, setDbArtisans] = useState<Artisan[]>(initialArtisans);
@@ -78,10 +145,15 @@ export const SearchView: React.FC<Props> = ({
     try {
       const q = query(artisansRef, ...constraints);
       const snapshot = await getDocs(q);
-      let results = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...sanitizeFirestoreData(doc.data())
-      })) as Artisan[];
+      let results = snapshot.docs.map(doc => {
+        const data = sanitizeFirestoreData(doc.data());
+        return {
+          id: doc.id,
+          ...data,
+          image: migrateUrl(data.image || data.avatar),
+          avatar: migrateUrl(data.avatar || data.image)
+        };
+      }) as Artisan[];
 
       // Apply Client-Side Sorting if Firestore couldn't do it due to index constraints
       if (isCategorized) {
@@ -205,71 +277,16 @@ export const SearchView: React.FC<Props> = ({
         <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-700 mb-4 px-1">Filtrer par expertise</p>
         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
           {['Tous', ...CATEGORIES.map(c => c.name)].map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSearchFilterCategory(cat)}
-              className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all shrink-0 ${searchFilterCategory === cat
-                ? 'bg-emerald-600/10 border-emerald-500/50 text-emerald-400 shadow-lg'
-                : 'bg-white/5 border-white/5 text-slate-600 hover:bg-white/10 hover:text-slate-400'
-                }`}
-            >
-              {cat}
-            </button>
+            <CategoryFilterButton key={cat} cat={cat} searchFilterCategory={searchFilterCategory} onSelect={setSearchFilterCategory} />
           ))}
         </div>
       </div>
 
+
+
       <div className="px-6 space-y-4">
         {dbArtisans.length > 0 ? dbArtisans.map((art) => (
-          <div
-            key={art.id}
-            onClick={() => { setSelectedArtisan(art); setView('artisan-detail'); }}
-            className="bg-[#121214] border border-white/5 rounded-[2.5rem] p-5 relative transition-all hover:border-purple-500/20 group cursor-pointer active:scale-[0.98] shadow-2xl"
-          >
-            <div className="flex items-start gap-4">
-              <div className="relative shrink-0">
-                <div className="size-20 rounded-[1.8rem] overflow-hidden border border-white/10 group-hover:scale-105 transition-transform duration-500 shadow-xl">
-                  <SmartAvatar src={art.image} name={art.name} initialsClassName="text-2xl font-black text-white" />
-                </div>
-                {art.isExplicitlyOnline && (
-                  <div className="absolute -bottom-1 -right-1 size-5 bg-[#0a0a0c] rounded-full p-0.5 z-20">
-                    <div className="w-full h-full bg-emerald-500 rounded-full border-[3px] border-[#0a0a0c] shadow-[0_0_10px_rgba(16,185,129,0.3)] relative">
-                      <div className="absolute inset-0 bg-emerald-400 rounded-full animate-ping opacity-40"></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 py-1">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-white font-black text-lg uppercase tracking-tight group-hover:text-purple-400 transition-colors leading-none mb-1">{art.name}</h3>
-                    <p className="text-purple-400 text-[10px] font-black uppercase tracking-[0.1em]">{art.category} Expert</p>
-                  </div>
-                  <div className="flex items-center gap-1 bg-white/5 px-2 py-1 rounded-lg border border-white/5">
-                    <Star className="size-3 text-yellow-400 fill-yellow-400" />
-                    <span className="text-white text-[10px] font-black">{art.rating}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 mt-3">
-                  <ShieldCheck className="size-4 text-emerald-500" />
-                  <span className="text-emerald-500 text-[9px] font-bold uppercase tracking-widest">Vérifié par VORK</span>
-                </div>
-
-                <div className="flex items-center gap-3 mt-3">
-                  <div className="flex items-center gap-1 text-slate-500">
-                    <MapPin className="size-3" />
-                    <span className="text-[10px] font-bold">{art.location}</span>
-                  </div>
-                  <div className="h-1 w-1 bg-slate-800 rounded-full"></div>
-                  <span className="text-[10px] text-slate-500 font-bold uppercase">
-                    {getFormattedDistance(userLocation, art.locationCoords) || art.distance}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ArtisanSearchCard key={art.id} art={art} userLocation={userLocation} onSelect={() => { setSelectedArtisan(art); setView('artisan-detail'); }} />
         )) : !isLoadingMore && (
           <div className="text-center py-20 opacity-20 flex flex-col items-center gap-4">
             <SearchIcon className="size-12 text-slate-500" />
