@@ -1,7 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Zap, ShieldAlert, Clock, CheckCircle2, Search, Send, Sparkles, AlertTriangle, Camera, Image as ImageIcon, Trash2, Loader2, MapPin, Edit2, Mic, StopCircle } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { Order, Coordinates } from '../../types';
 import { uploadToSupabase, base64ToBlob } from '../../services/supabase.config';
 import { CATEGORIES } from '../../data/mockData';
@@ -73,67 +72,18 @@ export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder, userLocation 
     setStep('analyzing');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-
-      const parts: any[] = [
-        {
-          text: `Tu es un expert en bâtiment et urgences domestiques. Analyse ce problème. 
-        Photos fournies: ${images.length}. 
-        Description: "${promptDescription.substring(0, 1000)}".
-        
-        Tâche:
-        1. Identifie la catégorie d'artisan (Plomberie, Électricité, Climatisation, Serrurerie, Vitrerie, etc.).
-        2. Estime la priorité (Basse, Moyenne, Haute, Critique).
-        3. Rédige un résumé technique court (1 phrase).
-        4. Donne un conseil de sécurité immédiat (très important).
-        5. Estime une fourchette de prix approximative en dh (ex: "150 - 300").
-        
-        Retourne un JSON.` }
-      ];
-
-      images.forEach(imgBase64 => {
-        const fullString = String(imgBase64);
-        const dataArr = fullString.split(',');
-        if (dataArr.length < 2) return;
-
-        const base64Data = dataArr[1];
-        const mimeTypeArr = dataArr[0].split(';')[0].split(':');
-        if (mimeTypeArr.length < 2) return;
-        const mimeType = mimeTypeArr[1];
-
-        if (base64Data && mimeType) {
-          parts.push({
-            inlineData: {
-              data: String(base64Data),
-              mimeType: String(mimeType)
-            }
-          });
-        }
+      const response = await fetch('/api/analyze-urgent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: promptDescription,
+          images: images
+        })
       });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: [{ role: "user", parts }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "object",
-            properties: {
-              category: { type: "string" },
-              priority: { type: "string", enum: ["Basse", "Moyenne", "Haute", "Critique"] },
-              summary: { type: "string" },
-              advice: { type: "string" },
-              estimatedPriceRange: { type: "string" }
-            },
-            required: ["category", "priority", "summary", "advice"]
-          }
-        }
-      });
+      if (!response.ok) throw new Error(`Backend error: ${response.status}`);
 
-      const textOutput = response.text;
-      if (!textOutput) throw new Error("Empty response from AI");
-
-      const result = JSON.parse(textOutput);
+      const result = await response.json();
       setAnalysis(result);
       setEditedCategory(result.category);
       setEditedPriority(result.priority);

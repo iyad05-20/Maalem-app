@@ -12,9 +12,6 @@ interface ImportMetaEnv {
     // Supabase Configuration
     readonly VITE_SUPABASE_URL: string
     readonly VITE_SUPABASE_ANON_KEY: string
-
-    // Google Gemini AI
-    readonly VITE_GEMINI_API_KEY: string
 }
 
 interface ImportMeta {

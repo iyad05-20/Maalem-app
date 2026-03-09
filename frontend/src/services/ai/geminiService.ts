@@ -1,6 +1,5 @@
-import { GoogleGenerativeAI, ChatSession } from '@google/generative-ai';
 import { parseGeminiJSON } from './promptParser';
-import type { GeminiResponse } from '../../types';
+import type { GeminiResponse, ChatMessage } from '../../types';
 
 // ─── SYSTEM PROMPT ──────────────────────────────────────────────────────────
 
@@ -179,7 +178,7 @@ RULES:
    - Visual: "Vous voyez des traces noires ou sentez une odeur de brûlé ?" → chips: "Oui traces | Odeur brûlé | Non rien"
 
    PLOMBERIE diagnosis questions (ask max 1-2):
-   - Scope: "L'eau coule en continu ou c'est juste le robinet ?" → chips: "Fuite continue | Juste robinet | Humidité mur"
+   - Scope: "L'water coule en continu ou c'est juste le robinet ?" → chips: "Fuite continue | Juste robinet | Humidité mur"
    - Location: "Sous l'évier, dans le mur ou visible ?" → chips: "Sous évier | Dans le mur | Sol mouillé"
 
    MAÇONNERIE diagnosis questions:
@@ -299,57 +298,91 @@ export const ORDER_CHANGE_KEYWORDS = [
   "finalement", "non plutôt", "oublie", "autre chose", "en fait", "non c'est pas ça"
 ];
 
-// ─── SINGLETON SESSION ───────────────────────────────────────────────────────
+// ─── SINGLETON SESSION STATE ──────────────────────────────────────────────────
 
-
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY ?? '');
-
-let session: ChatSession | null = null;
-
-function getSession(): ChatSession {
-  if (!session) {
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: SYSTEM_PROMPT,
-    });
-    session = model.startChat({ history: [] });
-  }
-  return session;
-}
+// We manually maintain history for the backend calls
+let messageHistory: any[] = [];
 
 // ─── PUBLIC API ──────────────────────────────────────────────────────────────
 
+/**
+ * Sends a text message to Gemini via backend proxy.
+ */
 export async function sendMessage(text: string): Promise<GeminiResponse> {
-  const result = await getSession().sendMessage(text);
-  const responseText = result.response.text();
-  console.log('[Gemini SDK] Raw Response:', responseText);
-  const json = parseGeminiJSON(responseText) as unknown as GeminiResponse;
-  console.log('[Gemini SDK] Parsed JSON:', json);
-  return json;
+  const newMessage = { role: 'user', text };
+  messageHistory.push(newMessage);
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: messageHistory,
+        systemInstruction: SYSTEM_PROMPT,
+      }),
+    });
+
+    if (!response.ok) throw new Error(`Backend error: ${response.status}`);
+
+    const json = await response.json();
+
+    // Add Gemini's response to history
+    messageHistory.push({ role: 'bot', text: json.message_to_user, parts: [{ text: JSON.stringify(json) }] });
+
+    return json as GeminiResponse;
+  } catch (err) {
+    console.error('[geminiService] sendMessage failed:', err);
+    throw err;
+  }
 }
 
+/**
+ * Sends a message with a photo to Gemini via backend proxy.
+ */
 export async function sendMessageWithPhoto(
   text: string,
   base64: string,
 ): Promise<GeminiResponse> {
-  const result = await getSession().sendMessage([
-    { inlineData: { mimeType: 'image/jpeg', data: base64 } },
-    { text },
-  ]);
-  const responseText = result.response.text();
-  console.log('[Gemini SDK Photo] Raw Response:', responseText);
-  const json = parseGeminiJSON(responseText) as unknown as GeminiResponse;
-  console.log('[Gemini SDK Photo] Parsed JSON:', json);
-  return json;
+  const newMessage = {
+    role: 'user',
+    text,
+    parts: [
+      { inlineData: { mimeType: 'image/jpeg', data: base64 } },
+      { text }
+    ]
+  };
+  messageHistory.push(newMessage);
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: messageHistory,
+        systemInstruction: SYSTEM_PROMPT,
+      }),
+    });
+
+    if (!response.ok) throw new Error(`Backend error: ${response.status}`);
+
+    const json = await response.json();
+
+    // Add Gemini's response to history
+    messageHistory.push({ role: 'bot', text: json.message_to_user, parts: [{ text: JSON.stringify(json) }] });
+
+    return json as GeminiResponse;
+  } catch (err) {
+    console.error('[geminiService] sendMessageWithPhoto failed:', err);
+    throw err;
+  }
 }
 
 /**
- * Resets context for a new order without destroying the session.
- * Discards the response — it's a housekeeping message, not user-facing.
+ * Resets context for a new order.
  */
 export async function resetSession(): Promise<void> {
-  await getSession().sendMessage(
-    'Nouvelle commande. Oublie la conversation précédente.',
-  );
+  messageHistory = [];
+  // Optional: send a hidden reset message to seeds history if needed, 
+  // but clearing the array is cleaner for a fresh start.
 }
 
