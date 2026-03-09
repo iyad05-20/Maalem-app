@@ -59,7 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 contentType: 'image/jpeg',
             });
 
-            // getBuffer() is synchronous and correct when all fields are Buffers
+            // SPEC REQUIREMENT: flux-2-dev call must be JSON-wrapped multipart
             const formBuffer = formData.getBuffer();
             const formHeaders = formData.getHeaders();
 
@@ -67,9 +67,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
-                    ...formHeaders, // sets Content-Type: multipart/form-data; boundary=...
+                    'Content-Type': 'application/json',
                 },
-                body: formBuffer as any,  // raw buffer — NOT JSON-wrapped
+                body: JSON.stringify({
+                    multipart: {
+                        body: formBuffer.toString('base64'),
+                        contentType: formHeaders['content-type'],
+                    },
+                }),
             });
 
         } else {
