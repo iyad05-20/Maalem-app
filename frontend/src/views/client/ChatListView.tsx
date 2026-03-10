@@ -3,9 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, ChevronLeft, Edit, Camera, Home, User, X, MessageSquare } from 'lucide-react';
 import { Chat, Artisan } from '../../types';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { UserAvatar } from '../../components/Shared/UserAvatar';
 import { auth } from '../../services/firebase.config';
-import { formatDisplayName } from '../../utils';
+import { sanitizeFirestoreData } from '../../utils';
 
 interface Props {
   chats: Chat[];
@@ -52,7 +51,7 @@ export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, o
     // Determine name to display for filtering
     const isArtisan = currentUserId === chat.artisanId;
     const name = isArtisan ? (chat.userName || 'Client') : chat.artisanName;
-    const display = isArtisan ? formatDisplayName(name) : name;
+    const display = name;
     return display.toLowerCase().includes(searchQuery.toLowerCase()) ||
       chat.lastMessage.toLowerCase().includes(searchQuery.toLowerCase());
   });
@@ -141,7 +140,6 @@ export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, o
           // Dynamic display logic
           const isArtisan = currentUserId === chat.artisanId;
           const counterpartName = isArtisan ? (chat.userName || 'Client') : chat.artisanName;
-          const displayName = isArtisan ? formatDisplayName(counterpartName) : counterpartName;
           const displayImage = isArtisan ? (chat.userImage || '') : chat.artisanImage;
           const myUnreadCount = isArtisan ? (chat.unreadCountArtisan || 0) : (chat.unreadCountClient || 0);
 
@@ -153,11 +151,7 @@ export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, o
             >
               <div className="relative shrink-0">
                 <div className="size-16 rounded-[1.5rem] overflow-hidden border border-white/10 shadow-lg group-hover:scale-105 transition-transform">
-                  {isArtisan ? (
-                    <UserAvatar name={counterpartName} textClassName="text-lg font-black text-white" />
-                  ) : (
-                    <SmartAvatar src={displayImage} name={displayName} initialsClassName="text-lg font-black text-white" />
-                  )}
+                  <SmartAvatar src={displayImage} name={counterpartName} initialsClassName="text-lg font-black text-white" />
                 </div>
                 {(() => {
                   // Only artisans have a manual online status in this new approach
@@ -179,7 +173,7 @@ export const ChatListView: React.FC<Props> = ({ chats, artisans, onSelectChat, o
               <div className="flex-1 min-w-0 py-1">
                 <div className="flex justify-between items-end mb-1">
                   <h3 className="text-white font-black text-sm uppercase tracking-tight truncate group-hover:text-purple-400 transition-colors">
-                    {displayName}
+                    {counterpartName}
                   </h3>
                   <span className="text-[9px] text-slate-600 font-black uppercase tracking-widest leading-none">
                     {chat.lastMessageTime ? new Date(chat.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : chat.timestamp}

@@ -1,6 +1,6 @@
 # VORK App V2
 
-Une plateforme moderne de mise en relation entre clients et artisans au Sénégal.
+Une plateforme moderne de mise en relation entre clients et artisans.
 
 ## Structure du Projet
 

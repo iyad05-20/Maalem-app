@@ -52,8 +52,7 @@ export const useOrdersLogic = (userId: string | undefined, userRole: 'user' | 'a
         // Notifications Listener
         const notifsQuery = query(
             collection(db, "notifications"),
-            where("userId", "==", userId),
-            orderBy("createdAt", "desc")
+            where("userId", "==", userId)
         );
 
         const unsubNotifs = onSnapshot(notifsQuery, (snapshot) => {
@@ -61,6 +60,14 @@ export const useOrdersLogic = (userId: string | undefined, userRole: 'user' | 'a
                 ...sanitizeFirestoreData(doc.data()),
                 id: doc.id
             })) as Notification[];
+
+            // Sort by createdAt desc in frontend to avoid composite index requirement
+            notifsData.sort((a, b) => {
+                const dateA = new Date(a.createdAt).getTime();
+                const dateB = new Date(b.createdAt).getTime();
+                return dateB - dateA;
+            });
+
             setNotifications(notifsData);
         });
 

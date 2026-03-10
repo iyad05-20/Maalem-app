@@ -2,9 +2,8 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ChevronLeft, Share2, MapPin, ShieldCheck, Star, Phone, Mail, X, Info, MessageCircle, Heart, MessageSquareText, MessageSquare, Users, CheckCircle2 } from 'lucide-react';
 import { Artisan, View, PortfolioItem, Order, Review } from '../../types';
-import { isImageUrl, getInitials, sanitizeFirestoreData, migrateUrl, formatDisplayName } from '../../utils';
+import { isImageUrl, getInitials, sanitizeFirestoreData, migrateUrl } from '../../utils';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { UserAvatar } from '../../components/Shared/UserAvatar';
 import { uploadToSupabase, deleteFromSupabase, extractPathFromUrl } from '../../services/supabase.config';
 import { db } from '../../services/firebase.config';
 import { doc, updateDoc, collection, query, where, onSnapshot, orderBy, limit, documentId } from "firebase/firestore";
@@ -407,11 +406,11 @@ export const ArtisanDetailView: React.FC<Props> = ({ art, setView, onBack, onOpe
               <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-3">
                   <div className="size-10 rounded-xl overflow-hidden border border-white/5">
-                    <UserAvatar name={rev.userName || 'Client'} textClassName="text-[10px] font-black text-white" />
+                    <SmartAvatar src={(rev as any).userImage} name={rev.userName || 'Client'} initialsClassName="text-[10px] font-black text-white" />
                   </div>
                   <div>
                     <h4 className="text-xs font-black text-white uppercase tracking-tight">
-                      {formatDisplayName(rev.userName || 'Client')}
+                      {rev.userName || 'Client'}
                     </h4>
                     <p className="text-[8px] text-slate-600 font-bold uppercase tracking-widest mt-0.5">{rev.date}</p>
                   </div>

@@ -1,5 +1,5 @@
 import { parseGeminiJSON } from './promptParser';
-import type { GeminiResponse, ChatMessage } from '../../types';
+import type { GeminiResponse } from '../../types';
 
 // ─── SYSTEM PROMPT ──────────────────────────────────────────────────────────
 
@@ -298,6 +298,7 @@ export const ORDER_CHANGE_KEYWORDS = [
   "finalement", "non plutôt", "oublie", "autre chose", "en fait", "non c'est pas ça"
 ];
 
+
 // ─── SINGLETON SESSION STATE ──────────────────────────────────────────────────
 
 // We manually maintain history for the backend calls
@@ -326,8 +327,8 @@ export async function sendMessage(text: string): Promise<GeminiResponse> {
 
     const json = await response.json();
 
-    // Add Gemini's response to history
-    messageHistory.push({ role: 'bot', text: json.message_to_user, parts: [{ text: JSON.stringify(json) }] });
+    // Add Gemini's response to history (CLEAN TEXT ONLY to prevent token explosion)
+    messageHistory.push({ role: 'bot', text: json.message_to_user });
 
     return json as GeminiResponse;
   } catch (err) {
@@ -347,8 +348,8 @@ export async function sendMessageWithPhoto(
     role: 'user',
     text,
     parts: [
-      { inlineData: { mimeType: 'image/jpeg', data: base64 } },
-      { text }
+      { inlineData: { mimeType: 'image/jpeg', data: base64.includes(',') ? base64.split(',')[1] : base64 } },
+      { text: text || "Analyse cette photo." }
     ]
   };
   messageHistory.push(newMessage);
@@ -367,8 +368,8 @@ export async function sendMessageWithPhoto(
 
     const json = await response.json();
 
-    // Add Gemini's response to history
-    messageHistory.push({ role: 'bot', text: json.message_to_user, parts: [{ text: JSON.stringify(json) }] });
+    // Add Gemini's response to history (CLEAN TEXT ONLY)
+    messageHistory.push({ role: 'bot', text: json.message_to_user });
 
     return json as GeminiResponse;
   } catch (err) {
@@ -382,7 +383,4 @@ export async function sendMessageWithPhoto(
  */
 export async function resetSession(): Promise<void> {
   messageHistory = [];
-  // Optional: send a hidden reset message to seeds history if needed, 
-  // but clearing the array is cleaner for a fresh start.
 }
-

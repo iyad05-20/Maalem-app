@@ -72,18 +72,41 @@ export const UrgentView: React.FC<Props> = ({ onClose, onAddOrder, userLocation 
     setStep('analyzing');
 
     try {
-      const response = await fetch('/api/analyze-urgent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          description: promptDescription,
-          images: images
-        })
-      });
+      const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-      if (!response.ok) throw new Error(`Backend error: ${response.status}`);
+      const prompt = `Tu es un expert en bâtiment et urgences domestiques. Analyse ce problème. 
+      Photos fournies: ${images?.length || 0}. 
+      Description: ${promptDescription || "Aucune description"}.
+      
+      Réponds UNIQUEMENT en JSON valide:
+      {
+        "category": "nom de catégorie",
+        "priority": "Basse"|"Moyenne"|"Haute"|"Critique",
+        "summary": "résumé pro en 1 phrase",
+        "advice": "conseil de sécurité immédiat",
+        "estimatedPriceRange": "min-max"
+      }`;
 
-      const result = await response.json();
+      let resultText = "";
+      if (images.length > 0) {
+        const imageParts = images.map(base64 => ({
+          inlineData: {
+            mimeType: "image/jpeg",
+            data: base64.split(',')[1] // remove data:image/jpeg;base64,
+          }
+        }));
+        const result = await model.generateContent([prompt, ...imageParts]);
+        resultText = result.response.text();
+      } else {
+        const result = await model.generateContent(prompt);
+        resultText = result.response.text();
+      }
+
+      const cleaned = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const result = JSON.parse(cleaned);
+
       setAnalysis(result);
       setEditedCategory(result.category);
       setEditedPriority(result.priority);

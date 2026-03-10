@@ -8,59 +8,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { description, images } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-        return res.status(500).json({ error: 'Gemini API key not configured' });
+    if (!process.env.GEMINI_API_KEY) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
     }
 
     try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
         const prompt = `Tu es un expert en bâtiment et urgences domestiques. Analyse ce problème. 
-        Photos fournies: ${images?.length || 0}. 
-        Description: "${String(description || '').substring(0, 1000)}".
-        
-        Tâche:
-        1. Identifie la catégorie d'artisan (Plomberie, Électricité, Climatisation, Serrurerie, Vitrerie, etc.).
-        2. Estime la priorité (Basse, Moyenne, Haute, Critique).
-        3. Rédige un résumé technique court (1 phrase).
-        4. Donne un conseil de sécurité immédiat (très important).
-        5. Estime une fourchette de prix approximative en dh (ex: "150 - 300").
-        
-        Retourne un JSON.`;
+    Photos fournies: ${images?.length || 0}. 
+    Description: ${description || "Aucune description"}.
+    
+    Réponds UNIQUEMENT en JSON valide:
+    {
+      "category": "nom de catégorie",
+      "priority": "Basse"|"Moyenne"|"Haute"|"Critique",
+      "summary": "résumé pro en 1 phrase",
+      "advice": "conseil de sécurité immédiat",
+      "estimatedPriceRange": "min-max"
+    }`;
 
-        const parts: any[] = [{ text: prompt }];
-
-        if (images && Array.isArray(images)) {
-            for (const imgBase64 of images) {
-                const dataArr = String(imgBase64).split(',');
-                if (dataArr.length < 2) continue;
-
-                const base64Data = dataArr[1];
-                const mimeType = dataArr[0].split(';')[0].split(':')[1];
-
-                parts.push({
-                    inlineData: {
-                        data: base64Data,
-                        mimeType: mimeType || 'image/jpeg'
-                    }
-                });
-            }
+        let result;
+        if (images && images.length > 0) {
+            const imageParts = images.map((base64: string) => ({
+                inlineData: {
+                    mimeType: "image/jpeg",
+                    data: base64.includes(',') ? base64.split(',')[1] : base64
+                }
+            }));
+            result = await model.generateContent([prompt, ...imageParts]);
+        } else {
+            result = await model.generateContent(prompt);
         }
 
-        const result = await model.generateContent({
-            contents: [{ role: 'user', parts }],
-            generationConfig: {
-                responseMimeType: 'application/json',
-            }
-        });
-
         const responseText = result.response.text();
-        return res.status(200).json(JSON.parse(responseText));
+        const cleaned = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const json = JSON.parse(cleaned);
 
-    } catch (err) {
-        console.error('[api/analyze-urgent] Error:', err);
-        return res.status(500).json({ error: 'Internal server error' });
+        return res.status(200).json(json);
+
+    } catch (error) {
+        console.error('[api/analyze-urgent] Error:', error);
+        return res.status(500).json({ error: 'Failed to analyze urgent request' });
     }
 }

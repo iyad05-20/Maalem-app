@@ -4,8 +4,8 @@ import { ChevronLeft, Star, Loader2, Filter, BarChart3 } from 'lucide-react';
 import { Artisan, Review } from '../../types';
 import { db } from '../../services/firebase.config';
 import { collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, doc, documentId } from "firebase/firestore";
-import { sanitizeFirestoreData, formatDisplayName } from '../../utils';
-import { UserAvatar } from '../../components/Shared/UserAvatar';
+import { sanitizeFirestoreData } from '../../utils';
+import { SmartAvatar } from '../../components/Shared/SmartAvatar';
 
 interface Props {
   art: Artisan;
@@ -213,11 +213,11 @@ export const AllReviewsView: React.FC<Props> = ({ art: initialArtisan, onBack })
               <div className="flex justify-between items-start mb-5">
                 <div className="flex items-center gap-4">
                   <div className="size-12 rounded-2xl overflow-hidden border border-white/5 shadow-inner">
-                    <UserAvatar name={rev.userName || 'Client'} textClassName="text-sm font-black text-white" />
+                    <SmartAvatar src={(rev as any).userImage} name={rev.userName || 'Client'} initialsClassName="text-sm font-black text-white" />
                   </div>
                   <div>
                     <h4 className="text-sm font-black text-white uppercase tracking-tight">
-                      {formatDisplayName(rev.userName || 'Client')}
+                      {rev.userName || 'Client'}
                     </h4>
                     <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest mt-0.5">{rev.date}</p>
                   </div>

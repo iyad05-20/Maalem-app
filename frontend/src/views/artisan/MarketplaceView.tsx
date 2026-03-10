@@ -5,7 +5,7 @@ import { Order, Artisan, Quote } from '../../types';
 import { db, auth } from '../../services/firebase.config';
 import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDoc, getDocs, arrayUnion } from "firebase/firestore";
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { sanitizeFirestoreData, formatDisplayName } from '../../utils';
+import { sanitizeFirestoreData } from '../../utils';
 
 interface Props {
   artisan: Artisan;
@@ -221,7 +221,7 @@ export const MarketplaceView: React.FC<Props> = ({ artisan }) => {
                       </div>
                       <div className="flex items-center gap-2 mt-1.5">
                         <span className="text-[9px] text-indigo-400 font-black uppercase tracking-widest py-1 px-2 bg-indigo-500/10 rounded-lg border border-indigo-500/10">
-                          {formatDisplayName(order.userName || 'Client')}
+                          {order.userName || 'Client'}
                         </span>
                         <span className="text-slate-800 text-[10px]">•</span>
                         <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-1">

@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import FormData from 'form-data';
+import fetch from 'node-fetch'; // Use node-fetch for compatibility
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method !== 'POST') {
@@ -24,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        let cfResponse: Response;
+        let cfResponse;
 
         // ── flux-1-schnell: JSON body ──────────────────────────────────────────
         if (model === 'flux-1-schnell') {
@@ -52,8 +53,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             formData.append('width', '768');
             formData.append('height', '768');
 
-            // Convert base64 back to Buffer — getBuffer() requires Buffers, not streams
-            const photoBuffer = Buffer.from(userPhoto, 'base64');
+            // Convert base64 back to Buffer
+            const photoBase64 = userPhoto.includes(',') ? userPhoto.split(',')[1] : userPhoto;
+            const photoBuffer = Buffer.from(photoBase64, 'base64');
             formData.append('input_image_0', photoBuffer, {
                 filename: 'input.jpeg',
                 contentType: 'image/jpeg',

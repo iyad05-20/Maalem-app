@@ -206,6 +206,7 @@ export const useAppLogic = () => {
                     artisanId: artisanId,
                     artisanName: artisanName || 'Expert',
                     artisanImage: artisanImage || '',
+                    participants: [clientId, artisanId],
                     lastMessage: "Début de la conversation",
                     lastMessageTime: new Date().toISOString(),
                     unreadCount: 0,

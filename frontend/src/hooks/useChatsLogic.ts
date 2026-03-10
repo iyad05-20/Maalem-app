@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { db } from '../services/firebase.config';
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, or } from "firebase/firestore";
 import { Chat } from '../types';
 import { sanitizeFirestoreData } from '../utils';
 
@@ -17,9 +17,14 @@ export const useChatsLogic = (userId: string | undefined) => {
         }
 
         setChatsLoading(true);
+        // Use 'or' query to support both participants array and legacy userId/artisanId fields
         const chatsQuery = query(
             collection(db, "chats"),
-            where("participants", "array-contains", userId)
+            or(
+                where("participants", "array-contains", userId),
+                where("userId", "==", userId),
+                where("artisanId", "==", userId)
+            )
         );
 
         const unsubscribe = onSnapshot(chatsQuery, (snapshot) => {

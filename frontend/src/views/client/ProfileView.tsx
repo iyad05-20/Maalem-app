@@ -3,7 +3,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { User, Mail, MapPin, Phone, LogOut, Edit2, Check, Camera, ShieldCheck, Heart, Clock, X, Settings, Trash2, Loader2, CheckCircle2, ChevronRight, Lock, AlertCircle, Send } from 'lucide-react';
 import { getInitials, isImageUrl } from '../../utils';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { UserAvatar } from '../../components/Shared/UserAvatar';
 import { uploadToSupabase, deleteFromSupabase, extractPathFromUrl } from '../../services/supabase.config';
 import { db } from '../../services/firebase.config';
 import { collection, query, where, onSnapshot, updateDoc, doc, addDoc, getDoc, getDocs, arrayUnion } from "firebase/firestore";
@@ -191,10 +190,11 @@ export const ProfileView: React.FC<Props> = ({ user, setUser, onLogout, favorite
                 initialsClassName="text-3xl font-black text-slate-700 relative z-10 group-hover:scale-110 transition-transform duration-500"
               />
             ) : (
-              <UserAvatar
+              <SmartAvatar
+                src={formData.avatar}
                 name={formData.name}
                 className="size-full relative z-10"
-                textClassName="text-4xl font-black text-white relative z-10 group-hover:scale-110 transition-transform duration-500"
+                initialsClassName="text-4xl font-black text-white relative z-10 group-hover:scale-110 transition-transform duration-500"
               />
             )}
 

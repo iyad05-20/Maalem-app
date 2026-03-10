@@ -3,8 +3,6 @@ import React, { useState } from 'react';
 import { ChevronLeft, ImageIcon, MoreVertical, MessageCircle, Phone, MapPin, X, Maximize2, Clock } from 'lucide-react';
 import { Order, Artisan } from '../../types';
 import { SmartAvatar } from '../../components/Shared/SmartAvatar';
-import { UserAvatar } from '../../components/Shared/UserAvatar';
-import { formatDisplayName } from '../../utils';
 
 interface Props {
     order: Order;
@@ -77,11 +75,11 @@ export const ArtisanOrderDetailView: React.FC<Props> = ({ order, onBack, onOpenC
                     <div className="glass-card p-6 rounded-[2.5rem] bg-[#121214] border border-white/10 shadow-2xl relative overflow-hidden">
                         <div className="flex items-center gap-5">
                             <div className="size-16 rounded-full overflow-hidden border-2 border-slate-700">
-                                <UserAvatar name={order.userName || 'Client'} textClassName="text-xl font-black text-white" />
+                                <SmartAvatar src={order.userImage} name={order.userName || 'Client'} initialsClassName="text-xl font-black text-white" />
                             </div>
                             <div className="flex-1">
                                 <h4 className="text-xl font-black text-white tracking-tighter mb-2">
-                                    {formatDisplayName(order.userName || 'Client')}
+                                    {order.userName || 'Client'}
                                 </h4>
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Voir détails dans le chat</p>
                             </div>

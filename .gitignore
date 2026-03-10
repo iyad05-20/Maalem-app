@@ -47,3 +47,4 @@ frontend/node_modules/
 vork_app_v1/
 *.mjs
 output.png
+.vercel
