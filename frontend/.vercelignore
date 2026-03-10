@@ -2,9 +2,6 @@
 vork/
 vork_app_v1/
 backend/
-*.png
-*.jpeg
-*.jpg
 *.txt
 *.sql
 *.mjs

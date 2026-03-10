@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
         <header className="px-6 pt-10 pb-4 sticky top-0 z-40 bg-[#0a0a0c]/80 backdrop-blur-xl border-b border-white/5 flex justify-between items-center">
             <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg overflow-hidden">
-                    <img src="/vork-logo.png" alt="Vork Logo" className="w-8 h-8 object-contain" />
+                    <img src="/icons/icon-192x192.png" alt="Vork Logo" className="w-7 h-7 object-contain" />
                 </div>
                 <div>
                     <h1 className="text-lg font-black tracking-tighter text-white uppercase leading-none">VORK</h1>
