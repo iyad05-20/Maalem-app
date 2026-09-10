@@ -131,7 +131,7 @@ export const clientWalletAPI = {
       const res = await fetch(`${API_BASE}/client/orders`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({ clientRef, artisanRef, totalPrice, productType }),
+        body: JSON.stringify({ clientRef, artisanRef, artisanName, totalPrice, productType, productTitle, productImage }),
       });
       if (res.ok) {
         const backendOrder = await res.json() as ClientOrder;

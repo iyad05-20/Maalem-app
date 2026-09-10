@@ -87,6 +87,9 @@ function App() {
   }, [currentUser, view, showNotificationsOverlay]);
 
   const hasUnreadNotifications = clientOrdersList.some((o) => {
+    if (["en_preparation", "en_cours_de_transport", "livre", "en_reclamation"].includes(o.status)) {
+      return true;
+    }
     if (["acompte_verse", "payee_integralement"].includes(o.status)) {
       const diffHours = (Date.now() - new Date(o.createdAt).getTime()) / (1000 * 60 * 60);
       return diffHours >= 48;

@@ -3,14 +3,14 @@ import { motion } from 'framer-motion';
 
 export const AtelierView: React.FC = () => {
   const [activeMessage, setActiveMessage] = useState(
-    "Découvrez une nouvelle manière d'explorer les textures marocaines. Choisissez une simulation pour commencer la co-création assistée."
+    "Découvrez une nouvelle manière d'explorer les textures marocaines. Choisissez une création pour débuter la personnalisation avec nos Maâlems."
   );
 
   const simulateChat = (preset: 'zellige' | 'moucharabieh') => {
     if (preset === 'zellige') {
-      setActiveMessage("Je calcule les proportions géométriques pour l'étoile à 8 branches. Les dimensions du zellige bleu de Fès sont optimisées pour la découpe.");
+      setActiveMessage("Harmonisation des proportions géométriques pour l'étoile à 8 branches. Les dimensions du zellige bleu de Fès sont optimisées pour la découpe artisanale.");
     } else {
-      setActiveMessage("Génération du motif asymétrique en bois de cèdre. La structure du moucharabieh laissera passer la lumière douce tout en préservant l'intimité.");
+      setActiveMessage("Conception du motif en bois de cèdre noble. La structure du moucharabieh laissera passer la lumière douce tout en préservant l'intimité.");
     }
   };
 
@@ -26,7 +26,7 @@ export const AtelierView: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
           <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.2em', color: '#D97706', fontWeight: 700, display: 'block' }}>
-            Artisanat Marocain Connecté
+            Artisanat Marocain d'Exception
           </span>
           <h2 style={{ fontSize: '24px', fontFamily: 'var(--font-heading)', fontWeight: 600, color: '#1A1A19', marginTop: '4px' }}>
             MAALEM
@@ -41,20 +41,20 @@ export const AtelierView: React.FC = () => {
       <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '20px', border: '1px solid rgba(0,0,0,0.05)', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', marginBottom: '24px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', right: '-30px', top: '-30px', width: '100px', height: '100px', border: '1px solid rgba(217,119,6,0.1)', borderRadius: '50%' }}></div>
         <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', backgroundColor: '#FFFBEB', color: '#B45309', padding: '4px 8px', borderRadius: '999px', fontWeight: 700 }}>
-          L'Artisanat Virtuel
+          L'Atelier Sur-Mesure
         </span>
         <h3 style={{ fontSize: '16px', fontFamily: 'var(--font-heading)', fontWeight: 500, marginTop: '12px', color: '#1A1A19' }}>
-          Votre Maître d'Œuvre Virtuel
+          Votre Bureau de Création Artisanale
         </h3>
         <p style={{ fontSize: '12px', color: '#666', marginTop: '6px', lineHeight: 1.5 }}>
-          Associez l'élégance de la géométrie traditionnelle marocaine au raffinement de l'IA pour générer vos motifs uniques.
+          Associez l'élégance de la géométrie traditionnelle marocaine au savoir-faire de nos Maâlems d'exception pour concevoir vos pièces uniques.
         </p>
       </div>
 
       {/* Interactive Selection Simulators */}
       <div style={{ marginBottom: '24px' }}>
         <h4 style={{ fontSize: '11px', fontWeight: 600, color: '#8E8E93', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '12px' }}>
-          Simuler une génération
+          Explorer une confection d'atelier
         </h4>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           

@@ -119,6 +119,8 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
   const prepPhotos: string[] = selectedOrder && Array.isArray((selectedOrder as any).prepPhotos)
     ? (selectedOrder as any).prepPhotos
     : [];
+  const isPrepBypass = prepPhotos.some(url => String(url).startsWith("bypass:"));
+  const validPrepPhotos = prepPhotos.filter(url => !String(url).startsWith("bypass:"));
 
 
   const clearCanvas = () => {
@@ -232,7 +234,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
         <div style={{ background: "var(--surface)", borderRadius: 20, border: "1px solid var(--border)", padding: "32px 20px", textAlign: "center", boxShadow: "var(--shadow-sm)" }}>
           <Package size={36} color="var(--text-secondary)" style={{ marginBottom: 12 }} />
           <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", margin: "0 0 6px 0" }}>Aucune commande active</h3>
-          <p style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-secondary)", marginBottom: 20 }}>Vous n'avez aucune commande en cours d'exécution.</p>
+          <p style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-secondary)", marginBottom: 20 }}>Vous n'avez aucune commande pour le moment.</p>
           <button onClick={loadData} style={{ padding: "12px 20px", borderRadius: 14, background: "var(--primary)", color: "#fff", border: "none", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
             Recharger les données
           </button>
@@ -450,7 +452,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
           </button>
           {onNavigateToWallet ? (
             <button onClick={onNavigateToWallet} style={{ background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.35)", borderRadius: 12, padding: "6px 10px", fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 600, color: "#8B6914", cursor: "pointer" }}>
-              💳 Wallet
+              Wallet
             </button>
           ) : <div style={{ width: 30 }} />}
         </div>
@@ -760,7 +762,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                       <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(26,42,58,0.85) 0%, transparent 65%)" }} />
                       <div style={{ position: "absolute", bottom: 12, left: 14, right: 14 }}>
                         <span style={{ display: "inline-block", background: isCustom ? "rgba(204,119,85,0.90)" : "rgba(156,175,136,0.90)", color: "#fff", fontSize: 10, fontWeight: 700, fontFamily: "var(--font-body)", padding: "2px 8px", borderRadius: 12, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>
-                          {isCustom ? "Sur-Mesure IA" : "Standard"}
+                          {isCustom ? (lang === "ar" ? "تفصيل خاص" : "Sur-Mesure") : (lang === "ar" ? "جاهز للتسليم" : "Prêt-à-porter")}
                         </span>
                         <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14, color: "#fff", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selectedOrder.productTitle}</p>
                       </div>
@@ -977,46 +979,78 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                 <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px dashed var(--border)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                     <h4 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--primary)", margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
-                      🏺 {lang === "ar" ? "حالة الورشة ومسار التوصيل" : "Statut Atelier & Acheminement"}
+                      {lang === "ar" ? "حالة الورشة ومسار التوصيل" : "Statut Atelier & Acheminement"}
                     </h4>
                     <span style={{ 
                       fontFamily: "var(--font-body)", 
                       fontSize: 10, 
                       padding: "3px 9px", 
                       borderRadius: 8, 
-                      background: ["en_cours_de_transport", "livre"].includes(selectedOrder.status) ? "rgba(45,106,79,0.12)" : "rgba(184,98,63,0.12)", 
-                      color: ["en_cours_de_transport", "livre"].includes(selectedOrder.status) ? "#2D6A4F" : "var(--accent-warm)", 
+                      background: ["en_cours_de_transport", "livre"].includes(selectedOrder.status) 
+                        ? "rgba(45,106,79,0.12)" 
+                        : selectedOrder.status === "annulee" 
+                        ? "rgba(220,53,69,0.12)" 
+                        : "rgba(184,98,63,0.12)", 
+                      color: ["en_cours_de_transport", "livre"].includes(selectedOrder.status) 
+                        ? "#2D6A4F" 
+                        : selectedOrder.status === "annulee" 
+                        ? "#DC3545" 
+                        : "var(--accent-warm)", 
                       fontWeight: 700 
                     }}>
                       {selectedOrder.status === "en_preparation" 
-                        ? (lang === "ar" ? "🛠️ قيد الصنع" : "🛠️ En Confection") 
+                        ? (lang === "ar" ? "قيد الصنع" : "En Confection") 
                         : selectedOrder.status === "en_cours_de_transport" 
-                        ? (lang === "ar" ? "🚚 في طريق التوصيل" : "🚚 En Livraison") 
+                        ? (lang === "ar" ? "في طريق التوصيل" : "En Livraison") 
                         : selectedOrder.status === "livre" 
-                        ? (lang === "ar" ? "✅ تم التسليم" : "✅ Livré") 
-                        : (lang === "ar" ? "⏳ بانتظار المعلم" : "⏳ En Attente Maâlem")}
+                        ? (lang === "ar" ? "تم التسليم" : "Livré") 
+                        : selectedOrder.status === "annulee"
+                        ? (selectedOrder.refusedByArtisan 
+                            ? (lang === "ar" ? "اعتذار الورشة" : "Déclinée par l'Atelier") 
+                            : (lang === "ar" ? "ملغاة ومسترجعة" : "Annulée"))
+                        : (lang === "ar" ? "بانتظار المعلم" : "En Attente Maâlem")}
                     </span>
                   </div>
+
+                  {/* 0. Étape Commande Déclinée / Refus Atelier */}
+                  {selectedOrder.status === "annulee" && (
+                    <div style={{ background: "rgba(220,53,69,0.06)", border: "1px solid rgba(220,53,69,0.25)", borderRadius: 14, padding: 14, marginBottom: 12 }}>
+                      <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, margin: "0 0 4px", color: "#DC3545" }}>
+                        {selectedOrder.refusedByArtisan 
+                          ? (lang === "ar" ? "تعذر قبول الطلب من الورشة" : "Prise en charge déclinée par le Maâlem") 
+                          : (lang === "ar" ? "تم إلغاء الطلب" : "Commande Annulée")}
+                      </p>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                        {selectedOrder.refusedByArtisan
+                          ? (lang === "ar" 
+                              ? `اعتذر المعلم عن تصنيع هذا الطلب.${selectedOrder.refusalReason ? ` سبب الاعتذار: "${selectedOrder.refusalReason}".` : ""} تم استرداد كامل المبلغ مباشرة إلى محفظتكم.` 
+                              : `Le Maâlem ne peut pas confectionner cette pièce.${selectedOrder.refusalReason ? ` Motif d'atelier : "${selectedOrder.refusalReason}".` : ""} L'intégralité de vos fonds a été immédiatement recréditée sur votre portefeuille Vork.`)
+                          : (lang === "ar"
+                              ? "تم إلغاء هذا الطلب واسترداد المبالغ المدفوعة إلى محفظتكم لدى ڤورك."
+                              : "Cette commande a été annulée et le montant dû a été reversé sur votre portefeuille Vork.")}
+                      </p>
+                    </div>
+                  )}
 
                   {/* 1. Étape Attente Confirmation Maâlem */}
                   {["acompte_verse", "payee_integralement"].includes(selectedOrder.status) && (
                     <div style={{ background: "rgba(212,175,55,0.06)", border: "1px solid rgba(212,175,55,0.25)", borderRadius: 14, padding: 14, marginBottom: 12 }}>
                       <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, margin: "0 0 4px", color: "var(--primary)" }}>
-                        ⏳ {lang === "ar" ? "تم إرسال الطلب إلى ورشة المعلم" : "Commande transmise à l'Atelier"}
+                        {lang === "ar" ? "تم إرسال الطلب إلى ورشة المعلم" : "Commande transmise à l'Atelier"}
                       </p>
                       <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
                         {lang === "ar" 
                           ? "تم إخطار المعلم بطلبك. وفقاً للشروط العامة، لدى الصانع مهلة ٧٢ ساعة كحد أقصى لتأكيد الطلب وبدء الصنع. أموالك محفوظة تحت الضمان البنكي." 
-                          : "Votre commande a été notifiée au Maâlem. Conformément à l'Art. 6.1 des CGV Vork, l'artisan dispose de 72 heures maximum pour confirmer la faisabilité et lancer la fabrication. Vos fonds restent protégés sous séquestre."}
+                          : "Votre commande a été notifiée au Maâlem. L'artisan dispose de 72 heures maximum pour confirmer la faisabilité et lancer la fabrication. Vos fonds restent protégés sous séquestre."}
                       </p>
                     </div>
                   )}
 
-                  {/* 2. Étape En Préparation Atelier + Photos de Préparation (Art. 8.1) */}
+                  {/* 2. Étape En Préparation Atelier + Photos de Préparation */}
                   {selectedOrder.status === "en_preparation" && (
                     <div style={{ background: "rgba(184,98,63,0.05)", border: "1px solid rgba(184,98,63,0.2)", borderRadius: 14, padding: 14, marginBottom: 12 }}>
                       <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, margin: "0 0 4px", color: "var(--primary)" }}>
-                        🛠️ {lang === "ar" ? "قيد الصنع والإعداد في ورشة المعلم" : "En cours de fabrication artisanale"}
+                        {lang === "ar" ? "قيد الصنع والإعداد في ورشة المعلم" : "En cours de fabrication artisanale"}
                       </p>
                       <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: "0 0 10px", lineHeight: 1.45 }}>
                         {lang === "ar" 
@@ -1025,22 +1059,27 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                       </p>
 
                       {/* Galerie des photos de préparation si disponibles */}
-                      {prepPhotos.length > 0 ? (
+                      {validPrepPhotos.length > 0 ? (
                         <div>
                           <p style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-warm)", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.3px" }}>
-                            📸 {lang === "ar" ? `صور توثيق الجاهزية من الورشة (${prepPhotos.length}/٤) :` : `Photos de préparation de l'artisan (${prepPhotos.length}/4) :`}
+                            {lang === "ar" ? `صور توثيق الجاهزية من الورشة (${validPrepPhotos.length}/٤) :` : `Photos de préparation de l'artisan (${validPrepPhotos.length}/4) :`}
                           </p>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-                            {prepPhotos.map((url, idx) => (
+                            {validPrepPhotos.map((url, idx) => (
                               <a key={idx} href={url} target="_blank" rel="noopener noreferrer" style={{ display: "block", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", aspectRatio: "1/1" }}>
                                 <img src={url} alt={`Préparation ${idx + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                               </a>
                             ))}
                           </div>
                         </div>
+                      ) : isPrepBypass ? (
+                        <p style={{ fontSize: 10, color: "var(--accent-emerald)", margin: 0, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>✓</span>
+                          <span>{lang === "ar" ? "تم فحص واعتماد جودة ومطابقة القطعة في الورشة قبل الشحن." : "Contrôle qualité et conformité validés en atelier avant expédition."}</span>
+                        </p>
                       ) : (
                         <p style={{ fontSize: 10, color: "var(--text-secondary)", fontStyle: "italic", margin: 0 }}>
-                          📸 {lang === "ar" ? "سيلتقط المعلم صور الجاهزية فور الانتهاء من حياكة وصنع القطعة." : "L'artisan prendra les photos de conformité dès l'achèvement de la pièce."}
+                          {lang === "ar" ? "سيلتقط المعلم صور الجاهزية فور الانتهاء من حياكة وصنع القطعة." : "L'artisan prendra les photos de conformité dès l'achèvement de la pièce."}
                         </p>
                       )}
                     </div>
@@ -1050,7 +1089,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                   {selectedOrder.status === "en_cours_de_transport" && (
                     <div style={{ background: "rgba(45,106,79,0.05)", border: "1px solid rgba(45,106,79,0.22)", borderRadius: 14, padding: 14, marginBottom: 12 }}>
                       <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, margin: "0 0 4px", color: "#2D6A4F" }}>
-                        🚚 {lang === "ar" ? "الطلب في طريق التوصيل إليكم" : "Colis en cours d'acheminement"}
+                        {lang === "ar" ? "الطلب في طريق التوصيل إليكم" : "Colis en cours d'acheminement"}
                       </p>
                       <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: "0 0 8px", lineHeight: 1.45 }}>
                         {selectedOrder.transportProvider === "sendit" 
@@ -1078,7 +1117,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                   {selectedOrder.status === "livre" && (
                     <div style={{ background: "rgba(45,106,79,0.06)", border: "1px solid rgba(45,106,79,0.2)", borderRadius: 14, padding: 14 }}>
                       <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, margin: "0 0 4px", color: "#2D6A4F" }}>
-                        ✅ Colis remis au destinataire
+                        {lang === "ar" ? "تم تسليم الطرد للمستلم" : "Colis remis au destinataire"}
                       </p>
                       <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
                         La livraison a été enregistrée. Utilisez les boutons ci-dessus pour confirmer la réception sous 24h ou signaler un incident.

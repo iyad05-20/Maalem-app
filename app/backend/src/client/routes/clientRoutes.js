@@ -16,8 +16,11 @@ const provider = new MockCmiProvider();
 const createOrderSchema = z.object({
   clientRef: z.string().min(1),
   artisanRef: z.string().min(1).optional(),
+  artisanName: z.string().optional(),
   totalPrice: z.number().positive(),
   productType: z.enum(["standard", "personnalise", "sur_commande"]).optional(),
+  productTitle: z.string().optional(),
+  productImage: z.string().optional(),
   transportProvider: z.enum(["sendit", "vendeur"]).optional(),
   clientSignature: z.string().optional(),
 });
@@ -59,20 +62,23 @@ router.post("/orders", (req, res) => {
   // Si Produit Personnalisé ou Sur Commande -> transport exclusivement Vendeur (Art. 8, 9, 10)
   const transportProvider = productType === "standard" ? (parsed.data.transportProvider ?? "sendit") : "vendeur";
 
-  db.insert(orders)
-    .values({
-      id,
-      clientRef: req.userId || parsed.data.clientRef,
-      artisanRef: parsed.data.artisanRef ?? "artisan-1",
-      totalPrice: parsed.data.totalPrice,
-      productType,
-      transportProvider,
-      clientSignature: parsed.data.clientSignature || null,
-      status: "en_attente_paiement",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
+    db.insert(orders)
+      .values({
+        id,
+        clientRef: req.userId || parsed.data.clientRef,
+        artisanRef: parsed.data.artisanRef ?? "artisan-1",
+        artisanName: parsed.data.artisanName || "Maâlem Abdelkader",
+        totalPrice: parsed.data.totalPrice,
+        productType,
+        productTitle: parsed.data.productTitle || "Création Artisanale",
+        productImage: parsed.data.productImage || null,
+        transportProvider,
+        clientSignature: parsed.data.clientSignature || null,
+        status: "en_attente_paiement",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
 
   const order = db.select().from(orders).where(eq(orders.id, id)).get();
   console.log(`[VORK-API] ✅ Order created successfully (ID: ${id}, Type: ${productType}, Transport: ${transportProvider})`);

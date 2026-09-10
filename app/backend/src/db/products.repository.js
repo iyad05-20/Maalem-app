@@ -4,7 +4,10 @@ let cachedProducts = [];
 
 export async function getAllProducts() {
   try {
-    const { data, error } = await supabase.from('products').select('*');
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (error) throw error;
     cachedProducts = data || [];
     return cachedProducts;

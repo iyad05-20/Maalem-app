@@ -141,7 +141,8 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
             const inPrep = order.status === "en_preparation";
             const inTransit = order.status === "en_cours_de_transport";
             const done = ["livre", "terminee"].includes(order.status);
-            const hasPhotos = (order.prepPhotos?.length ?? 0) >= 4;
+            const isBypass = order.prepPhotos?.some(p => String(p).startsWith("bypass:"));
+            const hasPhotos = (order.prepPhotos?.length ?? 0) >= 4 || !!isBypass;
 
             return (
               <motion.div
@@ -154,21 +155,32 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
               >
                 {/* Order header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                      <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 15, color: "var(--primary)" }}>
-                        {t("order_number")}{order.id}
-                      </span>
-                      <span className={`badge badge-${toAccept ? "urgent" : inPrep ? "warning" : inTransit ? "info" : "success"}`}>
-                        {getStatusLabel(order.status)}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                      {new Date(order.createdAt).toLocaleDateString(isRTL ? "ar-MA" : "fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                      {" · "}
-                      {order.productType === "standard"
-                        ? t("order_type_sendit")
-                        : t("order_type_direct")}
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    {order.productImage && (
+                      <img
+                        src={order.productImage}
+                        alt=""
+                        style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", border: "1px solid rgba(0,0,0,0.08)" }}
+                      />
+                    )}
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 15, color: "var(--primary)" }}>
+                          {order.productTitle || (isRTL ? "قطعة تقليدية" : "Création Artisanale")}
+                        </span>
+                        <span className={`badge badge-${toAccept ? "urgent" : inPrep ? "warning" : inTransit ? "info" : "success"}`}>
+                          {getStatusLabel(order.status)}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        <span style={{ color: "var(--accent-warm)", fontWeight: 700 }}>#{order.id.slice(0, 8)}</span>
+                        {" · "}
+                        {new Date(order.createdAt).toLocaleDateString(isRTL ? "ar-MA" : "fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        {" · "}
+                        {order.productType === "standard"
+                          ? t("order_type_sendit")
+                          : t("order_type_direct")}
+                      </div>
                     </div>
                   </div>
                   <div style={{ textAlign: isRTL ? "left" : "right" }}>
@@ -231,7 +243,9 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <Camera size={15} />
                         {hasPhotos
-                          ? (isRTL ? `✓ تم إيداع ${order.prepPhotos?.length} صور للورشة` : `✓ ${order.prepPhotos?.length} photos d'atelier`)
+                          ? (isBypass 
+                              ? (isRTL ? "✓ تم اعتماد المطابقة بالورشة" : "✓ Conforme pour expédition") 
+                              : (isRTL ? `✓ تم إيداع ${order.prepPhotos?.length} صور للورشة` : `✓ ${order.prepPhotos?.length} photos d'atelier`))
                           : t("order_photos_upload_cta")}
                       </div>
                       <ChevronRight size={14} style={{ transform: isRTL ? "rotate(180deg)" : "none" }} />

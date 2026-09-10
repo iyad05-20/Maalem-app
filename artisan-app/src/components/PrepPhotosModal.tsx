@@ -40,6 +40,19 @@ export const PrepPhotosModal: React.FC<PrepPhotosModalProps> = ({ orderId, onClo
     setPhotos(photos.filter((_, i) => i !== index));
   };
 
+  // ─── PROVISIONAL BYPASS (Facile à éliminer) ──────────────────────────────
+  const handleBypass = async () => {
+    setSubmitting(true);
+    try {
+      await onUpload(orderId, ["bypass:prep_photos_waived"]);
+      onClose();
+    } catch (err: any) {
+      alert(err.message || t("auth_error_server"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (photos.length === 0) return;
@@ -100,10 +113,56 @@ export const PrepPhotosModal: React.FC<PrepPhotosModalProps> = ({ orderId, onClo
           </button>
         </div>
 
-        <div style={{ background: "rgba(184, 98, 63, 0.08)", border: "1px solid rgba(184, 98, 63, 0.25)", borderRadius: 12, padding: 12, marginBottom: 16 }}>
+        <div style={{ background: "rgba(184, 98, 63, 0.08)", border: "1px solid rgba(184, 98, 63, 0.25)", borderRadius: 12, padding: 12, marginBottom: 12 }}>
           <p style={{ fontSize: 11, color: "var(--primary)", lineHeight: 1.4, margin: 0 }}>
             📌 <strong>{t("prep_cgv_rule")}</strong> {t("prep_photos_desc")}
           </p>
+        </div>
+
+        {/* ─── VALIDATION DIRECTE D'ATELIER ─── */}
+        <div style={{
+          background: "rgba(45, 106, 79, 0.08)",
+          border: "1px solid rgba(45, 106, 79, 0.25)",
+          borderRadius: 12,
+          padding: "10px 14px",
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12
+        }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "#2D6A4F", margin: "0 0 2px" }}>
+              ✓ {isRTL ? "اعتماد جاهزية القطعة بالورشة" : "Validation de conformité d'atelier"}
+            </p>
+            <p style={{ fontSize: 10, color: "var(--text-secondary)", margin: 0, lineHeight: 1.35 }}>
+              {isRTL 
+                ? "تأكيد جاهزية القطعة ومطابقتها التامة للمواصفات للانتقال المباشر إلى إعداد الشحن." 
+                : "Confirmez l'achèvement et la conformité de l'article pour passer directement à l'étape d'expédition."}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={handleBypass}
+            style={{
+              background: "#2D6A4F",
+              color: "#FFF",
+              border: "none",
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              boxShadow: "0 2px 6px rgba(45, 106, 79, 0.25)",
+              display: "flex",
+              alignItems: "center",
+              gap: 4
+            }}
+          >
+            {submitting ? "..." : (isRTL ? "تأكيد الجاهزية ✓" : "Valider la conformité ✓")}
+          </button>
         </div>
 
         <form onSubmit={handleSubmit}>

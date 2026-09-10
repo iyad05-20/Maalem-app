@@ -13,7 +13,7 @@ export const LogisticsView: React.FC<LogisticsViewProps> = ({ orders }) => {
       {/* Title */}
       <div>
         <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20, color: "var(--text-main)", margin: 0, display: "flex", alignItems: "center", gap: 10 }}>
-          <Truck color="var(--primary-gold)" /> 🚚 Supervision Logistique Sendit & Transport Direct (Art. 8, 9, 10, 17)
+          <Truck color="var(--primary-gold)" /> Supervision Logistique Sendit & Transport Direct
         </h3>
         <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 0" }}>
           Suivi de l'acheminement des colis, gestion des clients injoignables et vérification des preuves d'étiquetage et de signature.

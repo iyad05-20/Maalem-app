@@ -144,7 +144,8 @@ export async function prepareSenditShipping(orderId, deliveryData) {
 /**
  * 4. Sendit Étape 2 : Déclaration Colis Prêt pour Ramassage avec Photo du BL collé (Art. 8.3)
  */
-export async function confirmSenditPickupReady(orderId, { blAttachedPhoto }) {
+export async function confirmSenditPickupReady(orderId, payload = {}) {
+  const blAttachedPhoto = typeof payload === "string" ? payload : payload?.blAttachedPhoto;
   const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
   if (!order) throw new Error("commande_introuvable");
   if (!order.senditDeliveryCode) throw new Error("bl_non_encore_genere");

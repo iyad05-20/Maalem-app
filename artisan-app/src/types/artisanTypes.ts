@@ -4,6 +4,8 @@ export interface ArtisanOrder {
   artisanRef: string;
   totalPrice: number;
   productType: "standard" | "personnalise" | "sur_commande";
+  productTitle?: string;
+  productImage?: string;
   transportProvider: "sendit" | "vendeur";
   status: string;
   createdAt: string;
@@ -115,7 +117,7 @@ export interface CustomOrderRequest {
 
 export interface ArtisanNotification {
   id: string;
-  type: "new_order" | "dispute" | "return" | "escrow_released" | "withdrawal";
+  type: "new_order" | "urgent_order" | "order_prep" | "order_shipped" | "order_delivered" | "order_confirmed" | "dispute" | "return" | "escrow_released" | "withdrawal";
   title: string;
   message: string;
   date: string;

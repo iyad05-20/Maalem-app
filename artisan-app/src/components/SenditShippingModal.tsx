@@ -77,6 +77,19 @@ export const SenditShippingModal: React.FC<SenditShippingModalProps> = ({
     }
   };
 
+  // ─── PROVISIONAL BYPASS (Facile à éliminer) ──────────────────────────────
+  const handleBypassStep2 = async () => {
+    setLoading(true);
+    try {
+      await onStep2(order.id, "bypass:sendit_bl_photo_waived");
+      onClose();
+    } catch (err: any) {
+      alert(err.message || t("auth_error_server"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -259,6 +272,41 @@ export const SenditShippingModal: React.FC<SenditShippingModalProps> = ({
                   />
                 </label>
               )}
+            </div>
+
+            {/* ─── CONFIRMATION ÉTIQUETAGE D'ATELIER ─── */}
+            <div style={{
+              background: "rgba(45, 106, 79, 0.08)",
+              border: "1px solid rgba(45, 106, 79, 0.25)",
+              borderRadius: 10,
+              padding: "8px 12px",
+              marginBottom: 14,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8
+            }}>
+              <p style={{ fontSize: 11, color: "#2D6A4F", margin: 0, fontWeight: 600 }}>
+                ✓ {isRTL ? "تم تثبيت بوليصة الشحن بإحكام على الطرد" : "Bordereau apposé et colis scellé"}
+              </p>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleBypassStep2}
+                style={{
+                  background: "#2D6A4F",
+                  color: "#FFF",
+                  border: "none",
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  boxShadow: "0 2px 4px rgba(45, 106, 79, 0.2)"
+                }}
+              >
+                {isRTL ? "تأكيد التجهيز ✓" : "Confirmer prêt ✓"}
+              </button>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>

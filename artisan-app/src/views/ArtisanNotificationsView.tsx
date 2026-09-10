@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Bell, Package, Scale, RotateCcw, Wallet, CheckCircle2, ChevronRight } from "lucide-react";
+import { Bell, Package, Scale, RotateCcw, Wallet, CheckCircle2, ChevronRight, Clock, Truck } from "lucide-react";
 import type { ArtisanNotification } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
 
@@ -16,7 +16,9 @@ export const ArtisanNotificationsView: React.FC<ArtisanNotificationsViewProps> =
   const [filter, setFilter] = useState<"all" | "orders" | "disputes" | "wallet">("all");
 
   const filteredNotifications = notifications.filter(n => {
-    if (filter === "orders") return n.type === "new_order";
+    if (filter === "orders") {
+      return ["new_order", "urgent_order", "order_prep", "order_shipped", "order_delivered", "order_confirmed"].includes(n.type);
+    }
     if (filter === "disputes") return n.type === "dispute" || n.type === "return";
     if (filter === "wallet") return n.type === "escrow_released" || n.type === "withdrawal";
     return true;
@@ -25,6 +27,11 @@ export const ArtisanNotificationsView: React.FC<ArtisanNotificationsViewProps> =
   const getIcon = (type: string) => {
     switch (type) {
       case "new_order": return <Package size={18} color="var(--accent-warm)" />;
+      case "urgent_order": return <Clock size={18} color="#DC3545" />;
+      case "order_prep": return <Package size={18} color="var(--accent-warm)" />;
+      case "order_shipped": return <Truck size={18} color="#2D6A4F" />;
+      case "order_delivered": return <CheckCircle2 size={18} color="#2D6A4F" />;
+      case "order_confirmed": return <CheckCircle2 size={18} color="#2D6A4F" />;
       case "dispute": return <Scale size={18} color="#DC3545" />;
       case "return": return <RotateCcw size={18} color="var(--accent-premium)" />;
       case "escrow_released": return <Wallet size={18} color="#2D6A4F" />;

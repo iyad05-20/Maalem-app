@@ -8,12 +8,15 @@ import {
   vendorWarnings, 
   withdrawalRequests, 
   ledgerEntries, 
-  returnRequests 
+  returnRequests,
+  adminAuditLogs
 } from "../core/db/schema.js";
 import { recordVendorWarning } from "../client/services/artisanOrderService.js";
 import { getDbMode, setDbMode, checkDbHealth } from "../services/dbSwitchService.js";
+import { requireAdmin, logAdminAction } from "../middleware/localAuth.middleware.js";
 
 export const adminRouter = express.Router();
+adminRouter.use(requireAdmin);
 
 /**
  * GET /api/admin/stats
@@ -238,9 +241,18 @@ adminRouter.post("/disputes/:id/resolve", async (req, res) => {
       resolution: resolutionType,
       arbitrationDecision,
       arbitrationAmount: Number(arbitrationAmount) || 0,
-      arbitratedBy,
+      arbitratedBy: req.adminOperator?.email || arbitratedBy,
       resolvedAt: now,
     }).where(eq(disputes.id, id)).run();
+
+    const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+    logAdminAction(
+      operatorId,
+      "resolve_dispute",
+      id,
+      { resolutionType, arbitrationAmount: Number(arbitrationAmount) || 0, arbitrationDecision },
+      req.ip
+    );
 
     return res.json({ 
       success: true, 
@@ -296,6 +308,8 @@ adminRouter.post("/vendors/:id/warning", async (req, res) => {
 
   try {
     const result = await recordVendorWarning(id, orderId || null, reason);
+    const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+    logAdminAction(operatorId, "issue_vendor_warning", id, { reason, orderId }, req.ip);
     return res.json({ success: true, message: "Avertissement formel émis avec succès.", result });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -321,6 +335,9 @@ adminRouter.put("/vendors/:id/status", async (req, res) => {
       suspendedUntil: suspendedUntil || null,
       updatedAt: now,
     }).where(eq(vendorProfiles.id, id)).run();
+
+    const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+    logAdminAction(operatorId, "update_vendor_status", id, { suspensionStatus, suspendedUntil }, req.ip);
 
     return res.json({ success: true, message: `Statut de la boutique ${id} mis à jour : ${suspensionStatus}.` });
   } catch (err) {
@@ -355,6 +372,9 @@ adminRouter.post("/withdrawals/:id/process", async (req, res) => {
       status: status || "processed",
       processedAt: now,
     }).where(eq(withdrawalRequests.id, id)).run();
+
+    const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+    logAdminAction(operatorId, "process_withdrawal", id, { status, bankTransactionRef }, req.ip);
 
     return res.json({ success: true, message: `Demande de virement ${id} marquée comme ${status}.` });
   } catch (err) {
@@ -414,11 +434,28 @@ adminRouter.post("/config/db-mode", async (req, res) => {
   try {
     const newMode = setDbMode(mode);
     const health = await checkDbHealth();
+
+    const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+    logAdminAction(operatorId, "switch_db_mode", "database_cluster", { mode: newMode }, req.ip);
+
     return res.json({ 
       success: true, 
       message: `Base de données basculée en mode [${newMode.toUpperCase()}].`,
       ...health 
     });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/audit-logs
+ * Historique des actions et arbitrages des opérateurs administrateurs.
+ */
+adminRouter.get("/audit-logs", async (_req, res) => {
+  try {
+    const logs = db.select().from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(100).all();
+    return res.json({ success: true, count: logs.length, logs });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }

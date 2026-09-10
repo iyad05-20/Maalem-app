@@ -100,10 +100,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       recSession.trackAction('ORDER', tags);
       console.log(`[DETAIL] 🛒 ORDER action queued on tags [${tags.join(', ')}]`);
 
+      const pAny = product as any;
       const clientRef = currentUser?.id || "client-me";
-      const artisanRef = product.artisanId || "artisan-default";
-      const artisanName = product.artisanName || "Maâlem Abdelkader";
-      const productImage = product.image || getFallbackImage(product.category);
+      const artisanRef = product.artisanRef || pAny.artisanId || pAny.artisan_ref || pAny.facets?.artisan_ref || "artisan_abdelkader";
+      const artisanName = product.artisanName || pAny.artisan_name || "Maâlem Abdelkader";
+      const productImage = product.image || pAny.image_url || getFallbackImage(product.category);
 
       const newOrder = await clientWalletAPI.createOrder(
         clientRef,

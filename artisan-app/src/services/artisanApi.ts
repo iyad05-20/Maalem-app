@@ -40,9 +40,9 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
 }
 
 export function getCurrentArtisanRef(override?: string): string {
-  if (override && override !== "artisan-1") return override;
+  if (override && override !== "artisan-1" && override !== "artisan_abdelkader") return override;
   const user = artisanAuthService.getStoredUser();
-  return user?.id || override || "artisan-1";
+  return user?.id || override || "artisan_abdelkader";
 }
 
 export const artisanAPI = {
@@ -253,10 +253,16 @@ export const artisanAPI = {
   },
 
   async createProduct(productData: any): Promise<any> {
+    const storedUser = artisanAuthService.getStoredUser();
+    const enrichedData = {
+      artisanRef: getCurrentArtisanRef(),
+      artisanName: storedUser?.fullName || "Maâlem Iyad Outahadout",
+      ...productData,
+    };
     const res = await fetch(`${getApiBase()}/products`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify(productData),
+      body: JSON.stringify(enrichedData),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || "Erreur création produit.");

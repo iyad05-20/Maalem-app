@@ -30,6 +30,7 @@ export interface ClientOrder {
   transportProvider?: "sendit" | "vendeur";
   status: OrderStatus;
   createdAt: string;
+  updatedAt?: string | null;
   acceptedAt?: string | null;
   shippedAt?: string | null;
   deliveredAt?: string | null;
@@ -56,6 +57,8 @@ export interface ClientOrder {
   withdrawalExpiresAt?: string | null;
   receptionValidatedBy?: "client" | "vendeur" | "auto" | null;
   nonReceptionClaimedAt?: string | null;
+  refusedByArtisan?: number | null;
+  refusalReason?: string | null;
 
   // Sendit delivery integrations
   senditDeliveryCode?: string | null;

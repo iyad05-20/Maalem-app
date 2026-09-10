@@ -45,10 +45,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
       notifications.push({
         id: `notif-reclamation-${o.id}`,
         orderId: o.id,
-        title: lang === "ar" ? "⚠️ شكوى مفتوحة — الضمان معلق" : "⚠️ Réclamation Ouverte — Escrow Gelé",
+        title: lang === "ar" ? "شكوى مفتوحة — الضمان معلق" : "Réclamation Ouverte — Fonds Sécurisés",
         message: lang === "ar"
-          ? `طلبكم الخاص بـ "${itemTitle}" قيد الدراسة لدى وساطة ڤورك. الأموال مجمدة ضماناً لحقكم (المادة ١٣.٣).`
-          : `Votre déclaration pour "${itemTitle}" est en cours d'instruction par la médiation Vork. Les fonds sont gelés (Art. 13.3).`,
+          ? `طلبكم الخاص بـ "${itemTitle}" قيد الدراسة لدى وساطة ڤورك. المبالغ مجمدة لضمان حقوقكم.`
+          : `Votre réclamation concernant "${itemTitle}" est prise en charge par la médiation Vork. Les fonds restent bloqués par mesure de sécurité.`,
         type: "urgent",
         isRead: false,
         badgeText: lang === "ar" ? "عاجل" : "URGENT",
@@ -64,16 +64,32 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
         notifications.push({
           id: `notif-grace-${o.id}`,
           orderId: o.id,
-          title: lang === "ar" ? `⏱️ إلغاء مجاني (متبقي ${60 - diffMin} د)` : `⏱️ Annulation Libre (${60 - diffMin} min restantes)`,
+          title: lang === "ar" ? `مهلة الإلغاء (متبقي ${60 - diffMin} د)` : `Délai d'annulation (${60 - diffMin} min restantes)`,
           message: lang === "ar"
-            ? `شرع المعلم في صناعة "${itemTitle}". لديكم ${60 - diffMin} دقيقة للإلغاء بدون أية مصاريف (المادة ٧.٣).`
-            : `Le Maâlem a débuté la fabrication de "${itemTitle}". [Art. 7.3] Vous avez encore ${60 - diffMin} minutes pour annuler sans aucun frais.`,
+            ? `شرع المعلم في صناعة "${itemTitle}". لديكم ${60 - diffMin} دقيقة لإلغاء الطلب مجاناً وبشكل فوري.`
+            : `Le Maâlem commence la confection de "${itemTitle}". Vous disposez encore de ${60 - diffMin} minutes pour annuler votre commande sans frais.`,
           type: "warning",
           isRead: false,
-          badgeText: lang === "ar" ? "مهلة التراجع" : "DÉLAI DE GRÂCE",
+          badgeText: lang === "ar" ? "مهلة الإلغاء" : "DÉLAI DE GRÂCE",
           createdAt: o.acceptedAt,
         });
       }
+    }
+
+    // 2 bis. SUCCESS : Commande Acceptée par le Maâlem & Confection en cours
+    if (o.status === "en_preparation" || o.acceptedAt) {
+      notifications.push({
+        id: `notif-prep-active-${o.id}`,
+        orderId: o.id,
+        title: lang === "ar" ? "قبول الطلب — الورشة تباشر العمل" : "Commande Validée — Confection en Cours",
+        message: lang === "ar"
+          ? `أكّد المعلم طلبك "${itemTitle}". تجري حالياً صناعة وتجهيز قطعتكم داخل الورشة.`
+          : `Le Maâlem a validé votre commande "${itemTitle}". La confection est en cours dans son atelier.`,
+        type: "success",
+        isRead: o.status !== "en_preparation",
+        badgeText: lang === "ar" ? "في الورشة" : "EN ATELIER",
+        createdAt: o.acceptedAt || o.updatedAt || o.createdAt,
+      });
     }
 
     // 3. WARNING : Relance Maâlem J+2 (10h00) après 48h sans acceptation
@@ -84,13 +100,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
         notifications.push({
           id: `notif-j2-${o.id}`,
           orderId: o.id,
-          title: lang === "ar" ? "⌛ تذكير تلقائي للمعلم (اليوم + 2)" : "⌛ Relance Automatique Maâlem (J+2)",
+          title: lang === "ar" ? "تذكير بخصوص تأكيد الطلب" : "Attente de Confirmation du Maâlem",
           message: lang === "ar"
-            ? `لم يؤكد الصانع بعد طلب "${itemTitle}". بإمكانكم تمديد المهلة أو إلغاء الطلب واسترداد كامل المبلغ.`
-            : `L'artisan n'a pas encore validé "${itemTitle}". [Art. 14.6] Vous pouvez prolonger son délai ou annuler avec remboursement 100%.`,
+            ? `لم يؤكد الصانع بعد طلب "${itemTitle}". يمكنكم تمديد المهلة أو إلغاء الطلب واسترداد كامل المبلغ.`
+            : `L'artisan n'a pas encore confirmé la prise en charge de "${itemTitle}". Vous pouvez prolonger son délai ou annuler avec remboursement intégral.`,
           type: "warning",
           isRead: false,
-          badgeText: lang === "ar" ? "تذكير" : "J+2 RELANCE",
+          badgeText: lang === "ar" ? "تذكير" : "RELANCE",
           createdAt: o.createdAt,
         });
       }
@@ -104,13 +120,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
         notifications.push({
           id: `notif-valide-24h-${o.id}`,
           orderId: o.id,
-          title: lang === "ar" ? `📦 وصلت الشحنة — ${Math.max(0, Math.round(24 - hoursSinceDelivered))}س للتأكيد` : `📦 Colis Remis — ${Math.max(0, Math.round(24 - hoursSinceDelivered))}h pour valider`,
+          title: lang === "ar" ? `تأكيد الاستلام — متبقي ${Math.max(0, Math.round(24 - hoursSinceDelivered))}س` : `Colis Reçu — ${Math.max(0, Math.round(24 - hoursSinceDelivered))}h pour valider`,
           message: lang === "ar"
-            ? `تم تسليم الشحنة "${itemTitle}" إلى عنوانكم. يرجى تأكيد الاستلام والتوقيع أو الإبلاغ عن ملاحظة.`
-            : `Le colis "${itemTitle}" a été remis à votre domicile. [Art. 13.3] Veuillez confirmer la bonne réception ou signaler une anomalie.`,
+            ? `تم تسليم الشحنة "${itemTitle}". يرجى تأكيد استلام الطلب أو الإبلاغ عن أي ملاحظة.`
+            : `Le colis "${itemTitle}" a bien été remis. Merci de confirmer sa bonne réception ou de signaler un problème.`,
           type: "warning",
           isRead: hoursSinceDelivered >= 12,
-          badgeText: lang === "ar" ? "مطلوب الإجراء" : "ACTION REQUISE",
+          badgeText: lang === "ar" ? "إجراء مطلوب" : "ACTION REQUISE",
           createdAt: o.deliveredAt,
         });
       }
@@ -121,13 +137,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
       notifications.push({
         id: `notif-bl-${o.id}`,
         orderId: o.id,
-        title: lang === "ar" ? "📄 تم إصدار بوليصة الشحن" : "📄 Bon de Livraison Généré",
+        title: lang === "ar" ? "إصدار بوليصة الشحن" : "Bordereau d'Expédition Prêt",
         message: lang === "ar"
-          ? `تم تجهيز بوليصة التوصيل سينديت (${o.senditDeliveryCode}) لطلب "${itemTitle}". جاري التغليف.`
-          : `L'étiquette de transport Sendit (${o.senditDeliveryCode}) a été émise pour "${itemTitle}". Emballage en cours.`,
+          ? `تم تجهيز بوليصة التوصيل (${o.senditDeliveryCode}) لطلب "${itemTitle}". جاري تجهيز الطرد للتسليم.`
+          : `L'étiquette d'expédition (${o.senditDeliveryCode}) a été émise pour "${itemTitle}". Le colis est en cours de préparation.`,
         type: "info",
         isRead: true,
-        badgeText: lang === "ar" ? "معلومات الشحن" : "INFO LOGISTIQUE",
+        badgeText: lang === "ar" ? "الشحن" : "EXPÉDITION",
         createdAt: o.createdAt,
       });
     }
@@ -135,15 +151,15 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
     // 6. INFO : Colis en cours de transport
     if (o.status === "en_cours_de_transport") {
       const providerLabel = o.transportProvider === "vendeur" 
-        ? (lang === "ar" ? "عبر المعلم مباشرة" : "par l'Artisan directement") 
-        : (lang === "ar" ? "عبر شريكنا سينديت" : "par notre partenaire Sendit");
+        ? (lang === "ar" ? "عبر المعلم مباشرة" : "directement par l'artisan") 
+        : (lang === "ar" ? "عبر شريكنا اللوجستي" : "par notre transporteur partenaire");
       notifications.push({
         id: `notif-ship-${o.id}`,
         orderId: o.id,
-        title: lang === "ar" ? "🚚 الشحنة في طريقها إليك" : "🚚 Colis en cours de livraison",
+        title: lang === "ar" ? "الشحنة في طريقها إليك" : "Colis en Cours de Livraison",
         message: lang === "ar"
-          ? `طلبكم "${itemTitle}" قيد التوصيل ${providerLabel}. يرجى تحضير توقيعكم عند الاستلام.`
-          : `Votre commande "${itemTitle}" est en cours d'acheminement ${providerLabel}. Préparez votre signature à la réception.`,
+          ? `طلبكم "${itemTitle}" قيد التوصيل ${providerLabel}. سيتم التواصل معكم عند التسليم.`
+          : `Votre commande "${itemTitle}" est en cours d'acheminement ${providerLabel}. Préparez votre confirmation à la livraison.`,
         type: "info",
         isRead: false,
         badgeText: lang === "ar" ? "قيد التوصيل" : "EN TRANSIT",
@@ -156,31 +172,48 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
       notifications.push({
         id: `notif-pay-${o.id}`,
         orderId: o.id,
-        title: lang === "ar" ? "💳 تم تسجيل الأداء بأمان" : "💳 Paiement Sécurisé Enregistré",
+        title: lang === "ar" ? "تأكيد الدفع والأمان" : "Paiement Enregistré et Sécurisé",
         message: lang === "ar"
-          ? `تم تأكيد أداء "${itemTitle}". المبالغ محفوظة بأمان تحت ضمان ڤورك إلى حين تسلمك للقطعة.`
-          : `Règlement confirmé pour "${itemTitle}". Les fonds sont placés sous le séquestre protecteur Vork jusqu'à la livraison.`,
+          ? `تم تسجيل أداء "${itemTitle}". المبلغ محمي ومحفوظ حتى استلامكم للطلب.`
+          : `Le règlement pour "${itemTitle}" a bien été validé. Vos fonds sont protégés jusqu'à la remise du colis.`,
         type: "success",
         isRead: true,
-        badgeText: lang === "ar" ? "مضمون" : "SÉQUESTRÉ",
+        badgeText: lang === "ar" ? "مضمون" : "SÉCURISÉ",
         createdAt: o.createdAt,
       });
     }
 
-    // 8. SUCCESS : Commande Annulée & Remboursée
+    // 8. Commande Annulée / Refusée par l'Artisan
     if (o.status === "annulee") {
-      notifications.push({
-        id: `notif-cancel-${o.id}`,
-        orderId: o.id,
-        title: lang === "ar" ? "✅ تأكيد الإلغاء والاسترداد" : "✅ Annulation & Remboursement Validés",
-        message: lang === "ar"
-          ? `تم إلغاء الطلب "${itemTitle}" وإرجاع كامل المبالغ فوراً إلى محفظتكم المالية.`
-          : `La commande "${itemTitle}" a été annulée conformément aux CGV. Les fonds ont été crédités sur votre Wallet Vork.`,
-        type: "success",
-        isRead: true,
-        badgeText: lang === "ar" ? "مسترجع" : "REMBOURSÉ",
-        createdAt: o.createdAt,
-      });
+      const isRefused = Boolean((o as any).refusedByArtisan || (o as any).refusalReason);
+      if (isRefused) {
+        const reasonText = (o as any).refusalReason ? (lang === "ar" ? ` سبب الرفض: "${(o as any).refusalReason}".` : ` Motif : "${(o as any).refusalReason}".`) : "";
+        notifications.push({
+          id: `notif-refused-${o.id}`,
+          orderId: o.id,
+          title: lang === "ar" ? "اعتذار عن قبول الطلب من الورشة" : "Prise en charge déclinée par l'Atelier",
+          message: lang === "ar"
+            ? `اعتذر المعلم عن تنفيذ طلبكم "${itemTitle}".${reasonText} تم استرداد كامل المبلغ فورياً إلى محفظتكم لدى ڤورك.`
+            : `Le Maâlem ne peut pas confectionner votre commande "${itemTitle}".${reasonText} Vos fonds ont été intégralement recrédités sur votre portefeuille Vork.`,
+          type: "warning",
+          isRead: false,
+          badgeText: lang === "ar" ? "اعتذار الورشة" : "REFUS ATELIER",
+          createdAt: o.updatedAt || o.createdAt,
+        });
+      } else {
+        notifications.push({
+          id: `notif-cancel-${o.id}`,
+          orderId: o.id,
+          title: lang === "ar" ? "تأكيد الإلغاء والاسترداد" : "Annulation et Remboursement Effectués",
+          message: lang === "ar"
+            ? `تم إلغاء الطلب "${itemTitle}" وإعادة المبلغ بالكامل إلى محفظتكم.`
+            : `La commande "${itemTitle}" a été annulée. Les fonds ont été reversés sur votre portefeuille Vork.`,
+          type: "info",
+          isRead: true,
+          badgeText: lang === "ar" ? "مسترجع" : "REMBOURSÉ",
+          createdAt: o.updatedAt || o.createdAt,
+        });
+      }
     }
 
     // 9. SUCCESS : Droit de Rétractation légal 7j actif (Produits Standards)
@@ -188,14 +221,30 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
       notifications.push({
         id: `notif-retractation-${o.id}`,
         orderId: o.id,
-        title: lang === "ar" ? "🛡️ مهلة الإرجاع القانونية نشطة (٧ أيام)" : "🛡️ Droit de Rétractation Légal Actif (7 jours)",
+        title: lang === "ar" ? "مهلة الإرجاع متاحة (٧ أيام)" : "Délai d'Échange ou Retour (7 jours)",
         message: lang === "ar"
-          ? `يحق لكم إرجاع القطعة "${itemTitle}" خلال ٧ أيام من التسليم بدون إبداء أسباب (المادة ١٣.١).`
-          : `Vous disposez de 7 jours calendaires pour exercer votre droit de rétractation sans motif sur "${itemTitle}" (Art. 13.1).`,
+          ? `يمكنكم طلب إرجاع القطعة "${itemTitle}" خلال ٧ أيام من تاريخ الاستلام.`
+          : `Vous disposez d'un délai de 7 jours après livraison pour demander un retour de "${itemTitle}".`,
         type: "info",
         isRead: true,
-        badgeText: lang === "ar" ? "حماية ٧ أيام" : "PROTECTION 7J",
+        badgeText: lang === "ar" ? "ضمان ٧ أيام" : "GARANTIE 7J",
         createdAt: o.deliveredAt,
+      });
+    }
+
+    // 10. SUCCESS : Réception validée & Commande finalisée
+    if (["complete", "auto_valide"].includes(o.status)) {
+      notifications.push({
+        id: `notif-completed-${o.id}`,
+        orderId: o.id,
+        title: lang === "ar" ? "اكتمال الطلب بنجاح" : "Commande Finalisée",
+        message: lang === "ar"
+          ? `تم تأكيد استلام تحفتكم "${itemTitle}". نتمنى أن تنال إعجابكم.`
+          : `La réception de "${itemTitle}" est confirmée. Nous espérons que cette pièce vous apportera entière satisfaction.`,
+        type: "success",
+        isRead: true,
+        badgeText: lang === "ar" ? "مكتمل" : "FINALISÉ",
+        createdAt: o.updatedAt || o.createdAt,
       });
     }
   });

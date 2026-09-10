@@ -16,6 +16,8 @@ build/
 .cache/
 *.tsbuildinfo
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 
 # Non-persistent tests, analysis scripts and outputs

@@ -18,6 +18,8 @@ export function initSchema() {
       artisan_ref TEXT NOT NULL DEFAULT 'artisan-1',
       total_price REAL NOT NULL,
       product_type TEXT NOT NULL DEFAULT 'standard',
+      product_title TEXT,
+      product_image TEXT,
       transport_provider TEXT NOT NULL DEFAULT 'sendit',
       status TEXT NOT NULL DEFAULT 'en_attente_paiement',
       created_at TEXT NOT NULL,
@@ -117,11 +119,38 @@ export function initSchema() {
       details TEXT,
       executed_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS app_users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      full_name TEXT,
+      role TEXT NOT NULL DEFAULT 'client',
+      phone TEXT,
+      city TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      failed_login_attempts REAL DEFAULT 0,
+      locked_until TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_audit_logs (
+      id TEXT PRIMARY KEY,
+      operator_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      details TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL
+    );
   `);
 
   const alterColumns = [
     "ALTER TABLE orders ADD COLUMN artisan_ref TEXT NOT NULL DEFAULT 'artisan-1'",
     "ALTER TABLE orders ADD COLUMN product_type TEXT NOT NULL DEFAULT 'standard'",
+    "ALTER TABLE orders ADD COLUMN product_title TEXT",
+    "ALTER TABLE orders ADD COLUMN product_image TEXT",
     "ALTER TABLE orders ADD COLUMN transport_provider TEXT NOT NULL DEFAULT 'sendit'",
     "ALTER TABLE orders ADD COLUMN accepted_at TEXT",
     "ALTER TABLE orders ADD COLUMN ready_to_ship_at TEXT",
@@ -146,6 +175,9 @@ export function initSchema() {
     "ALTER TABLE orders ADD COLUMN allow_try REAL DEFAULT 0",
     "ALTER TABLE orders ADD COLUMN counter_unreachable REAL DEFAULT 0",
     "ALTER TABLE orders ADD COLUMN proof_image TEXT",
+    "ALTER TABLE orders ADD COLUMN artisan_name TEXT",
+    "ALTER TABLE orders ADD COLUMN refused_by_artisan REAL DEFAULT 0",
+    "ALTER TABLE orders ADD COLUMN refusal_reason TEXT",
     "ALTER TABLE disputes ADD COLUMN type TEXT NOT NULL DEFAULT 'non_reception'",
     "ALTER TABLE disputes ADD COLUMN claimant_ref TEXT NOT NULL DEFAULT 'client-1'",
     "ALTER TABLE disputes ADD COLUMN client_evidence_photos TEXT",

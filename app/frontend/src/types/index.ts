@@ -28,6 +28,7 @@ export interface Product {
   // Extended fields (for real DB later)
   description?: string;
   artisanId?: string;
+  artisanRef?: string;
   artisanName?: string;
   images?: string[];     // gallery
   stock?: number;

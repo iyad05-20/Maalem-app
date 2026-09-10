@@ -4,8 +4,11 @@ export const orders = sqliteTable("orders", {
   id: text("id").primaryKey(),
   clientRef: text("client_ref").notNull(),
   artisanRef: text("artisan_ref").notNull().default("artisan-1"),
+  artisanName: text("artisan_name"),
   totalPrice: real("total_price").notNull(),
   productType: text("product_type").notNull().default("standard"), // 'standard' | 'personnalise' | 'sur_commande'
+  productTitle: text("product_title"),
+  productImage: text("product_image"),
   transportProvider: text("transport_provider").notNull().default("sendit"), // 'sendit' | 'vendeur'
   status: text("status").notNull().default("en_attente_paiement"),
   createdAt: text("created_at").notNull(),
@@ -30,6 +33,8 @@ export const orders = sqliteTable("orders", {
   receptionValidatedBy: text("reception_validated_by"),
   nonReceptionClaimedAt: text("non_reception_claimed_at"),
   nonReceptionReason: text("non_reception_reason"),
+  refusedByArtisan: real("refused_by_artisan").default(0),
+  refusalReason: text("refusal_reason"),
 
   // Cron & Automated Reminders
   j2RelanceSentAt: text("j2_relance_sent_at"),
@@ -143,3 +148,29 @@ export const vendorProfiles = sqliteTable("vendor_profiles", {
   suspendedUntil: text("suspended_until"),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const appUsers = sqliteTable("app_users", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  fullName: text("full_name"),
+  role: text("role").notNull().default("client"), // 'client' | 'artisan' | 'admin'
+  phone: text("phone"),
+  city: text("city"),
+  status: text("status").notNull().default("active"), // 'active' | 'suspended' | 'locked'
+  failedLoginAttempts: real("failed_login_attempts").default(0),
+  lockedUntil: text("locked_until"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const adminAuditLogs = sqliteTable("admin_audit_logs", {
+  id: text("id").primaryKey(),
+  operatorId: text("operator_id").notNull(),
+  action: text("action").notNull(),
+  targetId: text("target_id").notNull(),
+  details: text("details"),
+  ipAddress: text("ip_address"),
+  createdAt: text("created_at").notNull(),
+});
+

@@ -918,14 +918,18 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                           key={p.id}
                           product={p}
                           onSelect={(searchProd) => {
+                            const sAny = searchProd as any;
                             const fullProd = MAALEM_DATA.products.find(item => item.id === searchProd.id) || {
                               id: searchProd.id,
                               title: searchProd.title,
-                              category: searchProd.category_group,
+                              category: searchProd.category_group || sAny.category,
                               price: searchProd.price ? `${searchProd.price} MAD` : (lang === 'ar' ? 'عند الطلب' : 'Sur demande'),
                               rating: 4.8,
                               badge: null,
-                              image: ''
+                              image: sAny.image_url || sAny.imageUrl || sAny.image || '',
+                              artisanId: sAny.facets?.artisan_ref || sAny.artisan_ref || sAny.artisanId || "artisan_abdelkader",
+                              artisanRef: sAny.facets?.artisan_ref || sAny.artisan_ref || sAny.artisanId || "artisan_abdelkader",
+                              artisanName: sAny.artisan_name || sAny.artisanName || "Maâlem Abdelkader",
                             };
                             onSelectProduct?.(fullProd);
                           }}
