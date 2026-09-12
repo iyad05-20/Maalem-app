@@ -117,9 +117,13 @@ export interface CustomOrderRequest {
 
 export interface ArtisanNotification {
   id: string;
-  type: "new_order" | "urgent_order" | "order_prep" | "order_shipped" | "order_delivered" | "order_confirmed" | "dispute" | "return" | "escrow_released" | "withdrawal";
+  type: "new_order" | "urgent_order" | "order_prep" | "order_shipped" | "order_delivered" | "order_confirmed" | "order_cancelled" | "dispute" | "return" | "escrow_released" | "withdrawal" | string;
   title: string;
   message: string;
+  title_fr?: string;
+  title_ar?: string;
+  message_fr?: string;
+  message_ar?: string;
   date: string;
   read: boolean;
   linkTab: string;

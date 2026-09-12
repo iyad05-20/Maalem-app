@@ -2,12 +2,7 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { 
   X, 
-  Bell, 
-  ChevronRight, 
-  Clock, 
-  CheckCircle2, 
-  ShieldAlert, 
-  Truck
+  ChevronRight
 } from "lucide-react";
 import type { ClientOrder } from "../../types/clientPayment";
 import { useClientI18n } from "../../services/i18n";
@@ -89,6 +84,22 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
         isRead: o.status !== "en_preparation",
         badgeText: lang === "ar" ? "في الورشة" : "EN ATELIER",
         createdAt: o.acceptedAt || o.updatedAt || o.createdAt,
+      });
+    }
+
+    // 2 ter. INFO : Photos de confection disponibles
+    if ((o as any).prepPhotos?.length > 0 || (o as any).photosUploadedAt) {
+      notifications.push({
+        id: `notif-photos-${o.id}`,
+        orderId: o.id,
+        title: lang === "ar" ? "صور الورشة متاحة للمعاينة" : "Photos d'Atelier Disponibles",
+        message: lang === "ar"
+          ? `شارك المعلم صور مراحل إنجاز "${itemTitle}". يمكنك معاينتها داخل تفاصيل طلبك.`
+          : `Le Maâlem a ajouté des photos de fabrication pour "${itemTitle}". Vous pouvez les consulter dans le suivi de votre commande.`,
+        type: "info",
+        isRead: false,
+        badgeText: lang === "ar" ? "صور الورشة" : "PHOTOS ATELIER",
+        createdAt: (o as any).photosUploadedAt || o.updatedAt || o.createdAt,
       });
     }
 
@@ -298,9 +309,19 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
         {/* Entête du Centre de Notifications */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 12, background: unreadCount > 0 ? "rgba(220,53,69,0.12)" : "rgba(212,175,55,0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Bell size={20} color={unreadCount > 0 ? "#DC3545" : "#8B6914"} />
-            </div>
+            {unreadCount > 0 && (
+              <span style={{
+                display: "inline-block",
+                padding: "2px 8px",
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 700,
+                background: "rgba(220,53,69,0.12)",
+                color: "#DC3545",
+              }}>
+                {unreadCount}
+              </span>
+            )}
             <div>
               <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", margin: 0 }}>
                 {t('notif_title')}
@@ -397,7 +418,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
               const isUrgent = n.type === "urgent";
               const isWarning = n.type === "warning";
               const isSuccess = n.type === "success";
-              const isInfo = n.type === "info";
 
               const bgColor = isUrgent
                 ? "rgba(220,53,69,0.06)"
@@ -460,13 +480,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
                     />
                   )}
 
-                  {/* Icône selon le type */}
-                  <div style={{ marginTop: 2, flexShrink: 0 }}>
-                    {isUrgent && <ShieldAlert size={19} color="#DC3545" />}
-                    {isWarning && <Clock size={19} color="#8B6914" />}
-                    {isSuccess && <CheckCircle2 size={19} color="#2D6A4F" />}
-                    {isInfo && <Truck size={19} color="#1A2A3A" />}
-                  </div>
+                  {/* Indicateur minimal de statut (Design épuré sans icônes superflues) */}
+                  <div style={{ marginTop: 5, flexShrink: 0, width: 8, height: 8, borderRadius: "50%", background: textColor }} />
 
                   <div style={{ flex: 1, minWidth: 0, paddingRight: !n.isRead ? 14 : 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
@@ -501,7 +516,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
             })
           ) : (
             <div style={{ textAlign: "center", padding: "40px 20px" }}>
-              <Bell size={32} color="var(--text-secondary)" style={{ opacity: 0.4, marginBottom: 10 }} />
               <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 14, color: "var(--primary)", margin: "0 0 4px" }}>
                 {lang === "ar" ? "لا توجد أي إشعارات" : "Aucune notification trouvée"}
               </p>

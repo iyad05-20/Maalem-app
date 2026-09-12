@@ -717,6 +717,7 @@ artisanRouter.put("/products/:id", async (req, res) => {
  */
 artisanRouter.get("/notifications", async (req, res) => {
   const artisanRef = getArtisanRef(req);
+  const lang = req.query.lang === "ar" || req.headers["accept-language"]?.includes("ar") ? "ar" : "fr";
   try {
     const allOrders = await db.select().from(orders).where(eq(orders.artisanRef, artisanRef));
     const allDisputes = await db.select().from(disputes);
@@ -733,11 +734,18 @@ artisanRouter.get("/notifications", async (req, res) => {
         const diffHours = (Date.now() - createdMs) / (1000 * 60 * 60);
 
         if (diffHours >= 36) {
+          const hoursLeft = Math.max(0, Math.round(72 - diffHours));
           notifications.push({
             id: `notif-order-urgent-${o.id}`,
             type: "urgent_order",
-            title: "Délai Critique : Acceptation requise",
-            message: `Plus que ${Math.max(0, Math.round(72 - diffHours))}h pour accepter la commande #${o.id} (${o.totalPrice} MAD) avant annulation automatique.`,
+            title: lang === "ar" ? "مهلة حرجة : تأكيد الاستلام مطلوب" : "Délai Critique : Acceptation requise",
+            title_fr: "Délai Critique : Acceptation requise",
+            title_ar: "مهلة حرجة : تأكيد الاستلام مطلوب",
+            message: lang === "ar"
+              ? `متبقي ${hoursLeft} ساعة فقط لتأكيد الطلب #${o.id} (${o.totalPrice} درهم) قبل الإلغاء التلقائي.`
+              : `Plus que ${hoursLeft}h pour accepter la commande #${o.id} (${o.totalPrice} MAD) avant annulation automatique.`,
+            message_fr: `Plus que ${hoursLeft}h pour accepter la commande #${o.id} (${o.totalPrice} MAD) avant annulation automatique.`,
+            message_ar: `متبقي ${hoursLeft} ساعة فقط لتأكيد الطلب #${o.id} (${o.totalPrice} درهم) قبل الإلغاء التلقائي.`,
             date: o.createdAt,
             read: false,
             linkTab: "atelier",
@@ -747,8 +755,14 @@ artisanRouter.get("/notifications", async (req, res) => {
           notifications.push({
             id: `notif-order-${o.id}`,
             type: "new_order",
-            title: "Nouvelle commande reçue",
-            message: `Commande #${o.id} (${o.totalPrice} MAD) réglée et sécurisée. Prise en charge requise sous 72h max.`,
+            title: lang === "ar" ? "طلب جديد وارد إلى الورشة" : "Nouvelle commande reçue",
+            title_fr: "Nouvelle commande reçue",
+            title_ar: "طلب جديد وارد إلى الورشة",
+            message: lang === "ar"
+              ? `طلب جديد #${o.id} (${o.totalPrice} درهم) مؤدى ومؤمّن. يُرجى تأكيد استلام العمل خلال 72 ساعة.`
+              : `Commande #${o.id} (${o.totalPrice} MAD) réglée et sécurisée. Prise en charge requise sous 72h max.`,
+            message_fr: `Commande #${o.id} (${o.totalPrice} MAD) réglée et sécurisée. Prise en charge requise sous 72h max.`,
+            message_ar: `طلب جديد #${o.id} (${o.totalPrice} درهم) مؤدى ومؤمّن. يُرجى تأكيد استلام العمل خلال 72 ساعة.`,
             date: o.createdAt,
             read: false,
             linkTab: "atelier",
@@ -757,13 +771,79 @@ artisanRouter.get("/notifications", async (req, res) => {
         }
       }
 
-      // 2. Commande en confection d'atelier
+      // 2. Commande Annulée (par le client ou expiration)
+      if (o.status === "annulee") {
+        const isExpired = o.cancellationReason === "expiration_72h";
+        const isRefusedByMe = Boolean(o.refusedByArtisan || o.refusalReason);
+
+        if (isExpired) {
+          notifications.push({
+            id: `notif-expired-${o.id}`,
+            type: "order_cancelled",
+            title: lang === "ar" ? "انتهت المهلة : تم إلغاء الطلب" : "Délai Dépassé : Commande Expirée",
+            title_fr: "Délai Dépassé : Commande Expirée",
+            title_ar: "انتهت المهلة : تم إلغاء الطلب",
+            message: lang === "ar"
+              ? `انتهت مهلة 72 ساعة لتأكيد الطلب #${o.id}. تم إلغاء الطلب تلقائياً واسترجاع المبلغ للزبون.`
+              : `Le délai d'acceptation de 72h pour la commande #${o.id} a expiré. La commande a été annulée automatiquement.`,
+            message_fr: `Le délai d'acceptation de 72h pour la commande #${o.id} a expiré. La commande a été annulée automatiquement.`,
+            message_ar: `انتهت مهلة 72 ساعة لتأكيد الطلب #${o.id}. تم إلغاء الطلب تلقائياً واسترجاع المبلغ للزبون.`,
+            date: o.updatedAt || o.createdAt,
+            read: false,
+            linkTab: "atelier",
+            orderId: o.id,
+          });
+        } else if (isRefusedByMe) {
+          notifications.push({
+            id: `notif-declined-${o.id}`,
+            type: "order_cancelled",
+            title: lang === "ar" ? "تم الاعتذار عن الطلب" : "Commande Déclinée par l'Atelier",
+            title_fr: "Commande Déclinée par l'Atelier",
+            title_ar: "تم الاعتذار عن الطلب",
+            message: lang === "ar"
+              ? `لقد اعتذرتم عن قبول الطلب #${o.id}. تم استرجاع المبلغ للزبون فوراً.`
+              : `Vous avez décliné la commande #${o.id}. Les fonds ont été reversés au client.`,
+            message_fr: `Vous avez décliné la commande #${o.id}. Les fonds ont été reversés au client.`,
+            message_ar: `لقد اعتذرتم عن قبول الطلب #${o.id}. تم استرجاع المبلغ للزبون فوراً.`,
+            date: o.updatedAt || o.createdAt,
+            read: true,
+            linkTab: "atelier",
+            orderId: o.id,
+          });
+        } else {
+          // Annulation active du client
+          notifications.push({
+            id: `notif-cancel-${o.id}`,
+            type: "order_cancelled",
+            title: lang === "ar" ? "إلغاء الطلب من قِبل الزبون" : "Commande Annulée par le Client",
+            title_fr: "Commande Annulée par le Client",
+            title_ar: "إلغاء الطلب من قِبل الزبون",
+            message: lang === "ar"
+              ? `تم إلغاء الطلب #${o.id} (${o.totalPrice} درهم) من قِبل الزبون. يُرجى وقف أي تصنيع أو شحن فوراً.`
+              : `La commande #${o.id} (${o.totalPrice} MAD) a été annulée par le client. Toute confection ou expédition doit être suspendue.`,
+            message_fr: `La commande #${o.id} (${o.totalPrice} MAD) a été annulée par le client. Toute confection ou expédition doit être suspendue.`,
+            message_ar: `تم إلغاء الطلب #${o.id} (${o.totalPrice} درهم) من قِبل الزبون. يُرجى وقف أي تصنيع أو شحن فوراً.`,
+            date: o.updatedAt || o.createdAt,
+            read: false,
+            linkTab: "atelier",
+            orderId: o.id,
+          });
+        }
+      }
+
+      // 3. Commande en confection d'atelier
       if (o.status === "en_preparation") {
         notifications.push({
           id: `notif-prep-${o.id}`,
           type: "order_prep",
-          title: "Confection en cours à l'atelier",
-          message: `Commande #${o.id} en fabrication. Validez la conformité de la pièce pour générer l'expédition Sendit.`,
+          title: lang === "ar" ? "قيد التصنيع في الورشة" : "Confection en cours à l'atelier",
+          title_fr: "Confection en cours à l'atelier",
+          title_ar: "قيد التصنيع في الورشة",
+          message: lang === "ar"
+            ? `الطلب #${o.id} قيد الإنجاز في الورشة. تحقّق من مطابقة القطعة لإصدار إشعار الشحن.`
+            : `Commande #${o.id} en fabrication. Validez la conformité de la pièce pour générer l'expédition Sendit.`,
+          message_fr: `Commande #${o.id} en fabrication. Validez la conformité de la pièce pour générer l'expédition Sendit.`,
+          message_ar: `الطلب #${o.id} قيد الإنجاز في الورشة. تحقّق من مطابقة القطعة لإصدار إشعار الشحن.` ,
           date: o.acceptedAt || o.updatedAt || o.createdAt,
           read: false,
           linkTab: "atelier",
@@ -771,13 +851,19 @@ artisanRouter.get("/notifications", async (req, res) => {
         });
       }
 
-      // 3. Colis en cours d'acheminement (Logistique)
+      // 4. Colis en cours d'acheminement (Logistique)
       if (o.status === "en_cours_de_transport") {
         notifications.push({
           id: `notif-shipped-${o.id}`,
           type: "order_shipped",
-          title: "Colis confié au transporteur",
-          message: `Le colis #${o.id} est en transit vers le client. N° de suivi : ${o.senditDeliveryCode || o.id}.`,
+          title: lang === "ar" ? "الشحنة لدى شركة التوصيل" : "Colis confié au transporteur",
+          title_fr: "Colis confié au transporteur",
+          title_ar: "الشحنة لدى شركة التوصيل",
+          message: lang === "ar"
+            ? `الشحنة #${o.id} في طريقها للزبون. رقم التتبع : ${o.senditDeliveryCode || o.id}.`
+            : `Le colis #${o.id} est en transit vers le client. N° de suivi : ${o.senditDeliveryCode || o.id}.`,
+          message_fr: `Le colis #${o.id} est en transit vers le client. N° de suivi : ${o.senditDeliveryCode || o.id}.`,
+          message_ar: `الشحنة #${o.id} في طريقها للزبون. رقم التتبع : ${o.senditDeliveryCode || o.id}.`,
           date: o.shippedAt || o.updatedAt || o.createdAt,
           read: false,
           linkTab: "atelier",
@@ -785,13 +871,19 @@ artisanRouter.get("/notifications", async (req, res) => {
         });
       }
 
-      // 4. Colis Livré au Destinataire
+      // 5. Colis Livré au Destinataire
       if (o.status === "livre") {
         notifications.push({
           id: `notif-delivered-${o.id}`,
           type: "order_delivered",
-          title: "Colis Livré au Destinataire",
-          message: `La remise du colis #${o.id} a été enregistrée. Le délai de 7 jours a débuté avant déblocage automatique.`,
+          title: lang === "ar" ? "تم تسليم الطلب للزبون" : "Colis Livré au Destinataire",
+          title_fr: "Colis Livré au Destinataire",
+          title_ar: "تم تسليم الطلب للزبون",
+          message: lang === "ar"
+            ? `تم تسجيل استلام الشحنة #${o.id}. بدأ احتساب مهلة 7 أيام قبل التحرير التلقائي للضمان.`
+            : `La remise du colis #${o.id} a été enregistrée. Le délai de 7 jours a débuté avant déblocage automatique.`,
+          message_fr: `La remise du colis #${o.id} a été enregistrée. Le délai de 7 jours a débuté avant déblocage automatique.`,
+          message_ar: `تم تسجيل استلام الشحنة #${o.id}. بدأ احتساب مهلة 7 أيام قبل التحرير التلقائي للضمان.`,
           date: o.deliveredAt || o.updatedAt || o.createdAt,
           read: false,
           linkTab: "atelier",
@@ -799,13 +891,19 @@ artisanRouter.get("/notifications", async (req, res) => {
         });
       }
 
-      // 5. Réception validée par le Client
+      // 6. Réception validée par le Client
       if (["auto_valide", "complete"].includes(o.status)) {
         notifications.push({
           id: `notif-confirmed-${o.id}`,
           type: "order_confirmed",
-          title: "Réception Validée par le Client",
-          message: `La conformité de la commande #${o.id} a été confirmée. Déblocage du paiement programmé sous séquestre.`,
+          title: lang === "ar" ? "تأكيد الاستلام من الزبون" : "Réception Validée par le Client",
+          title_fr: "Réception Validée par le Client",
+          title_ar: "تأكيد الاستلام من الزبون",
+          message: lang === "ar"
+            ? `أكّد الزبون مطابقة الطلب #${o.id}. تم اعتماد المستحقات للتحرير النهائي.`
+            : `La conformité de la commande #${o.id} a été confirmée. Déblocage du paiement programmé sous séquestre.`,
+          message_fr: `La conformité de la commande #${o.id} a été confirmée. Déblocage du paiement programmé sous séquestre.`,
+          message_ar: `أكّد الزبون مطابقة الطلب #${o.id}. تم اعتماد المستحقات للتحرير النهائي.`,
           date: o.updatedAt || o.createdAt,
           read: true,
           linkTab: "atelier",
@@ -813,13 +911,19 @@ artisanRouter.get("/notifications", async (req, res) => {
         });
       }
 
-      // 6. Fonds Débloqués sur Solde Retirable
+      // 7. Fonds Débloqués sur Solde Retirable
       if (o.escrowReleasedAt) {
         notifications.push({
           id: `notif-escrow-${o.id}`,
           type: "escrow_released",
-          title: "Fonds Débloqués sur votre Solde",
-          message: `Le montant de la commande #${o.id} (${o.totalPrice} MAD) a été crédité. Vous pouvez demander un virement bancaire sur votre RIB.`,
+          title: lang === "ar" ? "تحرير المستحقات إلى رصيدك" : "Fonds Débloqués sur votre Solde",
+          title_fr: "Fonds Débloqués sur votre Solde",
+          title_ar: "تحرير المستحقات إلى رصيدك",
+          message: lang === "ar"
+            ? `تم إيداع مبلغ الطلب #${o.id} (${o.totalPrice} درهم) في رصيدك القابل للسحب البنكي على رقم حسابك (RIB).`
+            : `Le montant de la commande #${o.id} (${o.totalPrice} MAD) a été crédité. Vous pouvez demander un virement bancaire sur votre RIB.`,
+          message_fr: `Le montant de la commande #${o.id} (${o.totalPrice} MAD) a été crédité. Vous pouvez demander un virement bancaire sur votre RIB.`,
+          message_ar: `تم إيداع مبلغ الطلب #${o.id} (${o.totalPrice} درهم) في رصيدك القابل للسحب البنكي على رقم حسابك (RIB).`,
           date: o.escrowReleasedAt,
           read: true,
           linkTab: "wallet",
@@ -833,8 +937,14 @@ artisanRouter.get("/notifications", async (req, res) => {
       notifications.push({
         id: `notif-dispute-${d.id}`,
         type: "dispute",
-        title: "Réclamation Client Ouverte",
-        message: `Dossier #${d.id} sur la commande #${d.orderId}. Transmettez vos explications sous 48h.`,
+        title: lang === "ar" ? "شكوى مفتوحة من الزبون" : "Réclamation Client Ouverte",
+        title_fr: "Réclamation Client Ouverte",
+        title_ar: "شكوى مفتوحة من الزبون",
+        message: lang === "ar"
+          ? `ملف شكوى #${d.id} بخصوص الطلب #${d.orderId}. يُرجى تقديم توضيحاتك خلال 48 ساعة.`
+          : `Dossier #${d.id} sur la commande #${d.orderId}. Transmettez vos explications sous 48h.`,
+        message_fr: `Dossier #${d.id} sur la commande #${d.orderId}. Transmettez vos explications sous 48h.`,
+        message_ar: `ملف شكوى #${d.id} بخصوص الطلب #${d.orderId}. يُرجى تقديم توضيحاتك خلال 48 ساعة.`,
         date: d.createdAt,
         read: !!d.artisanResponse,
         linkTab: "litiges",
@@ -847,8 +957,14 @@ artisanRouter.get("/notifications", async (req, res) => {
       notifications.push({
         id: `notif-return-${r.id}`,
         type: "return",
-        title: "Demande de Retour Déclarée",
-        message: `Demande de retour déclarée sur la commande #${r.orderId}.`,
+        title: lang === "ar" ? "طلب إرجاع معلن" : "Demande de Retour Déclarée",
+        title_fr: "Demande de Retour Déclarée",
+        title_ar: "طلب إرجاع معلن",
+        message: lang === "ar"
+          ? `تم الإعلان عن طلب إرجاع بخصوص الشحنة #${r.orderId}.`
+          : `Demande de retour déclarée sur la commande #${r.orderId}.`,
+        message_fr: `Demande de retour déclarée sur la commande #${r.orderId}.`,
+        message_ar: `تم الإعلان عن طلب إرجاع بخصوص الشحنة #${r.orderId}.`,
         date: r.createdAt,
         read: r.status !== "initie",
         linkTab: "retours",
@@ -862,8 +978,14 @@ artisanRouter.get("/notifications", async (req, res) => {
         notifications.push({
           id: `notif-with-${w.id}`,
           type: "withdrawal",
-          title: "Virement Bancaire Exécuté",
-          message: `Votre virement de ${w.amount} MAD a été transféré vers votre compte bancaire.`,
+          title: lang === "ar" ? "تحويل بنكي منفذ" : "Virement Bancaire Exécuté",
+          title_fr: "Virement Bancaire Exécuté",
+          title_ar: "تحويل بنكي منفذ",
+          message: lang === "ar"
+            ? `تم تحويل مبلغ ${w.amount} درهم بنجاح إلى حسابكم البنكي.`
+            : `Votre virement de ${w.amount} MAD a été transféré vers votre compte bancaire.`,
+          message_fr: `Votre virement de ${w.amount} MAD a été transféré vers votre compte bancaire.`,
+          message_ar: `تم تحويل مبلغ ${w.amount} درهم بنجاح إلى حسابكم البنكي.`,
           date: w.processedAt || w.createdAt,
           read: true,
           linkTab: "wallet",
