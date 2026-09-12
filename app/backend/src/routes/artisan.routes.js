@@ -27,12 +27,12 @@ import {
 import { senditClient } from "../services/sendit/senditClient.js";
 
 export const artisanRouter = express.Router();
-artisanRouter.use(optionalAuth);
-
-const DEFAULT_ARTISAN_REF = "artisan_abdelkader";
+// Authentification obligatoire pour toutes les routes artisan (Anti-IDOR)
+artisanRouter.use(requireAuth(["artisan", "admin"]));
 
 export const getArtisanRef = (req) => {
-  return req.userId || (req.user && req.user.id) || DEFAULT_ARTISAN_REF;
+  // Identité dérivée exclusivement du JWT (Anti-IDOR) — jamais du corps de la requête
+  return req.userId || (req.user && req.user.id);
 };
 
 /**
@@ -42,14 +42,14 @@ export const getArtisanRef = (req) => {
 artisanRouter.get("/orders", async (req, res) => {
   try {
     const artisanRef = getArtisanRef(req);
-    const list = db.select().from(orders).where(
-      or(
-        eq(orders.artisanRef, artisanRef),
-        eq(orders.artisanRef, "artisan-default"),
-        eq(orders.artisanRef, "artisan-1"),
-        eq(orders.artisanRef, "artisan_abdelkader")
-      )
-    ).orderBy(desc(orders.createdAt)).all();
+    if (!artisanRef) {
+      return res.status(401).json({ success: false, error: "Identité artisan introuvable. Reconnectez-vous." });
+    }
+
+    // Isolation stricte : uniquement les commandes de l'artisan connecté
+    const list = db.select().from(orders)
+      .where(eq(orders.artisanRef, artisanRef))
+      .orderBy(desc(orders.createdAt)).all();
 
     const enriched = list.map(o => ({
       ...o,
@@ -515,56 +515,8 @@ artisanRouter.get("/profile/health", async (req, res) => {
  * GET /api/artisan/products & POST /api/artisan/products
  * Gestion du Catalogue de l'Artisan (Art. 4).
  */
-let artisanProductsList = [
-  {
-    id: "prd-001",
-    title: "Tajine Fassi Émaillé Bleu de Fès",
-    description: "Céramique traditionnelle cuite au four à bois, décorée à la main avec les émaux naturels de Fès.",
-    price: 350,
-    clientPrice: Math.round(350 * 1.06),
-    productType: "standard",
-    image: "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
-    artisanName: "Maâlem Abdelkader",
-    category: "Céramique & Poterie",
-    rating: 4.9,
-    reviewCount: 24,
-    inStock: true,
-    manufacturingDays: 3,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "prd-002",
-    title: "Vase Amphore Zellige Traditionnel",
-    description: "Grande jarre décorative avec motifs géométriques complexes et finition vernissée.",
-    price: 520,
-    clientPrice: Math.round(520 * 1.06),
-    productType: "standard",
-    image: "https://images.unsplash.com/photo-1583521214690-73421a1829a9?w=600",
-    artisanName: "Maâlem Abdelkader",
-    category: "Céramique & Poterie",
-    rating: 4.8,
-    reviewCount: 17,
-    inStock: true,
-    manufacturingDays: 5,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "prd-003",
-    title: "Service de 6 Assiettes Plates Fassi",
-    description: "Ensemble de 6 assiettes plates artisanales pour table de réception marocaine.",
-    price: 780,
-    clientPrice: Math.round(780 * 1.06),
-    productType: "personnalise",
-    image: "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=600",
-    artisanName: "Maâlem Abdelkader",
-    category: "Céramique & Poterie",
-    rating: 5.0,
-    reviewCount: 31,
-    inStock: true,
-    manufacturingDays: 7,
-    createdAt: new Date().toISOString(),
-  }
-];
+// Catalogue en mémoire — vide par défaut, les produits sont chargés depuis Supabase ou créés par les artisans
+let artisanProductsList = [];
 
 function mapCategoryToGroup(cat = "") {
   const c = String(cat).toLowerCase();
@@ -579,10 +531,16 @@ function mapCategoryToGroup(cat = "") {
 }
 
 artisanRouter.get("/products", async (req, res) => {
-  try {
-    let combined = [...artisanProductsList];
+  const artisanRef = getArtisanRef(req);
+  if (!artisanRef) {
+    return res.status(401).json({ success: false, error: "Identité artisan introuvable. Reconnectez-vous." });
+  }
 
-    // Also pull products from Supabase to ensure persistence across server restarts
+  try {
+    // 1. Produits RAM créés lors de cette session (filtrés par artisan)
+    let combined = artisanProductsList.filter(p => !p.artisanRef || p.artisanRef === artisanRef);
+
+    // 2. Produits Supabase persistés — filtrés par artisan_ref dans facets
     try {
       const { data: dbData, error: dbError } = await supabase
         .from("products")
@@ -591,9 +549,14 @@ artisanRouter.get("/products", async (req, res) => {
 
       if (!dbError && Array.isArray(dbData)) {
         for (const p of dbData) {
+          // Filtrage : on n'inclut que les produits appartenant à cet artisan
+          const prodArtisanRef = p.facets?.artisan_ref || null;
+          if (prodArtisanRef && prodArtisanRef !== artisanRef) continue;
+
           if (!combined.some((item) => item.id === p.id)) {
             combined.push({
               id: p.id,
+              artisanRef: prodArtisanRef,
               title: p.title,
               description: p.identity?.description || "",
               price: p.identity?.net_price || p.price,
@@ -601,7 +564,7 @@ artisanRouter.get("/products", async (req, res) => {
               productType: p.identity?.product_type || "standard",
               category: p.category,
               image: p.image_url || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
-              artisanName: p.artisan_name || "Maâlem Abdelkader",
+              artisanName: p.artisan_name || "",
               rating: 5.0,
               reviewCount: 0,
               inStock: p.in_stock ?? true,
@@ -622,6 +585,11 @@ artisanRouter.get("/products", async (req, res) => {
 });
 
 artisanRouter.post("/products", async (req, res) => {
+  const artisanRef = getArtisanRef(req);
+  if (!artisanRef) {
+    return res.status(401).json({ success: false, error: "Identité artisan introuvable. Reconnectez-vous." });
+  }
+
   const { title, description, price, productType = "standard", category, image, manufacturingDays = 5 } = req.body;
 
   if (!title || !price) {
@@ -637,11 +605,8 @@ artisanRouter.post("/products", async (req, res) => {
   const prodDesc = String(description || "").trim();
   const prodImg = image || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600";
   const categoryGroup = mapCategoryToGroup(category);
-  const artisanName = req.body.artisanName 
-    || req.userProfile?.name 
-    || req.userProfile?.full_name 
-    || req.user?.user_metadata?.full_name 
-    || "Maâlem Iyad Outahadout";
+  // Identité artisan dérivée exclusivement du JWT (Anti-IDOR)
+  const artisanName = req.user?.fullName || req.body.artisanName || "Maâlem";
 
   // 1. Prepare Supabase row conforming to database schema
   const supabaseRow = {
@@ -698,6 +663,7 @@ artisanRouter.post("/products", async (req, res) => {
   // 3. Keep in RAM cache for instantaneous local artisan UI response
   const newProduct = {
     id: productId,
+    artisanRef,  // Lier le produit à l'artisan connecté
     title: prodTitle,
     description: prodDesc,
     price: numNet,
@@ -912,31 +878,39 @@ artisanRouter.get("/notifications", async (req, res) => {
  * PUT /api/artisan/profile
  * Mise à jour des informations de l'atelier & coordonnées de ramassage.
  */
-let memoryProfileData = {
-  artisanName: "Maâlem Abdelkader",
-  specialty: "Céramique, Poterie & Maroquinerie",
-  bio: "Maître artisan issu de la médina de Fès avec plus de 22 ans de savoir-faire traditionnel. Spécialiste des émaux bleus et du cuir naturel tanné à l'ancienne.",
-  phone: "06 61 23 45 67",
-  pickupAddress: "Derb El Miter, N° 14, Médina de Fès",
-  pickupDistrictId: 2, // Fès
-  defaultRib: "230780000123456789012345",
-  isVacationMode: false,
-  yearsOfExperience: 22,
-};
+// Profils en mémoire par artisanRef (clé = artisanRef)
+const memoryProfiles = {};
+
+function getMemoryProfile(artisanRef, user) {
+  if (!memoryProfiles[artisanRef]) {
+    // Initialisation depuis le JWT au premier accès
+    memoryProfiles[artisanRef] = {
+      artisanName: user?.fullName || artisanRef,
+      specialty: "",
+      bio: "",
+      phone: user?.phone || "",
+      pickupAddress: user?.city || "",
+      pickupDistrictId: null,
+      defaultRib: "",
+      isVacationMode: false,
+      yearsOfExperience: 0,
+    };
+  }
+  return memoryProfiles[artisanRef];
+}
 
 artisanRouter.get("/profile/details", async (req, res) => {
-  const currentProfile = {
-    ...memoryProfileData,
-    artisanName: req.userProfile?.fullName || req.user?.email || memoryProfileData.artisanName,
-    phone: req.userProfile?.phone || memoryProfileData.phone,
-  };
-  return res.json({ success: true, profileDetails: currentProfile });
+  const artisanRef = getArtisanRef(req);
+  const profile = getMemoryProfile(artisanRef, req.user);
+  return res.json({ success: true, profileDetails: profile });
 });
 
 artisanRouter.put("/profile/details", async (req, res) => {
+  const artisanRef = getArtisanRef(req);
   const updates = req.body;
-  memoryProfileData = { ...memoryProfileData, ...updates };
-  return res.json({ success: true, message: "Profil atelier mis à jour avec succès.", profileDetails: memoryProfileData });
+  const profile = getMemoryProfile(artisanRef, req.user);
+  memoryProfiles[artisanRef] = { ...profile, ...updates };
+  return res.json({ success: true, message: "Profil atelier mis à jour avec succès.", profileDetails: memoryProfiles[artisanRef] });
 });
 
 /**
@@ -1042,7 +1016,8 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
   if (!reqItem) return res.status(404).json({ success: false, error: "Annonce sur-mesure introuvable." });
 
   const newQuote = {
-    artisanName: "Maâlem Abdelkader",
+    artisanName: req.user?.fullName || req.userId || "Maâlem",
+    artisanRef: getArtisanRef(req),
     proposedPrice: Number(proposedPrice),
     confectionDays: Number(confectionDays),
     note: note || "",

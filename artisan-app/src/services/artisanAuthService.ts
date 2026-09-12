@@ -31,18 +31,19 @@ class ArtisanAuthService {
       });
       const data = await res.json();
 
-      if (data.success && data.session && data.user) {
+      // Le backend local retourne { success, token, user } (pas data.session)
+      if (data.success && data.token && data.user) {
         const artisanUser: ArtisanUser = {
           id: data.user.id,
           email: data.user.email,
-          fullName: data.profile?.full_name || data.user.user_metadata?.full_name || data.user.email.split("@")[0],
-          workshopName: data.profile?.workshop_name || data.user.user_metadata?.workshop_name || "Atelier d'Artisanat",
-          specialty: data.profile?.specialty || data.user.user_metadata?.specialty || "Artisanat Marocain",
-          city: data.profile?.city || data.user.user_metadata?.city || "Fès",
-          avatarUrl: data.profile?.avatar_url || data.user.user_metadata?.avatar_url,
+          fullName: data.user.fullName || data.user.email.split("@")[0],
+          workshopName: data.user.workshopName || "Atelier d'Artisanat",
+          specialty: data.user.specialty || "Artisanat Marocain",
+          city: data.user.city || "Fès",
+          avatarUrl: data.user.avatarUrl,
         };
 
-        localStorage.setItem(TOKEN_KEY, data.session.access_token);
+        localStorage.setItem(TOKEN_KEY, data.token);
         localStorage.setItem(USER_KEY, JSON.stringify(artisanUser));
 
         return { success: true, user: artisanUser };
@@ -72,22 +73,24 @@ class ArtisanAuthService {
           email,
           password,
           fullName,
-          metadata: { workshopName, specialty, city, role: "artisan" },
+          role: "artisan",
+          metadata: { workshopName, specialty, city },
         }),
       });
       const data = await res.json();
 
+      // Le backend local retourne { success, token, user }
       if (data.success) {
-        if (data.session && data.user) {
+        if (data.token && data.user) {
           const artisanUser: ArtisanUser = {
             id: data.user.id,
             email: data.user.email,
-            fullName: fullName || data.user.email.split("@")[0],
+            fullName: data.user.fullName || fullName || data.user.email.split("@")[0],
             workshopName: workshopName || "Atelier d'Artisanat",
             specialty: specialty || "Artisanat Marocain",
             city: city || "Fès",
           };
-          localStorage.setItem(TOKEN_KEY, data.session.access_token);
+          localStorage.setItem(TOKEN_KEY, data.token);
           localStorage.setItem(USER_KEY, JSON.stringify(artisanUser));
           return { success: true, user: artisanUser };
         }
@@ -163,15 +166,16 @@ class ArtisanAuthService {
       });
       const data = await res.json();
 
+      // Le backend local retourne { success, user } sans 'profile' séparé
       if (data.success && data.user) {
         const artisanUser: ArtisanUser = {
           id: data.user.id,
           email: data.user.email,
-          fullName: data.profile?.full_name || data.user.user_metadata?.full_name || data.user.email.split("@")[0],
-          workshopName: data.profile?.workshop_name || data.user.user_metadata?.workshop_name || "Atelier d'Artisanat",
-          specialty: data.profile?.specialty || data.user.user_metadata?.specialty || "Artisanat Marocain",
-          city: data.profile?.city || data.user.user_metadata?.city || "Fès",
-          avatarUrl: data.profile?.avatar_url,
+          fullName: data.user.fullName || data.user.email.split("@")[0],
+          workshopName: data.user.workshopName || "Atelier d'Artisanat",
+          specialty: data.user.specialty || "Artisanat Marocain",
+          city: data.user.city || "Fès",
+          avatarUrl: data.user.avatarUrl,
         };
         localStorage.setItem(USER_KEY, JSON.stringify(artisanUser));
         return artisanUser;
