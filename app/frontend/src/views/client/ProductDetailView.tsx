@@ -280,7 +280,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               />
               <div style={{ textAlign: 'left' }}>
                 <p style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--primary)', margin: 0 }}>
-                  {product.artisanName || "Maâlem Abdelkader"}
+                  {product.artisanName || (product as any).artisan_name || "Maâlem Abdelkader"}
                 </p>
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
                   Maître artisan • Fès, Maroc

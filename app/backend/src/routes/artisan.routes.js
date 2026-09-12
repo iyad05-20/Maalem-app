@@ -13,6 +13,7 @@ import {
 import { getAllProducts } from "../db/products.repository.js";
 import { supabase } from "../db/supabase.client.js";
 import { loadProducts } from "../services/recommendation.service.js";
+import { productsIndex } from "../services/search/meilisearch.service.js";
 import { requireAuth, optionalAuth } from "../middleware/localAuth.middleware.js";
 import { 
   acceptOrder, 
@@ -650,7 +651,12 @@ artisanRouter.post("/products", async (req, res) => {
       loadProducts().catch(() => {});
       // Trigger instant Meilisearch indexation
       try {
-        await productsIndex.addDocuments([supabaseRow]);
+        const meiliDoc = {
+          ...supabaseRow,
+          artisanName: artisanName,
+          imageUrl: prodImg,
+        };
+        await productsIndex.addDocuments([meiliDoc]);
         console.log(`[MEILI] ✅ Product "${prodTitle}" (${productId}) indexed into Meilisearch!`);
       } catch (mErr) {
         console.warn("[MEILI] ⚠️ Failed to auto-index product into Meilisearch:", mErr.message);

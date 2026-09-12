@@ -180,13 +180,18 @@ class ArtisanAuthService {
         localStorage.setItem(USER_KEY, JSON.stringify(artisanUser));
         return artisanUser;
       }
+
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        return null;
+      }
     } catch (err) {
-      console.warn("[ARTISAN-AUTH] Session check error:", err);
+      console.warn("[ARTISAN-AUTH] Network error during session check, keeping cached user:", err);
+      return this.getStoredUser();
     }
 
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    return null;
+    return this.getStoredUser();
   }
 }
 
