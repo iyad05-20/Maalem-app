@@ -57,19 +57,19 @@ const getStatusSteps = (status: string, lang = "fr") => {
   } else if (status === "acompte_verse" || status === "payee_integralement") {
     steps[0].done = true;
     steps[1].active = true;
-  } else if (status === "en_preparation") {
+  } else if (status === "en_preparation" || status === "pret_a_expedier") {
     steps[0].done = true;
     steps[1].active = true;
   } else if (status === "en_cours_de_transport") {
     steps[0].done = true;
     steps[1].done = true;
     steps[2].active = true;
-  } else if (status === "livre" || status === "complete") {
+  } else if (status === "livre" || status === "complete" || status === "auto_valide") {
     steps[0].done = true;
     steps[1].done = true;
     steps[2].done = true;
     steps[3].done = true;
-  } else if (status === "en_reclamation" || status === "retour_initie") {
+  } else if (status === "en_reclamation" || status === "retour_initie" || status === "litige_post_liberation") {
     steps[0].done = true;
     steps[1].done = true;
     steps[2].done = true;
@@ -712,63 +712,87 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                     {lang === "ar" ? "مراحل الصنع والتوصيل" : "État de fabrication & livraison"}
                   </p>
                   
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", padding: "0 8px" }}>
-                    {/* Progress bar background line */}
-                    <div style={{ position: "absolute", top: 12, left: 24, right: 24, height: 3, background: "#E5E7EB", zIndex: 0 }} />
-                    
-                    {/* Active green progress line */}
-                    <div 
-                      style={{ 
-                        position: "absolute", 
-                        top: 12, 
-                        left: 24, 
-                        width: `${
-                          selectedOrder.status === "en_attente_paiement" || selectedOrder.status === "paiement_echoue" || selectedOrder.status === "paiement_initie" ? "0%" :
-                          selectedOrder.status === "acompte_verse" || selectedOrder.status === "payee_integralement" || selectedOrder.status === "en_preparation" ? "33%" :
-                          selectedOrder.status === "en_cours_de_transport" ? "66%" : "100%"
-                        }`,
-                        height: 3, 
-                        background: "#4A7C59", 
-                        zIndex: 0,
-                        transition: "width 0.4s ease"
-                      }} 
-                    />
-
-                    {getStatusSteps(selectedOrder.status, lang).map((step, idx) => (
-                      <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", zIndex: 1, position: "relative", width: 60 }}>
+                  <div style={{ display: "flex", width: "100%", position: "relative", alignItems: "flex-start", padding: "4px 0" }}>
+                    {getStatusSteps(selectedOrder.status, lang).map((step, idx, arr) => {
+                      const isLast = idx === arr.length - 1;
+                      const isRTL = lang === "ar";
+                      return (
                         <div 
+                          key={idx} 
                           style={{ 
-                            width: 24, 
-                            height: 24, 
-                            borderRadius: "50%", 
-                            background: step.done ? "#4A7C59" : step.active ? "#D4AF37" : "#FFFFFF", 
-                            border: `2px solid ${step.done ? "#4A7C59" : step.active ? "#D4AF37" : "#CBD5E1"}`, 
+                            flex: 1, 
                             display: "flex", 
+                            flexDirection: "column", 
                             alignItems: "center", 
-                            justifyContent: "center",
-                            fontSize: 10,
-                            fontWeight: 700,
-                            color: step.done ? "#FFFFFF" : step.active ? "#FFFFFF" : "#64748B",
-                            boxShadow: step.active ? "0 0 0 4px rgba(212,175,55,0.18)" : "none",
-                            transition: "all 0.3s ease"
+                            position: "relative",
+                            minWidth: 0,
                           }}
                         >
-                          {step.done ? "✓" : idx + 1}
+                          {/* Segment de liaison parfaitement aligné de centre à centre (1 à 4) */}
+                          {!isLast && (
+                            <div 
+                              style={{ 
+                                position: "absolute", 
+                                top: 11.5, 
+                                height: 3, 
+                                width: "100%", 
+                                background: step.done ? "#4A7C59" : "#E5E7EB", 
+                                zIndex: 0, 
+                                transition: "background 0.4s ease",
+                                ...(isRTL 
+                                  ? { right: "50%", left: "auto" } 
+                                  : { left: "50%", right: "auto" }
+                                )
+                              }} 
+                            />
+                          )}
+
+                          {/* Bulle d'étape numérotée (1 à 4) */}
+                          <div 
+                            style={{ 
+                              width: 26, 
+                              height: 26, 
+                              borderRadius: "50%", 
+                              background: step.done ? "#4A7C59" : step.active ? "#D4AF37" : "#FFFFFF", 
+                              border: `2px solid ${step.done ? "#4A7C59" : step.active ? "#D4AF37" : "#CBD5E1"}`, 
+                              display: "flex", 
+                              alignItems: "center", 
+                              justifyContent: "center", 
+                              fontSize: 10.5, 
+                              fontWeight: 700, 
+                              color: step.done ? "#FFFFFF" : step.active ? "#FFFFFF" : "#64748B", 
+                              boxShadow: step.active 
+                                ? "0 0 0 4px rgba(212,175,55,0.22), 0 2px 6px rgba(212,175,55,0.25)" 
+                                : step.done 
+                                ? "0 2px 6px rgba(45,106,79,0.2)" 
+                                : "none", 
+                              zIndex: 1, 
+                              position: "relative",
+                              transition: "all 0.3s ease" 
+                            }}
+                          >
+                            {step.done ? "✓" : idx + 1}
+                          </div>
+
+                          {/* Libellé sous la bulle */}
+                          <span 
+                            style={{ 
+                              marginTop: 6, 
+                              fontFamily: "var(--font-body)", 
+                              fontSize: 10.5, 
+                              fontWeight: step.active || step.done ? 700 : 500, 
+                              color: step.active ? "#8B6914" : step.done ? "#2D6A4F" : "#64748B", 
+                              textAlign: "center",
+                              padding: "0 2px",
+                              wordBreak: "break-word",
+                              lineHeight: 1.2
+                            }}
+                          >
+                            {step.label}
+                          </span>
                         </div>
-                        <span 
-                          style={{ 
-                            marginTop: 6, 
-                            fontFamily: "var(--font-body)", 
-                            fontSize: 10, 
-                            fontWeight: step.active || step.done ? 600 : 500, 
-                            color: step.active ? "#8B6914" : step.done ? "#2D6A4F" : "#64748B",
-                            textAlign: "center"
-                          }}
-                        >
-                          {step.label}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
