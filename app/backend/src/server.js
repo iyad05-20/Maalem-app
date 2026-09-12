@@ -85,7 +85,7 @@ app.use(express.urlencoded({ extended: true }));
 // ─── Rate Limiting Anti-Bruteforce ────────────────────────────────────────────
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 requêtes par fenêtre par IP
+  max: process.env.NODE_ENV === 'production' ? 15 : 100, // 100 requêtes en dev/test, 15 en production
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -196,15 +196,24 @@ app.use((err, _req, res, _next) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`\n🚀 MAALEM Backend running on http://localhost:${PORT}`);
-  console.log(`   GET  /health`);
-  console.log(`   GET  /api/products`);
-  console.log(`   GET  /api/recommendations?userId=x`);
-  console.log(`   GET  /api/search?q=zellige`);
-  console.log(`   POST /api/client/orders`);
-  console.log(`   POST /api/client/orders/:id/pay`);
-  console.log(`   GET  /api/client/wallet/:userId/balance\n`);
-});
+
+import { fileURLToPath } from 'url';
+const isMain = process.argv[1] && (
+  fileURLToPath(import.meta.url) === process.argv[1] ||
+  process.argv[1].endsWith('server.js')
+);
+
+if (isMain) {
+  app.listen(PORT, () => {
+    console.log(`\n🚀 MAALEM Backend running on http://localhost:${PORT}`);
+    console.log(`   GET  /health`);
+    console.log(`   GET  /api/products`);
+    console.log(`   GET  /api/recommendations?userId=x`);
+    console.log(`   GET  /api/search?q=zellige`);
+    console.log(`   POST /api/client/orders`);
+    console.log(`   POST /api/client/orders/:id/pay`);
+    console.log(`   GET  /api/client/wallet/:userId/balance\n`);
+  });
+}
 
 export { app };

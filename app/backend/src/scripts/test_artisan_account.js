@@ -43,7 +43,7 @@ const defaultEmail = isGenerateNew
   ? `artisan.test.${Date.now()}@vork-artisanat.ma`
   : (getArg("--email") || "iyadoutahadout@gmail.com");
 
-const defaultPassword = getArg("--password") || "123456";
+const defaultPassword = getArg("--password") || "Maalem2026!";
 const defaultFullName = getArg("--name") || "Maâlem Iyad Outahadout";
 const apiUrl = getArg("--url") || BASE_URL;
 
@@ -84,6 +84,7 @@ async function run() {
         email: defaultEmail,
         password: defaultPassword,
         fullName: defaultFullName,
+        role: "artisan",
       }),
     });
 
