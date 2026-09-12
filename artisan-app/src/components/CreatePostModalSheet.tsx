@@ -30,6 +30,9 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
   const [categoryKey, setCategoryKey] = useState(CATEGORIES[0].key);
   const [image, setImage] = useState("");
   const [manufacturingDays, setManufacturingDays] = useState(5);
+  const [length, setLength] = useState("25");
+  const [width, setWidth] = useState("25");
+  const [height, setHeight] = useState("15");
   const [loading, setLoading] = useState(false);
 
   // Pricing formula: artisan saisit son prix NET
@@ -38,6 +41,9 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
   const commissionHt = Math.round(numNet * 0.05);   // 5% frais Vork HT
   const tvaVal      = Math.round(commissionHt * 0.20); // 20% TVA sur commission seulement
   const clientPrice = numNet > 0 ? numNet + commissionHt + tvaVal : 0;
+
+  // Contrôle de volume Sendit (Règle Ziad 11/09/2026 : Max 40x40 cm)
+  const isSenditExceeded = Number(length) > 40 || Number(width) > 40 || Number(height) > 40;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +60,8 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
         category: selectedCat ? (lang === "ar" ? selectedCat.ar : selectedCat.fr) : categoryKey,
         image,
         manufacturingDays: Number(manufacturingDays),
+        dimensions: { length: Number(length), width: Number(width), height: Number(height) },
+        senditEligible: !isSenditExceeded && productType === "standard",
       });
       onClose();
     } catch (err: any) {
@@ -252,6 +260,77 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
                   onChange={e => setManufacturingDays(Number(e.target.value))}
                   className="form-input"
                 />
+              </div>
+            </div>
+
+            {/* ─── DIMENSIONS DU COLIS & ÉLIGIBILITÉ SENDIT (RÈGLE ZIAD 11/09/2026) ─── */}
+            <div>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 700 }}>
+                {isRTL ? "أبعاد الطرد (طول × عرض × ارتفاع بالسم)" : "Dimensions du colis (L × l × H en cm)"}
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                <div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    placeholder="L"
+                    value={length}
+                    onChange={e => setLength(e.target.value)}
+                    className="form-input"
+                    style={{ textAlign: "center", fontSize: 12, padding: "8px" }}
+                  />
+                  <span style={{ fontSize: 9, color: "var(--text-secondary)", display: "block", textAlign: "center", marginTop: 2 }}>
+                    {isRTL ? "الطول" : "Longueur"}
+                  </span>
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    placeholder="l"
+                    value={width}
+                    onChange={e => setWidth(e.target.value)}
+                    className="form-input"
+                    style={{ textAlign: "center", fontSize: 12, padding: "8px" }}
+                  />
+                  <span style={{ fontSize: 9, color: "var(--text-secondary)", display: "block", textAlign: "center", marginTop: 2 }}>
+                    {isRTL ? "العرض" : "Largeur"}
+                  </span>
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    placeholder="H"
+                    value={height}
+                    onChange={e => setHeight(e.target.value)}
+                    className="form-input"
+                    style={{ textAlign: "center", fontSize: 12, padding: "8px" }}
+                  />
+                  <span style={{ fontSize: 9, color: "var(--text-secondary)", display: "block", textAlign: "center", marginTop: 2 }}>
+                    {isRTL ? "الارتفاع" : "Hauteur"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Badge d'éligibilité Sendit */}
+              <div style={{
+                marginTop: 6,
+                padding: "6px 10px",
+                borderRadius: 8,
+                fontSize: 10,
+                lineHeight: 1.3,
+                background: isSenditExceeded ? "rgba(230, 81, 0, 0.08)" : "rgba(45, 106, 79, 0.08)",
+                border: isSenditExceeded ? "1px solid rgba(230, 81, 0, 0.3)" : "1px solid rgba(45, 106, 79, 0.25)",
+                color: isSenditExceeded ? "#E65100" : "#2D6A4F",
+                fontWeight: 600,
+              }}>
+                {isSenditExceeded
+                  ? (isRTL ? "⚠️ الحجم يتجاوز 40×40 سم: غير مؤهل لخدمة سنديت. سيتم الشحن حصراً بوسائلك الخاصة." : "⚠️ Dimensions > 40×40 cm : Hors gabarit Sendit. Transport Vendeur obligatoire.")
+                  : (isRTL ? "✓ متوافق مع الحجم الأقصى لشركة سنديت (أقل من 40×40 سم)." : "✓ Compatible avec le gabarit Sendit (≤ 40×40 cm).")}
               </div>
             </div>
 

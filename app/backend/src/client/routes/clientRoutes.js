@@ -193,16 +193,18 @@ router.post("/orders/:id/deliver", async (req, res) => {
     await db.update(orders)
       .set({
         status: "livre",
-        deliveredAt: now,
+        deliveredAt: order.deliveredAt || now,
         receptionValidatedBy: "client",
+        clientApprovalStatus: "approved",
         withdrawalExpiresAt,
         escrowReleasedAt,
+        escrowActionChoice: isCustom ? "released_to_wallet" : "pending",
         updatedAt: now,
       })
       .where(eq(orders.id, req.params.id));
 
-    console.log(`[VORK-API] ✅ Order marked as delivered by client (Type: ${order.productType}, Escrow released: ${!!escrowReleasedAt})`);
-    res.json({ success: true, escrowReleasedAt, withdrawalExpiresAt });
+    console.log(`[VORK-API] ✅ Order approved by client (Type: ${order.productType}, Escrow released: ${!!escrowReleasedAt})`);
+    res.json({ success: true, clientApprovalStatus: "approved", escrowReleasedAt, withdrawalExpiresAt });
   } catch (e) {
     console.error(`[VORK-API] ❌ Receipt confirmation failed:`, e.message);
     res.status(400).json({ error: e.message });

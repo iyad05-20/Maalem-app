@@ -159,8 +159,20 @@ export const App: React.FC = () => {
     return res;
   };
 
-  const handleSenditStep2 = async (orderId: string, blPhoto: string) => {
-    const res = await artisanAPI.shipSenditStep2(orderId, blPhoto);
+  const handleSenditStep2 = async (orderId: string, blPhoto: string, estimatedTransportDays: number = 7) => {
+    const res = await artisanAPI.shipSenditStep2(orderId, blPhoto, estimatedTransportDays);
+    await loadAllData();
+    return res;
+  };
+
+  const handleEscrowChoice = async (orderId: string, action: "claim" | "extend", extendDays: number = 7) => {
+    const res = await artisanAPI.escrowChoice(orderId, action, extendDays);
+    await loadAllData();
+    return res;
+  };
+
+  const handleNudgeClient = async (orderId: string) => {
+    const res = await artisanAPI.nudgeClient(orderId);
     await loadAllData();
     return res;
   };
@@ -281,6 +293,8 @@ export const App: React.FC = () => {
             onOpenPrepPhotosModal={setPrepPhotosOrderId}
             onOpenSenditModal={setSenditModalOrder}
             onOpenDirectDeliveryModal={setDirectDeliveryOrder}
+            onEscrowChoice={handleEscrowChoice}
+            onNudgeClient={handleNudgeClient}
           />
         )}
 

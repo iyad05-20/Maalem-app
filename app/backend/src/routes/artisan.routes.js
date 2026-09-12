@@ -23,6 +23,9 @@ import {
   shipVendeurSelf, 
   completeVendeurDelivery,
   recordVendorWarning,
+  handleEscrowChoice,
+  nudgeClientApproval,
+  contestWarningForceMajeure,
   shipOrder
 } from "../client/services/artisanOrderService.js";
 import { senditClient } from "../services/sendit/senditClient.js";
@@ -115,7 +118,17 @@ artisanRouter.post("/orders/:id/refuse", async (req, res) => {
       createdAt: now,
     });
 
-    return res.json({ success: true, message: "Commande refusée. Le client a été intégralement remboursé." });
+    // Émission systématique de l'avertissement vendeur (Art. 12.3 CGV v23 / Point 3)
+    await recordVendorWarning(
+      order.artisanRef,
+      `Refus de commande (Art. 12.3 CGV) : ${reason.trim()}`,
+      id
+    );
+
+    return res.json({ 
+      success: true, 
+      message: "Commande refusée. Le client a été intégralement remboursé et un avertissement a été enregistré." 
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -170,14 +183,15 @@ artisanRouter.post("/orders/:id/ship-sendit-step1", async (req, res) => {
 
 /**
  * POST /api/artisan/orders/:id/ship-sendit-step2
- * Étape 2 Sendit : Upload photo du colis étiqueté & ordre de ramassage (Art. 8.3).
+ * Étape 2 Sendit : Upload photo du colis étiqueté & ordre de ramassage (Art. 8.3)
+ * + Saisie du nombre de jours de transport estimé (max 30j - Règle Ziad 11/09/2026).
  */
 artisanRouter.post("/orders/:id/ship-sendit-step2", async (req, res) => {
   const { id } = req.params;
-  const { blAttachedPhoto } = req.body;
+  const { blAttachedPhoto, estimatedTransportDays } = req.body;
 
   try {
-    const result = await confirmSenditPickupReady(id, blAttachedPhoto);
+    const result = await confirmSenditPickupReady(id, { blAttachedPhoto, estimatedTransportDays });
     return res.json({ success: true, ...result });
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message });
@@ -210,6 +224,61 @@ artisanRouter.post("/orders/:id/complete-delivery", async (req, res) => {
 
   try {
     const result = await completeVendeurDelivery(id, signaturePhoto);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/artisan/orders/:id/escrow-choice
+ * Décision de l'artisan après l'expiration des 7 jours de rétractation (Règle Ziad 11/09/2026) :
+ * action: 'claim' (débloquer les fonds de la commande spécifique) OU 'extend' (accorder plus de temps au client).
+ */
+artisanRouter.post("/orders/:id/escrow-choice", async (req, res) => {
+  const { id } = req.params;
+  const { action, extendDays } = req.body;
+  const artisanRef = getArtisanRef(req);
+
+  try {
+    const result = await handleEscrowChoice(id, artisanRef, action, extendDays);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/artisan/orders/:id/nudge-client
+ * Inciter le client à approuver la réception de sa livraison transporteur vendeur (Règle Ziad 11/09/2026).
+ */
+artisanRouter.post("/orders/:id/nudge-client", async (req, res) => {
+  const { id } = req.params;
+  const artisanRef = getArtisanRef(req);
+
+  try {
+    const result = await nudgeClientApproval(id, artisanRef);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/artisan/warnings/:id/contest-force-majeure
+ * Contestation d'un avertissement pour Force Majeure dans le mois (Art. 12.5 & 27 CGV v23).
+ */
+artisanRouter.post("/warnings/:id/contest-force-majeure", async (req, res) => {
+  const { id } = req.params;
+  const { reason, proofDocUrl } = req.body;
+  const artisanRef = getArtisanRef(req);
+
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ success: false, error: "Un motif justificatif de Force Majeure est obligatoire." });
+  }
+
+  try {
+    const result = await contestWarningForceMajeure(id, artisanRef, reason.trim(), proofDocUrl);
     return res.json({ success: true, ...result });
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message });

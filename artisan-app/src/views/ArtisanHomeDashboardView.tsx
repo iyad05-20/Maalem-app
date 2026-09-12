@@ -16,6 +16,8 @@ interface Props {
   onOpenPrepPhotosModal: (orderId: string) => void;
   onOpenSenditModal: (order: ArtisanOrder) => void;
   onOpenDirectDeliveryModal: (order: ArtisanOrder) => void;
+  onEscrowChoice?: (orderId: string, action: "claim" | "extend", extendDays?: number) => Promise<void>;
+  onNudgeClient?: (orderId: string) => Promise<void>;
 }
 
 export const ArtisanHomeDashboardView: React.FC<Props> = ({
@@ -23,6 +25,7 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
   onOpenWithdrawalModal, onAccept,
   onOpenRefuseModal, onOpenPrepPhotosModal,
   onOpenSenditModal, onOpenDirectDeliveryModal,
+  onEscrowChoice, onNudgeClient,
 }) => {
   const { isRTL, t } = useI18n();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -45,6 +48,34 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
     setActionLoading(id);
     try { await onAccept(id); } catch (e: any) { alert(e.message); }
     finally { setActionLoading(null); }
+  };
+
+  const handleNudgeAction = async (id: string) => {
+    if (!onNudgeClient) return;
+    setActionLoading(`nudge-${id}`);
+    try {
+      await onNudgeClient(id);
+      alert(isRTL ? "تم إرسال تذكير للزبون لتأكيد الاستلام بنجاح." : "Rappel envoyé avec succès au client.");
+    } catch (e: any) {
+      alert(e.message || "Erreur de relance.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleEscrowChoiceAction = async (id: string, action: "claim" | "extend", days: number = 7) => {
+    if (!onEscrowChoice) return;
+    setActionLoading(`${action}-${id}`);
+    try {
+      await onEscrowChoice(id, action, days);
+      alert(action === "claim" 
+        ? (isRTL ? "تم تحرير أموالك وإضافتها لرصيدك المتاح بنجاح!" : "Fonds débloqués avec succès vers votre solde disponible !") 
+        : (isRTL ? `تم تمديد المهلة للزبون بـ ${days} أيام.` : `Délai prolongé de ${days} jours pour le client.`));
+    } catch (e: any) {
+      alert(e.message || "Erreur choix séquestre.");
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const activeOrders = orders
@@ -279,6 +310,64 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
                     >
                       <Printer size={14} /> {t("order_download_label")}
                     </a>
+                  )}
+
+                  {/* ─── CARTE RELANCE CLIENT POUR APPROBATION RÉCEPTION (RÈGLE ZIAD 11/09/2026) ─── */}
+                  {order.status === "livre" && order.transportProvider === "vendeur" && order.clientApprovalStatus !== "approved" && order.productType === "standard" && (
+                    <div style={{ background: "rgba(196, 169, 106, 0.1)", border: "1px solid rgba(196, 169, 106, 0.3)", borderRadius: 12, padding: "10px 12px", marginTop: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--primary)", marginBottom: 3 }}>
+                        {isRTL ? "في انتظار تأكيد الزبون للاستلام" : "En attente d'approbation client"}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--text-secondary)", marginBottom: 8, lineHeight: 1.3 }}>
+                        {isRTL 
+                          ? "حّث الزبون على الضغط على 'تأكيد الاستلام' في تطبيقه لبدء احتساب 7 أيام وصرف مستحقاتك." 
+                          : "Le compte à rebours de 7 jours ne commence que lorsque le client clique sur 'Approuver la réception'."}
+                      </div>
+                      <button 
+                        type="button"
+                        className="btn-outline" 
+                        disabled={actionLoading === `nudge-${order.id}`}
+                        onClick={() => handleNudgeAction(order.id)}
+                        style={{ fontSize: 11, padding: "6px 10px", width: "100%", justifyContent: "center", borderColor: "var(--accent-warm)", color: "var(--primary)" }}
+                      >
+                        {actionLoading === `nudge-${order.id}` ? t("loading") : (isRTL ? "🔔 حث الزبون على تأكيد الاستلام" : "🔔 Relancer le client pour valider")}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ─── CARTE CHOIX SÉQUESTRE ARTISAN À L'ÉCHÉANCE DES 7 JOURS (RÈGLE ZIAD 11/09/2026) ─── */}
+                  {(order.escrowActionChoice === "pending_artisan_choice" || (order.withdrawalExpiresAt && new Date(order.withdrawalExpiresAt).getTime() <= Date.now() && !order.escrowReleasedAt)) && (
+                    <div style={{ background: "rgba(45, 106, 79, 0.08)", border: "1.5px solid #2D6A4F", borderRadius: 12, padding: "10px 12px", marginTop: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <CheckCircle2 size={15} color="#2D6A4F" />
+                        <span style={{ fontSize: 11, fontWeight: 800, color: "#2D6A4F" }}>
+                          {isRTL ? "انقضت 7 أيام من مدة التراجع القانونية !" : "7 jours de rétractation écoulés !"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--text-secondary)", marginBottom: 8, lineHeight: 1.3 }}>
+                        {isRTL 
+                          ? "يمكنك الآن تحرير أموال هذه الطلبية، أو منح الزبون مهلة إضافية والتواصل معه." 
+                          : "Vous pouvez débloquer vos fonds immédiatement ou accorder un délai supplémentaire au client."}
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          disabled={actionLoading === `claim-${order.id}`}
+                          onClick={() => handleEscrowChoiceAction(order.id, "claim")}
+                          style={{ flex: 2, background: "#2D6A4F", color: "#FFF", border: "none", borderRadius: 8, padding: "7px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          {actionLoading === `claim-${order.id}` ? t("loading") : (isRTL ? "💰 تحرير مستحقاتي" : "💰 Débloquer mes fonds")}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionLoading === `extend-${order.id}`}
+                          onClick={() => handleEscrowChoiceAction(order.id, "extend", 7)}
+                          style={{ flex: 1, background: "#FFF", color: "var(--text-secondary)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 6px", fontSize: 10, fontWeight: 600, cursor: "pointer" }}
+                        >
+                          {actionLoading === `extend-${order.id}` ? t("loading") : (isRTL ? "تمديد مهلة" : "Accorder délai")}
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </motion.div>

@@ -379,10 +379,39 @@ export const clientWalletAPI = {
     return { success: true };
   },
 
+  // Approbation client de la réception (Livraison Vendeur - Priorité 11/09/2026 & Art. 13/18 CGV)
+  async approveReceipt(orderId: string): Promise<{ success: boolean; clientApprovalStatus?: string; withdrawalExpiresAt?: string; escrowReleasedAt?: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/client/orders/${orderId}/deliver`, {
+        method: "POST",
+        headers: getHeaders(),
+      });
+      if (res.ok) return await res.json();
+    } catch {
+      // Fallback local dev
+    }
+    const orders = getStoredOrders();
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) throw new Error("Commande introuvable");
+    order.status = "livre";
+    order.clientApprovalStatus = "approved";
+    order.deliveredAt = order.deliveredAt || new Date().toISOString();
+    order.receptionValidatedBy = "client";
+    if (order.productType === "standard") {
+      order.withdrawalExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      order.escrowActionChoice = "pending";
+    } else {
+      order.escrowReleasedAt = new Date().toISOString();
+      order.escrowActionChoice = "released_to_wallet";
+    }
+    saveOrders(orders);
+    return { success: true, clientApprovalStatus: "approved", withdrawalExpiresAt: order.withdrawalExpiresAt || undefined, escrowReleasedAt: order.escrowReleasedAt || undefined };
+  },
+
   // Tâche 3 : Validation manuelle de la réception par le client (Art. 4.3 C)
   async validateDelivery(orderId: string): Promise<{ success: boolean }> {
     try {
-      const res = await fetch(`${API_BASE}/client/orders/${orderId}/validate-delivery`, {
+      const res = await fetch(`${API_BASE}/client/orders/${orderId}/deliver`, {
         method: "POST",
         headers: getHeaders(),
       });
@@ -393,7 +422,8 @@ export const clientWalletAPI = {
     const orders = getStoredOrders();
     const order = orders.find((o) => o.id === orderId);
     if (!order) throw new Error("Commande introuvable");
-    order.status = "complete";
+    order.clientApprovalStatus = "approved";
+    order.status = "livre";
     saveOrders(orders);
     return { success: true };
   },

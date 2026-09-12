@@ -10,7 +10,7 @@ interface SenditShippingModalProps {
   defaultAddress?: string;
   onClose: () => void;
   onStep1: (orderId: string, deliveryData: any) => Promise<any>;
-  onStep2: (orderId: string, photoUrl: string) => Promise<any>;
+  onStep2: (orderId: string, photoUrl: string, estimatedTransportDays?: number) => Promise<any>;
 }
 
 export const SenditShippingModal: React.FC<SenditShippingModalProps> = ({
@@ -27,6 +27,7 @@ export const SenditShippingModal: React.FC<SenditShippingModalProps> = ({
   const [artisanAddress, setArtisanAddress] = useState<string>(defaultAddress);
   const [waybillCode, setWaybillCode] = useState<string>(order.senditDeliveryCode || "");
   const [blAttachedPhoto, setBlAttachedPhoto] = useState<string>("");
+  const [estimatedTransportDays, setEstimatedTransportDays] = useState<number>(7);
   const [loading, setLoading] = useState(false);
 
   const districts = [
@@ -68,7 +69,7 @@ export const SenditShippingModal: React.FC<SenditShippingModalProps> = ({
     if (!blAttachedPhoto.trim()) return;
     setLoading(true);
     try {
-      await onStep2(order.id, blAttachedPhoto);
+      await onStep2(order.id, blAttachedPhoto, estimatedTransportDays);
       onClose();
     } catch (err: any) {
       alert(err.message || t("auth_error_server"));
@@ -81,7 +82,7 @@ export const SenditShippingModal: React.FC<SenditShippingModalProps> = ({
   const handleBypassStep2 = async () => {
     setLoading(true);
     try {
-      await onStep2(order.id, "bypass:sendit_bl_photo_waived");
+      await onStep2(order.id, "bypass:sendit_bl_photo_waived", estimatedTransportDays);
       onClose();
     } catch (err: any) {
       alert(err.message || t("auth_error_server"));
@@ -272,6 +273,26 @@ export const SenditShippingModal: React.FC<SenditShippingModalProps> = ({
                   />
                 </label>
               )}
+            </div>
+
+            {/* ─── SAISIE DU DÉLAI DE TRANSPORT ESTIMÉ (MAX 30J - RÈGLE 11/09/2026) ─── */}
+            <div style={{ marginBottom: 16 }}>
+              <label className="form-label" style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>
+                {isRTL ? "مدة الشحن التقديرية (أيام، أقصى حد 30 يوماً) *" : "Délai de transport estimé (jours, max 30) *"}
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={30}
+                required
+                className="form-input"
+                value={estimatedTransportDays}
+                onChange={(e) => setEstimatedTransportDays(Math.min(30, Math.max(1, Number(e.target.value))))}
+                style={{ fontSize: 13, fontWeight: 700, width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)" }}
+              />
+              <span style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 4, display: "block" }}>
+                {isRTL ? "وفقاً لمقتضيات الشروط العامة، يُلزم الصانع بتحديد أجل التوصيل بما لا يتجاوز 30 يوماً." : "Conformément aux CGV, le délai de livraison estimé ne peut dépasser 30 jours."}
+              </span>
             </div>
 
             {/* ─── CONFIRMATION ÉTIQUETAGE D'ATELIER ─── */}

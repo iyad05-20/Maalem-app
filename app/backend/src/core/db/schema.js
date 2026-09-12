@@ -48,6 +48,14 @@ export const orders = pgTable("orders", {
   allowTry: numeric("allow_try").default("0"),
   counterUnreachable: numeric("counter_unreachable").default("0"),
   proofImage: text("proof_image"),
+
+  // CGV v23 & Arbitrages Prioritaires Ziad (11/09/2026)
+  estimatedTransportDays: numeric("estimated_transport_days"),
+  escrowActionChoice: text("escrow_action_choice").default("pending"), // 'pending' | 'pending_artisan_choice' | 'released_to_wallet' | 'extended_by_artisan'
+  shippingParcelFee: numeric("shipping_parcel_fee"),
+  packageDimensions: text("package_dimensions"), // JSON string: { length, width, height }
+  clientApprovalStatus: text("client_approval_status").default("pending"), // 'pending' | 'approved'
+  clientApprovalRequestedAt: text("client_approval_requested_at"),
 });
 
 export const cronExecutions = pgTable("cron_executions", {
@@ -138,13 +146,19 @@ export const vendorWarnings = pgTable("vendor_warnings", {
   orderId: text("order_id"),
   reason: text("reason").notNull(),
   monthYear: text("month_year").notNull(), // e.g. "2026-08"
+  isDismissed: numeric("is_dismissed").default("0"), // 1 si annulé pour Force Majeure (Art. 12.5 & 27)
+  dismissReason: text("dismiss_reason"),
+  dismissedAt: text("dismissed_at"),
+  proofDocUrl: text("proof_doc_url"),
   createdAt: text("created_at").notNull(),
 });
 
 export const vendorProfiles = pgTable("vendor_profiles", {
   id: text("id").primaryKey(), // e.g. "artisan-1"
   warningCountCurrentMonth: numeric("warning_count_current_month").default("0"),
+  warningCount14d: numeric("warning_count_14d").default("0"), // Compteur glissant 14j (Seuil: 3 -> suspension 7j)
   suspensionStatus: text("suspension_status").default("active"), // 'active' | 'paused' | 'suspended_7d' | 'suspended_14d' | 'blocked'
+  suspensionCount: numeric("suspension_count").default("0"),
   suspendedUntil: text("suspended_until"),
   updatedAt: text("updated_at").notNull(),
 });

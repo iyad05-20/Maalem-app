@@ -102,7 +102,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
   const [showCgvTextModal, setShowCgvTextModal] = useState(false);
 
   // Formulaires & Sécurité
-  const [returnMode, setReturnMode] = useState<"sendit" | "propres_moyens">("propres_moyens");
+  const returnMode: "sendit" | "propres_moyens" = "propres_moyens";
   const [trackingNumber, setTrackingNumber] = useState("");
   const [extendHours, setExtendHours] = useState<24 | 48 | 72>(24);
   const [disputeReasonCategory, setDisputeReasonCategory] = useState("Défaut de structure / assemblage (fissure interne, collage défaillant)");
@@ -394,6 +394,24 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
     try {
       await clientWalletAPI.validateDelivery(selectedOrder.id);
       setMessage({ type: "success", text: "Réception confirmée avec succès." });
+      await loadData();
+    } catch (e: unknown) {
+      setMessage({ type: "error", text: (e as Error).message });
+    } finally { setLoading(false); }
+  };
+
+  // Approbation client de la réception en mains propres (Livraison Vendeur - Priorité 11/09/2026 & Art. 13/18 CGV)
+  const handleApproveReceipt = async () => {
+    if (!selectedOrder || loading) return;
+    if (!window.confirm("Confirmez-vous avoir bien reçu votre commande remise en mains propres par le Maâlem ?")) return;
+    setLoading(true); setMessage(null);
+    try {
+      await clientWalletAPI.approveReceipt(selectedOrder.id);
+      const isCustomProd = ["personnalise", "sur_commande"].includes(selectedOrder.productType);
+      const successText = isCustomProd
+        ? "Réception validée avec succès. S'agissant d'un produit sur-mesure confectionné pour vous, les fonds ont été libérés au Maâlem."
+        : "Réception validée avec succès. Votre délai légal de rétractation de 7 jours est désormais ouvert (Art. 18 & 19 CGV).";
+      setMessage({ type: "success", text: successText });
       await loadData();
     } catch (e: unknown) {
       setMessage({ type: "error", text: (e as Error).message });
@@ -862,6 +880,75 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                     </div>
                   )}
 
+                  {/* ── Approbation Réception Livraison Vendeur (Priorité 11/09/2026 & Art. 13/18 CGV) ── */}
+                  {selectedOrder.transportProvider === "vendeur" && selectedOrder.status === "livre" && selectedOrder.clientApprovalStatus !== "approved" && (
+                    <div style={{ background: selectedOrder.clientApprovalRequestedAt ? "rgba(212,175,55,0.12)" : "rgba(45,106,79,0.08)", border: `1.5px solid ${selectedOrder.clientApprovalRequestedAt ? "#D4AF37" : "rgba(45,106,79,0.3)"}`, borderRadius: 16, padding: "16px", marginBottom: 14, boxShadow: "var(--shadow-sm)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <CheckCircle size={18} color={selectedOrder.clientApprovalRequestedAt ? "#8B6914" : "#2D6A4F"} />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: selectedOrder.clientApprovalRequestedAt ? "#8B6914" : "#2D6A4F" }}>
+                          {selectedOrder.clientApprovalRequestedAt 
+                            ? (lang === "ar" ? "🔔 تذكير من المعلم : يرجى تأكيد استلام الشحنة" : "🔔 Relance du Maâlem : Confirmez la réception") 
+                            : (lang === "ar" ? "📦 تسليم مباشر : يرجى تأكيد الاستلام" : "📦 Livraison par le Vendeur : Confirmez la réception")}
+                        </span>
+                      </div>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--text-secondary)", margin: "0 0 12px", lineHeight: 1.45 }}>
+                        {selectedOrder.clientApprovalRequestedAt
+                          ? (lang === "ar" 
+                              ? "أرسل لكم الصانع تذكيراً لتأكيد تسليم الطلب يداً بيد. ضغطكم على زر التأكيد ضروري لاحتساب مهلة الـ 7 أيام للقطع العادية أو لتحويل مستحقات المعلم للتفصيل الخاص."
+                              : "Le Maâlem vous a envoyé une relance pour confirmer la bonne réception de votre commande remise par ses soins. Votre validation lance le délai de rétractation de 7 jours (produits standards) ou déclenche le versement des fonds (sur-mesure).")
+                          : (lang === "ar"
+                              ? "أكد المعلم تسليم الطلب إليكم. يرجى الضغط على زر التأكيد لبدء مهلة الـ 7 أيام للقطع العادية أو إتمام الطلب للقطع الخاصة."
+                              : "Le Maâlem a indiqué vous avoir livré votre commande en mains propres. Votre validation permet de débloquer le versement ou d'ouvrir votre délai de rétractation de 7 jours.")}
+                      </p>
+                      <button 
+                        onClick={handleApproveReceipt} 
+                        disabled={loading} 
+                        style={{ 
+                          width: "100%", 
+                          padding: "12px", 
+                          borderRadius: 12, 
+                          border: "none", 
+                          background: "#2D6A4F", 
+                          color: "#fff", 
+                          fontFamily: "var(--font-display)", 
+                          fontWeight: 700, 
+                          fontSize: 13, 
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
+                          boxShadow: "0 4px 12px rgba(45,106,79,0.25)"
+                        }}
+                      >
+                        <CheckCircle size={16} />
+                        {loading ? "Validation en cours…" : (lang === "ar" ? "أؤكد استلام طلبي بنجاح" : "J'ai bien reçu mon colis — Approuver la réception")}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Badge Réception validée (Livraison Vendeur) */}
+                  {selectedOrder.transportProvider === "vendeur" && selectedOrder.clientApprovalStatus === "approved" && (
+                    <div style={{ background: "rgba(45,106,79,0.06)", border: "1px solid rgba(45,106,79,0.2)", borderRadius: 14, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                      <CheckCircle size={15} color="#2D6A4F" />
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "#2D6A4F", fontWeight: 600 }}>
+                        {isCustom 
+                          ? (lang === "ar" ? "تم تأكيد الاستلام · تم صرف مستحقات الصانع (تفصيل خاص)" : "Réception validée · Fonds libérés au Maâlem (Sur-mesure)") 
+                          : (lang === "ar" ? "تم تأكيد الاستلام · مهلة الـ 7 أيام للرجوع جارية" : `Réception validée · Délai de rétractation 7j en cours${selectedOrder.withdrawalExpiresAt ? ` (jusqu'au ${new Date(selectedOrder.withdrawalExpiresAt).toLocaleDateString()})` : ""}`)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Badge Preuve de livraison automatique (Sendit POD) */}
+                  {selectedOrder.transportProvider === "sendit" && selectedOrder.status === "livre" && !isCustom && (
+                    <div style={{ background: "rgba(45,106,79,0.06)", border: "1px solid rgba(45,106,79,0.2)", borderRadius: 14, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                      <CheckCircle size={15} color="#2D6A4F" />
+                      <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "#2D6A4F", fontWeight: 600 }}>
+                        {lang === "ar" ? "تم تسليم الطرد عبر سينديت · مهلة الـ 7 أيام للرجوع جارية" : `Livraison validée par POD Sendit Express · Rétractation légale 7 jours en cours${selectedOrder.withdrawalExpiresAt ? ` (jusqu'au ${new Date(selectedOrder.withdrawalExpiresAt).toLocaleDateString()})` : ""}`}
+                      </span>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {/* 1. [Payer en ligne via CMI] */}
                     {(selectedOrder.status === "en_attente_paiement" || selectedOrder.status === "paiement_echoue") && (
@@ -1291,10 +1378,11 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} style={{ background: "var(--surface)", borderRadius: 24, padding: 20, width: "100%", maxHeight: "80%", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-lg)", border: "1px solid var(--border)" }}>
               <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", marginBottom: 12, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>Conditions Générales Vork</h3>
               <div style={{ flex: 1, overflowY: "auto", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--text-secondary)", lineHeight: "1.5", display: "flex", flexDirection: "column", gap: 10, paddingRight: 6, scrollbarWidth: "none" }}>
-                <p><strong>1. Modèle Séquestre (Escrow 15j) :</strong> Afin de protéger l'acheteur et l'artisan, 100% des fonds réglés par CMI sont séquestrés et conservés par la plateforme Vork pendant 15 jours révolus après la livraison de la commande.</p>
-                <p><strong>2. Rétractation légale (7 jours) :</strong> Pour tout produit standard, l'acheteur dispose d'un droit de rétractation de 7 jours après la livraison. Les frais de retour Sendit de 35 MAD sont déduits du remboursement.</p>
-                <p><strong>3. Produits Sur-Mesure / Personnalisés :</strong> Conformément à l'article 36 de la Loi 31-08, le droit de rétractation ne s'applique pas aux produits confectionnés sur commande. L'acheteur dispose d'une période de grâce de 60 minutes après acceptation par le Maâlem pour annuler sans frais.</p>
-                <p><strong>4. Signalement Vice Caché (15 jours) :</strong> Pendant les 15 jours de séquestre, en cas de défaut de fabrication ou vice caché grave, l'acheteur peut geler le séquestre pour examen par l'arbitrage Vork.</p>
+                <p><strong>1. Séquestre & Libération des fonds (Art. 15 & 18 CGV) :</strong> 100% des fonds sont cantonnés sous séquestre sécurisé. Pour les produits standards, le délai légal de rétractation de 7 jours débute dès la validation de réception (POD transporteur Sendit ou approbation par clic client en livraison vendeur). À l'issue des 7 jours sans litige, les fonds sont débloqués pour la commande concernée.</p>
+                <p><strong>2. Produits Sur-Mesure / Personnalisés (Art. 17 & 19 CGV - Art. 36 Loi 31-08) :</strong> Conformément à la loi marocaine de protection du consommateur, aucun droit de rétractation ne s'applique aux commandes confectionnées sur mesure selon les spécifications de l'acheteur. Une heure de grâce (60 minutes) post-acceptation atelier permet une annulation sans frais. Dès confirmation de réception, les fonds sont immédiatement libérés à l'artisan.</p>
+                <p><strong>3. Retours Produits Standards (Art. 19.3 & 19.4 CGV) :</strong> Réservé exclusivement aux produits standards non personnalisés sous 7 jours. L'organisation du retour incombe intégralement au client, par ses propres moyens et à ses frais exclusifs, avec transmission obligatoire de la preuve d'expédition.</p>
+                <p><strong>4. Garantie Légale des Vices Cachés (3 mois / 90 jours - Art. 16.9 CGV) :</strong> Tout défaut de matière première ou vice structurel grave peut être signalé pendant 3 mois complets suivant la réception pour arbitrage et expertise Vork.</p>
+                <p><strong>5. Transport Sendit vs Vendeur (Art. 13 & 14 CGV) :</strong> Sendit Express est réservé aux produits standards de dimensions ≤ 40×40 cm. Les pièces hors gabarit et sur-mesure sont acheminées par le Maâlem.</p>
               </div>
               <button 
                 onClick={() => setShowCgvTextModal(false)} 
@@ -1339,68 +1427,72 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
         )}
       </AnimatePresence>
 
-      {/* ── MODALE MOBILE : Demande de Retour (7j - Art. 9.3 & 9.4) ── */}
+      {/* ── MODALE MOBILE : Demande de Retour (7j - Art. 19 CGV) ── */}
       <AnimatePresence>
         {showReturnModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ position: "fixed", inset: 0, background: "rgba(26,42,58,0.65)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 110 }}>
             <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={{ type: "spring", damping: 26, stiffness: 220 }} style={{ background: "#FCFBF9", borderRadius: "24px 24px 0 0", padding: "20px 20px 32px", width: "100%", maxWidth: 640, borderTop: "1.5px solid rgba(196, 169, 106, 0.2)", boxShadow: "0 -10px 30px rgba(0,0,0,0.15)" }}>
               <div style={{ width: 36, height: 4, background: "rgba(0,0,0,0.1)", borderRadius: 2, margin: "0 auto 16px" }} />
-              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17, color: "var(--primary)", marginBottom: 4 }}>Rétractation (7 jours)</h3>
-              <p style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-secondary)", marginBottom: 14 }}>Organisez l'expédition de votre retour d'article.</p>
+              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17, color: "var(--primary)", marginBottom: 4 }}>Rétractation légale (7 jours)</h3>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-secondary)", marginBottom: 14 }}>Organisation du renvoi sous 7 jours (Article 19 CGV).</p>
 
-              {selectedOrder?.carrierChoice === "sendit" ? (
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "rgba(220,53,69,0.06)", border: "1px solid rgba(220,53,69,0.15)", borderRadius: 12, padding: 12 }}>
-                  ℹ️ <strong>Règle Art. 9.3 A :</strong> La livraison initiale ayant été effectuée par Sendit, l'organisation du retour s'effectue obligatoirement par vos propres moyens.
+              {isCustom ? (
+                <div style={{ background: "rgba(220,53,69,0.06)", border: "1px solid rgba(220,53,69,0.2)", borderRadius: 14, padding: 14, marginBottom: 16 }}>
+                  <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "#DC3545", margin: "0 0 4px" }}>
+                    ❌ Produit non éligible au retour (Art. 19 & Art. 36 Loi 31-08)
+                  </p>
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                    Les pièces confectionnées sur mesure ou personnalisées ne bénéficient d'aucun droit de rétractation. En cas de défaut structurel de matière, utilisez l'option « Signaler un vice caché (3 mois) ».
+                  </p>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {(["sendit", "propres_moyens"] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => setReturnMode(mode)}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-start",
-                        padding: "12px 16px",
-                        borderRadius: 14,
-                        border: returnMode === mode ? "2px solid var(--primary)" : "1px solid var(--border)",
-                        background: returnMode === mode ? "linear-gradient(135deg, rgba(196,169,106,0.06), rgba(26,42,58,0.02))" : "none",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        width: "100%",
-                        transition: "all 0.2s ease"
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-                        <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 12, color: "var(--primary)", margin: 0 }}>{mode === "sendit" ? "Service Retour Vendeur (35 MAD)" : "Mes propres moyens"}</p>
-                        <span style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: "50%",
-                          border: "1px solid var(--primary)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: 2
-                        }}>
-                          {returnMode === mode && <div style={{ width: "100%", height: "100%", borderRadius: "50%", background: "var(--primary)" }} />}
-                        </span>
-                      </div>
-                      <p style={{ fontFamily: "var(--font-body)", fontSize: 10, color: "var(--text-secondary)", margin: 0 }}>{mode === "sendit" ? "Frais déduits du remboursement" : "Remboursement 100% sur Wallet"}</p>
-                    </button>
-                  ))}
-                </div>
-              )}
+                <>
+                  <div style={{ background: "rgba(196,169,106,0.08)", border: "1px solid rgba(196,169,106,0.25)", borderRadius: 14, padding: 12, marginBottom: 14 }}>
+                    <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, color: "var(--primary)", margin: "0 0 4px" }}>
+                      📦 Organisation par vos propres moyens (Art. 19.3 & 19.4)
+                    </p>
+                    <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                      Le retour d'un produit standard s'effectue obligatoirement à vos frais et par vos propres moyens (Amana, CTM, etc.). Dès réception et vérification par le Maâlem, 100% du prix de l'article vous sera recrédité sur votre portefeuille Vork.
+                    </p>
+                  </div>
 
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Numéro de suivi / Preuve de transport (Art 9.4) *</label>
-                <input type="text" placeholder="Ex: N° de récépissé, code de suivi transporteur…" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-primary)", fontFamily: "var(--font-body)", fontSize: 13, color: "var(--primary)", outline: "none" }} />
-              </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                      Numéro de suivi transporteur / Récépissé d'expédition (Art. 19.4) *
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder="Ex: Code Amana, CTM Messagerie, etc." 
+                      value={trackingNumber} 
+                      onChange={(e) => setTrackingNumber(e.target.value)} 
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--bg-primary)", fontFamily: "var(--font-body)", fontSize: 13, color: "var(--primary)", outline: "none" }} 
+                    />
+                  </div>
+                </>
+              )}
 
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={() => setShowReturnModal(false)} style={{ flex: 1, padding: "12px", borderRadius: 14, border: "1px solid var(--border)", background: "none", fontFamily: "var(--font-body)", fontWeight: 600, fontSize: 13, color: "var(--text-secondary)", cursor: "pointer" }}>Fermer</button>
-                <button onClick={handleReturnSubmit} disabled={loading} style={{ flex: 2, padding: "12px", borderRadius: 14, border: "none", background: "var(--primary)", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "#fff", cursor: "pointer" }}>{loading ? "Envoi…" : "Valider le retour (100% remboursé)"}</button>
+                {!isCustom && (
+                  <button 
+                    onClick={handleReturnSubmit} 
+                    disabled={loading || !trackingNumber.trim()} 
+                    style={{ 
+                      flex: 2, 
+                      padding: "12px", 
+                      borderRadius: 14, 
+                      border: "none", 
+                      background: trackingNumber.trim() ? "var(--primary)" : "var(--text-placeholder)", 
+                      fontFamily: "var(--font-display)", 
+                      fontWeight: 700, 
+                      fontSize: 13, 
+                      color: "#fff", 
+                      cursor: trackingNumber.trim() ? "pointer" : "not-allowed" 
+                    }}
+                  >
+                    {loading ? "Envoi…" : "Valider le retour (100% remboursé)"}
+                  </button>
+                )}
               </div>
             </motion.div>
           </motion.div>

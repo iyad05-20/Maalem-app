@@ -99,14 +99,46 @@ export const artisanAPI = {
     return data;
   },
 
-  async shipSenditStep2(orderId: string, blAttachedPhoto: string): Promise<any> {
+  async shipSenditStep2(orderId: string, blAttachedPhoto: string, estimatedTransportDays: number = 7): Promise<any> {
     const res = await fetch(`${getApiBase()}/orders/${orderId}/ship-sendit-step2`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ blAttachedPhoto }),
+      body: JSON.stringify({ blAttachedPhoto, estimatedTransportDays }),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || "Erreur étape 2 Sendit.");
+    return data;
+  },
+
+  async escrowChoice(orderId: string, action: "claim" | "extend", extendDays?: number): Promise<any> {
+    const res = await fetch(`${getApiBase()}/orders/${orderId}/escrow-choice`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ action, extendDays }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur choix séquestre.");
+    return data;
+  },
+
+  async nudgeClient(orderId: string): Promise<any> {
+    const res = await fetch(`${getApiBase()}/orders/${orderId}/nudge-client`, {
+      method: "POST",
+      headers: getHeaders(),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur relance client.");
+    return data;
+  },
+
+  async contestWarningForceMajeure(warningId: string, reason: string, proofDocUrl?: string): Promise<any> {
+    const res = await fetch(`${getApiBase()}/warnings/${warningId}/contest-force-majeure`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ reason, proofDocUrl }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur contestation force majeure.");
     return data;
   },
 

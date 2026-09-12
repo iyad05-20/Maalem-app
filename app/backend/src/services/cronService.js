@@ -1,6 +1,6 @@
-import { eq, and, isNull, inArray, lte } from "drizzle-orm";
+import { eq, and, isNull, inArray, lte, gte, or } from "drizzle-orm";
 import { db } from "../core/db/index.js";
-import { orders, returnRequests, vendorProfiles, cronExecutions, withdrawalRequests } from "../core/db/schema.js";
+import { orders, returnRequests, vendorProfiles, vendorWarnings, cronExecutions, withdrawalRequests } from "../core/db/schema.js";
 import { recordVendorWarning } from "../client/services/artisanOrderService.js";
 
 /**
@@ -83,14 +83,16 @@ export async function runJ2RelanceJob() {
 }
 
 /**
- * Job 2 : Auto-Validation des Réceptions à Minuit (Art. 13.3 C)
- * - Identifie les commandes livrées depuis >= 24h sans réclamation client.
- * - Passe au statut 'auto_valide'.
- * - Pour les produits standards : Déclenche le délai de 7 jours de rétractation.
- * - Pour les produits sur-mesure : Libère immédiatement le séquestre.
+ * Job 2 : Gestion de la Validation des Réceptions & Déclenchement des 7 Jours
+ * (Règles Ziad 11/09/2026) :
+ * - Transport Sendit : la confirmation de livraison par le transporteur (POD) suffit et valide la réception
+ *   automatiquement, ce qui démarre le délai légal de 7 jours de rétractation.
+ * - Transport Vendeur : l'approbation explicite du client est requise. Le vendeur doit inciter le client
+ *   à cliquer sur "Approuver la réception" pour enclencher les 7 jours.
+ * - Produits Sur-Mesure / Sur Commande : Libération immédiate dès la livraison (aucun délai 7j).
  */
 export async function runAutoValidationJob() {
-  console.log("[CRON] ⏰ Démarrage du Job 2 : Auto-Validation des Réceptions 24h...");
+  console.log("[CRON] ⏰ Démarrage du Job 2 : Traitement des validations de réception...");
   const now = new Date();
   let processedCount = 0;
   const logs = [];
@@ -99,7 +101,6 @@ export async function runAutoValidationJob() {
     const deliveredOrders = await db.select().from(orders).where(
       and(
         eq(orders.status, "livre"),
-        isNull(orders.receptionValidatedBy),
         isNull(orders.nonReceptionClaimedAt)
       )
     );
@@ -107,41 +108,56 @@ export async function runAutoValidationJob() {
     for (const order of deliveredOrders) {
       if (!order.deliveredAt) continue;
 
-      const deliveredMs = new Date(order.deliveredAt).getTime();
-      const hoursSinceDelivery = (now.getTime() - deliveredMs) / (1000 * 60 * 60);
+      const isCustom = ["personnalise", "sur_commande"].includes(order.productType);
 
-      // Seuil de 24 heures post-livraison
-      if (hoursSinceDelivery >= 24) {
-        const isCustom = ["personnalise", "sur_commande"].includes(order.productType);
+      // Cas 1 : Sur-mesure / Sur commande -> Libération immédiate sans rétractation (Art. 14.1 & 22.4)
+      if (isCustom && !order.escrowReleasedAt) {
+        await db.update(orders).set({
+          status: "auto_valide",
+          receptionValidatedBy: order.receptionValidatedBy || "auto",
+          clientApprovalStatus: "approved",
+          escrowReleasedAt: now.toISOString(),
+          escrowActionChoice: "released_to_wallet",
+          updatedAt: now.toISOString(),
+        }).where(eq(orders.id, order.id));
 
-        if (isCustom) {
-          // Produits sur-mesure / sur-commande : Pas de rétractation, libération immédiate (Art. 9.3)
-          await db.update(orders).set({
-            status: "auto_valide",
-            receptionValidatedBy: "auto",
-            escrowReleasedAt: now.toISOString(),
-            updatedAt: now.toISOString(),
-          }).where(eq(orders.id, order.id));
-
-          logs.push(`Commande Sur-Mesure ${order.id} : Auto-validée (Séquestre libéré immédiatement).`);
-        } else {
-          // Produits standards : Début des 7 jours calendaires de rétractation (Art. 13.1)
-          const withdrawalExpires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-          await db.update(orders).set({
-            status: "auto_valide",
-            receptionValidatedBy: "auto",
-            withdrawalExpiresAt: withdrawalExpires,
-            updatedAt: now.toISOString(),
-          }).where(eq(orders.id, order.id));
-
-          logs.push(`Commande Standard ${order.id} : Auto-validée (Rétractation jusqu'au ${withdrawalExpires}).`);
-        }
+        logs.push(`Commande Sur-Mesure ${order.id} : Validée (Séquestre libéré immédiatement à l'artisan).`);
         processedCount++;
+        continue;
+      }
+
+      // Cas 2 : Produit Standard avec transport Sendit -> validation transporteur seule suffisante
+      if (!isCustom && order.transportProvider === "sendit" && !order.withdrawalExpiresAt) {
+        const withdrawalExpires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        await db.update(orders).set({
+          receptionValidatedBy: "sendit_carrier",
+          withdrawalExpiresAt: withdrawalExpires,
+          escrowActionChoice: "pending",
+          updatedAt: now.toISOString(),
+        }).where(eq(orders.id, order.id));
+
+        logs.push(`Commande Sendit ${order.id} : Réception validée via transporteur (Rétractation 7j jusqu'au ${withdrawalExpires}).`);
+        processedCount++;
+        continue;
+      }
+
+      // Cas 3 : Produit Standard avec transport Vendeur et client ayant approuvé
+      if (!isCustom && order.transportProvider === "vendeur" && order.clientApprovalStatus === "approved" && !order.withdrawalExpiresAt) {
+        const withdrawalExpires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        await db.update(orders).set({
+          withdrawalExpiresAt: withdrawalExpires,
+          escrowActionChoice: "pending",
+          updatedAt: now.toISOString(),
+        }).where(eq(orders.id, order.id));
+
+        logs.push(`Commande Vendeur ${order.id} : Réception approuvée par le client (Rétractation 7j jusqu'au ${withdrawalExpires}).`);
+        processedCount++;
+        continue;
       }
     }
 
     await logCronExecution("auto-validation", "success", processedCount, logs);
-    console.log(`[CRON] ✅ Job 2 terminé (${processedCount} commandes auto-validées).`);
+    console.log(`[CRON] ✅ Job 2 terminé (${processedCount} commandes traitées).`);
     return { success: true, processedCount, logs };
   } catch (err) {
     console.error("[CRON] ❌ Erreur Job 2 :", err);
@@ -151,12 +167,15 @@ export async function runAutoValidationJob() {
 }
 
 /**
- * Job 3 : Libération Automatique du Séquestre à J+7 (Art. 14 bis.4)
- * - Identifie les commandes standards validées dont le délai de 7 jours de rétractation est expiré sans litige.
- * - Débloque l'escrow vers le vendeur.
+ * Job 3 : Traitement de l'Expiration du Délai de Rétractation 7 Jours
+ * (Décision Ziad 11/09/2026) :
+ * - Lorsque les 7 jours sont écoulés sans réclamation, on ne libère pas l'argent à l'aveugle.
+ * - On passe la commande au statut 'pending_artisan_choice' pour donner le choix à l'artisan :
+ *   1) Débloquer ses fonds pour cette commande spécifique
+ *   2) Accorder un délai supplémentaire au client et le contacter pour plus d'infos.
  */
 export async function runEscrowReleaseJob() {
-  console.log("[CRON] ⏰ Démarrage du Job 3 : Libération du Séquestre J+7...");
+  console.log("[CRON] ⏰ Démarrage du Job 3 : Vérification de l'échéance des 7 jours de rétractation...");
   const now = new Date();
   let processedCount = 0;
   const logs = [];
@@ -173,20 +192,22 @@ export async function runEscrowReleaseJob() {
       if (!order.withdrawalExpiresAt) continue;
 
       const expiryMs = new Date(order.withdrawalExpiresAt).getTime();
-      // Si la date limite de rétractation est dépassée
+      // Si le délai de rétractation de 7 jours est dépassé sans réclamation active
       if (expiryMs <= now.getTime() && order.status !== "en_reclamation") {
-        await db.update(orders).set({
-          escrowReleasedAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-        }).where(eq(orders.id, order.id));
+        if (!order.escrowActionChoice || order.escrowActionChoice === "pending") {
+          await db.update(orders).set({
+            escrowActionChoice: "pending_artisan_choice",
+            updatedAt: now.toISOString(),
+          }).where(eq(orders.id, order.id));
 
-        logs.push(`Commande ${order.id} : Séquestre libéré (${order.totalPrice} MAD vers ${order.artisanRef}).`);
-        processedCount++;
+          logs.push(`Commande ${order.id} : Délai 7j écoulé. Choix ouvert à l'artisan ${order.artisanRef} (Débloquer ou Prolonger).`);
+          processedCount++;
+        }
       }
     }
 
     await logCronExecution("release-escrow", "success", processedCount, logs);
-    console.log(`[CRON] ✅ Job 3 terminé (${processedCount} séquestres débloqués).`);
+    console.log(`[CRON] ✅ Job 3 terminé (${processedCount} commandes notifiées pour choix de déblocage).`);
     return { success: true, processedCount, logs };
   } catch (err) {
     console.error("[CRON] ❌ Erreur Job 3 :", err);
@@ -245,13 +266,15 @@ export async function runExpiredReturnsJob() {
 }
 
 /**
- * Job 5 : Reset Mensuel des Avertissements Vendeurs (Art. 6.4)
- * - Remise à zéro le 1er de chaque mois.
- * - Rétablissement des boutiques suspendues dont la période est écoulée.
+ * Job 5 : Révision Glissante 14 Jours des Avertissements & Réactivation
+ * (Décision Ziad 11/09/2026 : 3 avertissements en 14j -> suspension 7j)
+ * - Calcule pour chaque vendeur ses avertissements actifs sur les 14 derniers jours.
+ * - Rétablit les boutiques dont la période de suspension de 7 jours est expirée.
  */
 export async function runMonthlyWarningResetJob() {
-  console.log("[CRON] ⏰ Démarrage du Job 5 : Réinitialisation Mensuelle des Avertissements...");
+  console.log("[CRON] ⏰ Démarrage du Job 5 : Révision 14j & Réactivation des Avertissements...");
   const now = new Date();
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
   let processedCount = 0;
   const logs = [];
 
@@ -259,18 +282,28 @@ export async function runMonthlyWarningResetJob() {
     const profiles = await db.select().from(vendorProfiles);
 
     for (const profile of profiles) {
+      // Compter les avertissements actifs sur les 14 derniers jours
+      const recentWarnings = await db.select().from(vendorWarnings).where(
+        and(
+          eq(vendorWarnings.vendorRef, profile.id),
+          gte(vendorWarnings.createdAt, fourteenDaysAgo),
+          or(eq(vendorWarnings.isDismissed, 0), isNull(vendorWarnings.isDismissed))
+        )
+      );
+      const count14d = recentWarnings.length;
+
       const updateData = {
-        warningCountCurrentMonth: 0,
+        warningCount14d: count14d,
         updatedAt: now.toISOString(),
       };
 
-      // Si suspension temporaire arrivée à terme
+      // Si suspension temporaire de 7 jours arrivée à terme
       if (profile.suspendedUntil && new Date(profile.suspendedUntil).getTime() <= now.getTime()) {
-        updateData.suspensionStatus = "active";
-        updateData.suspendedUntil = null;
-        logs.push(`Vendeur ${profile.id} : Compteur réinitialisé & Boutique réactivée.`);
-      } else {
-        logs.push(`Vendeur ${profile.id} : Compteur réinitialisé à 0.`);
+        if (count14d < 3) {
+          updateData.suspensionStatus = "active";
+          updateData.suspendedUntil = null;
+          logs.push(`Vendeur ${profile.id} : Période de suspension purgée & Boutique réactivée.`);
+        }
       }
 
       await db.update(vendorProfiles).set(updateData).where(eq(vendorProfiles.id, profile.id));
@@ -278,7 +311,7 @@ export async function runMonthlyWarningResetJob() {
     }
 
     await logCronExecution("reset-warnings", "success", processedCount, logs);
-    console.log(`[CRON] ✅ Job 5 terminé (${processedCount} profils réinitialisés).`);
+    console.log(`[CRON] ✅ Job 5 terminé (${processedCount} profils révisés sur 14j).`);
     return { success: true, processedCount, logs };
   } catch (err) {
     console.error("[CRON] ❌ Erreur Job 5 :", err);

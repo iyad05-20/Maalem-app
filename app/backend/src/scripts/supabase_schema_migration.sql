@@ -42,7 +42,15 @@ CREATE TABLE IF NOT EXISTS public.orders (
     allow_open SMALLINT DEFAULT 1,
     allow_try SMALLINT DEFAULT 0,
     counter_unreachable INTEGER DEFAULT 0,
-    proof_image TEXT
+    proof_image TEXT,
+
+    -- CGV v23 & Arbitrages Prioritaires Ziad (11/09/2026)
+    estimated_transport_days INTEGER,
+    escrow_action_choice TEXT DEFAULT 'pending', -- 'pending' | 'pending_artisan_choice' | 'released_to_wallet' | 'extended_by_artisan'
+    shipping_parcel_fee NUMERIC(10, 2),
+    package_dimensions TEXT,
+    client_approval_status TEXT DEFAULT 'pending',
+    client_approval_requested_at TIMESTAMPTZ
 );
 
 -- 2. Profils Vendeurs / Maâlems (Vendor Profiles)
@@ -58,6 +66,8 @@ CREATE TABLE IF NOT EXISTS public.vendor_profiles (
     is_vacation_mode BOOLEAN DEFAULT FALSE,
     years_of_experience INTEGER DEFAULT 10,
     warning_count_current_month INTEGER DEFAULT 0,
+    warning_count_14d INTEGER DEFAULT 0,
+    suspension_count INTEGER DEFAULT 0,
     suspension_status TEXT DEFAULT 'active', -- 'active' | 'paused' | 'suspended_7d' | 'suspended_14d' | 'blocked'
     suspended_until TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -70,6 +80,10 @@ CREATE TABLE IF NOT EXISTS public.vendor_warnings (
     order_id TEXT REFERENCES public.orders(id) ON DELETE SET NULL,
     reason TEXT NOT NULL,
     month_year TEXT NOT NULL, -- ex: '2026-08'
+    is_dismissed SMALLINT DEFAULT 0,
+    dismiss_reason TEXT,
+    dismissed_at TIMESTAMPTZ,
+    proof_doc_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

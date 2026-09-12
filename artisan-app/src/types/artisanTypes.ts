@@ -18,6 +18,11 @@ export interface ArtisanOrder {
   vendeurDeliverySignaturePhoto?: string | null;
   clientSignature?: string | null;
   escrowReleasedAt?: string | null;
+  withdrawalExpiresAt?: string | null;
+  clientApprovalStatus?: "pending" | "approved" | null;
+  clientApprovalRequestedAt?: string | null;
+  escrowActionChoice?: "pending" | "pending_artisan_choice" | "released_to_wallet" | "extended_by_artisan" | null;
+  estimatedTransportDays?: number | null;
   counterUnreachable?: number | null;
   nonReceptionClaimedAt?: string | null;
   j2RelanceSentAt?: string | null;
