@@ -1,11 +1,11 @@
-import { sqliteTable, text, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, numeric } from "drizzle-orm/pg-core";
 
-export const orders = sqliteTable("orders", {
+export const orders = pgTable("orders", {
   id: text("id").primaryKey(),
   clientRef: text("client_ref").notNull(),
   artisanRef: text("artisan_ref").notNull().default("artisan-1"),
   artisanName: text("artisan_name"),
-  totalPrice: real("total_price").notNull(),
+  totalPrice: numeric("total_price").notNull(),
   productType: text("product_type").notNull().default("standard"), // 'standard' | 'personnalise' | 'sur_commande'
   productTitle: text("product_title"),
   productImage: text("product_image"),
@@ -33,7 +33,7 @@ export const orders = sqliteTable("orders", {
   receptionValidatedBy: text("reception_validated_by"),
   nonReceptionClaimedAt: text("non_reception_claimed_at"),
   nonReceptionReason: text("non_reception_reason"),
-  refusedByArtisan: real("refused_by_artisan").default(0),
+  refusedByArtisan: numeric("refused_by_artisan").default("0"),
   refusalReason: text("refusal_reason"),
 
   // Cron & Automated Reminders
@@ -42,37 +42,37 @@ export const orders = sqliteTable("orders", {
   // Sendit delivery integrations
   senditDeliveryCode: text("sendit_delivery_code"),
   senditPickupCode: text("sendit_pickup_code"),
-  pickupDistrictId: real("pickup_district_id"),
-  deliveryDistrictId: real("delivery_district_id"),
-  allowOpen: real("allow_open").default(1),
-  allowTry: real("allow_try").default(0),
-  counterUnreachable: real("counter_unreachable").default(0),
+  pickupDistrictId: numeric("pickup_district_id"),
+  deliveryDistrictId: numeric("delivery_district_id"),
+  allowOpen: numeric("allow_open").default("1"),
+  allowTry: numeric("allow_try").default("0"),
+  counterUnreachable: numeric("counter_unreachable").default("0"),
   proofImage: text("proof_image"),
 });
 
-export const cronExecutions = sqliteTable("cron_executions", {
+export const cronExecutions = pgTable("cron_executions", {
   id: text("id").primaryKey(),
   jobName: text("job_name").notNull(),
   status: text("status").notNull(), // 'success' | 'failed'
-  itemsProcessed: real("items_processed").default(0),
+  itemsProcessed: numeric("items_processed").default("0"),
   details: text("details"),
   executedAt: text("executed_at").notNull(),
 });
 
-export const withdrawalRequests = sqliteTable("withdrawal_requests", {
+export const withdrawalRequests = pgTable("withdrawal_requests", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull(),
-  amount: real("amount").notNull(),
+  amount: numeric("amount").notNull(),
   rib: text("rib").notNull(),
   status: text("status").notNull().default("pending"),
   createdAt: text("created_at").notNull(),
   processedAt: text("processed_at"),
 });
 
-export const paymentIntents = sqliteTable("payment_intents", {
+export const paymentIntents = pgTable("payment_intents", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
-  montant: real("montant").notNull(),
+  montant: numeric("montant").notNull(),
   tranche: text("tranche").notNull(),
   provider: text("provider").notNull().default("mock_cmi"),
   statut: text("statut").notNull().default("cree"),
@@ -82,38 +82,38 @@ export const paymentIntents = sqliteTable("payment_intents", {
   expiresAt: text("expires_at").notNull(),
 });
 
-export const ledgerEntries = sqliteTable("ledger_entries", {
+export const ledgerEntries = pgTable("ledger_entries", {
   id: text("id").primaryKey(),
   orderId: text("order_id"),
   compteDebit: text("compte_debit").notNull(),
   compteCredit: text("compte_credit").notNull(),
-  montant: real("montant").notNull(),
+  montant: numeric("montant").notNull(),
   type: text("type").notNull(),
   metadata: text("metadata"),
   createdAt: text("created_at").notNull(),
 });
 
-export const paymentsReceived = sqliteTable("payments_received", {
+export const paymentsReceived = pgTable("payments_received", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
   paymentIntentId: text("payment_intent_id").unique(),
   source: text("source").notNull(),
-  amount: real("amount").notNull(),
+  amount: numeric("amount").notNull(),
   tranche: text("tranche").notNull(),
   confirmedAt: text("confirmed_at").notNull(),
 });
 
-export const returnRequests = sqliteTable("return_requests", {
+export const returnRequests = pgTable("return_requests", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
   mode: text("mode").notNull(),
-  returnShippingFee: real("return_shipping_fee").notNull().default(0),
+  returnShippingFee: numeric("return_shipping_fee").notNull().default("0"),
   status: text("status").notNull().default("initie"),
   createdAt: text("created_at").notNull(),
   resolvedAt: text("resolved_at"),
 });
 
-export const disputes = sqliteTable("disputes", {
+export const disputes = pgTable("disputes", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
   type: text("type").notNull().default("non_reception"), // 'non_reception' | 'vice_cache_3mois' | 'non_conformite' | 'retard_critique' | 'retractation_bloquee'
@@ -126,13 +126,13 @@ export const disputes = sqliteTable("disputes", {
   status: text("status").notNull().default("en_arbitrage_admin"), // 'en_attente_artisan' | 'en_arbitrage_admin' | 'resolu_remboursement_total' | 'resolu_remboursement_partiel' | 'resolu_remplacement' | 'rejete'
   escrowStatusAtDispute: text("escrow_status_at_dispute").notNull().default("locked"), // 'locked' | 'already_released'
   arbitrationDecision: text("arbitration_decision"),
-  arbitrationAmount: real("arbitration_amount"),
+  arbitrationAmount: numeric("arbitration_amount"),
   arbitratedBy: text("arbitrated_by").default("admin-vork"),
   createdAt: text("created_at").notNull(),
   resolvedAt: text("resolved_at"),
 });
 
-export const vendorWarnings = sqliteTable("vendor_warnings", {
+export const vendorWarnings = pgTable("vendor_warnings", {
   id: text("id").primaryKey(),
   vendorRef: text("vendor_ref").notNull(),
   orderId: text("order_id"),
@@ -141,15 +141,15 @@ export const vendorWarnings = sqliteTable("vendor_warnings", {
   createdAt: text("created_at").notNull(),
 });
 
-export const vendorProfiles = sqliteTable("vendor_profiles", {
+export const vendorProfiles = pgTable("vendor_profiles", {
   id: text("id").primaryKey(), // e.g. "artisan-1"
-  warningCountCurrentMonth: real("warning_count_current_month").default(0),
+  warningCountCurrentMonth: numeric("warning_count_current_month").default("0"),
   suspensionStatus: text("suspension_status").default("active"), // 'active' | 'paused' | 'suspended_7d' | 'suspended_14d' | 'blocked'
   suspendedUntil: text("suspended_until"),
   updatedAt: text("updated_at").notNull(),
 });
 
-export const appUsers = sqliteTable("app_users", {
+export const appUsers = pgTable("app_users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
@@ -158,13 +158,13 @@ export const appUsers = sqliteTable("app_users", {
   phone: text("phone"),
   city: text("city"),
   status: text("status").notNull().default("active"), // 'active' | 'suspended' | 'locked'
-  failedLoginAttempts: real("failed_login_attempts").default(0),
+  failedLoginAttempts: numeric("failed_login_attempts").default("0"),
   lockedUntil: text("locked_until"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 
-export const adminAuditLogs = sqliteTable("admin_audit_logs", {
+export const adminAuditLogs = pgTable("admin_audit_logs", {
   id: text("id").primaryKey(),
   operatorId: text("operator_id").notNull(),
   action: text("action").notNull(),
@@ -173,4 +173,3 @@ export const adminAuditLogs = sqliteTable("admin_audit_logs", {
   ipAddress: text("ip_address"),
   createdAt: text("created_at").notNull(),
 });
-

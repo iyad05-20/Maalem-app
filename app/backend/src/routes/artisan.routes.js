@@ -47,9 +47,9 @@ artisanRouter.get("/orders", async (req, res) => {
     }
 
     // Isolation stricte : uniquement les commandes de l'artisan connecté
-    const list = db.select().from(orders)
+    const list = await db.select().from(orders)
       .where(eq(orders.artisanRef, artisanRef))
-      .orderBy(desc(orders.createdAt)).all();
+      .orderBy(desc(orders.createdAt));
 
     const enriched = list.map(o => ({
       ...o,
@@ -70,7 +70,7 @@ artisanRouter.post("/orders/:id/accept", async (req, res) => {
   const { id } = req.params;
   try {
     await acceptOrder(id);
-    const updated = db.select().from(orders).where(eq(orders.id, id)).get();
+    const [updated] = await db.select().from(orders).where(eq(orders.id, id));
     return res.json({ success: true, message: "Commande acceptée ! Entrée en fabrication.", order: updated });
   } catch (err) {
     return res.status(400).json({ success: false, error: err.message });
@@ -90,20 +90,20 @@ artisanRouter.post("/orders/:id/refuse", async (req, res) => {
   }
 
   try {
-    const order = db.select().from(orders).where(eq(orders.id, id)).get();
+    const [order] = await db.select().from(orders).where(eq(orders.id, id));
     if (!order) return res.status(404).json({ success: false, error: "Commande introuvable." });
 
     const now = new Date().toISOString();
 
     // Remboursement 100% Client
-    db.update(orders).set({
+    await db.update(orders).set({
       status: "annulee",
       refusedByArtisan: 1,
       refusalReason: reason.trim(),
       updatedAt: now,
-    }).where(eq(orders.id, id)).run();
+    }).where(eq(orders.id, id));
 
-    db.insert(ledgerEntries).values({
+    await db.insert(ledgerEntries).values({
       id: `ledger-${Date.now()}`,
       orderId: id,
       compteDebit: "ESCROW_LOCKED",
@@ -112,7 +112,7 @@ artisanRouter.post("/orders/:id/refuse", async (req, res) => {
       type: "order_refused_by_artisan_refund",
       metadata: JSON.stringify({ reason: reason.trim() }),
       createdAt: now,
-    }).run();
+    });
 
     return res.json({ success: true, message: "Commande refusée. Le client a été intégralement remboursé." });
   } catch (err) {
@@ -221,8 +221,8 @@ artisanRouter.post("/orders/:id/complete-delivery", async (req, res) => {
  */
 artisanRouter.get("/returns", async (req, res) => {
   try {
-    const allReturns = db.select().from(returnRequests).orderBy(desc(returnRequests.createdAt)).all();
-    const allOrders = db.select().from(orders).all();
+    const allReturns = await db.select().from(returnRequests).orderBy(desc(returnRequests.createdAt));
+    const allOrders = await db.select().from(orders);
     const ordersMap = new Map(allOrders.map(o => [o.id, o]));
 
     const enriched = allReturns.map(r => ({
@@ -245,15 +245,15 @@ artisanRouter.post("/returns/:id/confirm", async (req, res) => {
   const now = new Date().toISOString();
 
   try {
-    const ret = db.select().from(returnRequests).where(eq(returnRequests.id, id)).get();
+    const [ret] = await db.select().from(returnRequests).where(eq(returnRequests.id, id));
     if (!ret) return res.status(404).json({ success: false, error: "Demande de retour introuvable." });
 
-    const order = db.select().from(orders).where(eq(orders.id, ret.orderId)).get();
+    const [order] = await db.select().from(orders).where(eq(orders.id, ret.orderId));
     if (order) {
-      db.update(orders).set({ status: "annulee", updatedAt: now }).where(eq(orders.id, order.id)).run();
+      await db.update(orders).set({ status: "annulee", updatedAt: now }).where(eq(orders.id, order.id));
 
-      const refundAmount = Math.max(0, order.totalPrice - (ret.returnShippingFee || 0));
-      db.insert(ledgerEntries).values({
+      const refundAmount = Math.max(0, Number(order.totalPrice) - Number(ret.returnShippingFee || 0));
+      await db.insert(ledgerEntries).values({
         id: `ledger-${Date.now()}`,
         orderId: order.id,
         compteDebit: "ESCROW_LOCKED",
@@ -261,10 +261,10 @@ artisanRouter.post("/returns/:id/confirm", async (req, res) => {
         montant: refundAmount,
         type: "return_validated_by_artisan_refund",
         createdAt: now,
-      }).run();
+      });
     }
 
-    db.update(returnRequests).set({ status: "resolu_conforme", resolvedAt: now }).where(eq(returnRequests.id, id)).run();
+    await db.update(returnRequests).set({ status: "resolu_conforme", resolvedAt: now }).where(eq(returnRequests.id, id));
 
     return res.json({ success: true, message: "Retour validé avec succès. Client remboursé." });
   } catch (err) {
@@ -278,8 +278,8 @@ artisanRouter.post("/returns/:id/confirm", async (req, res) => {
  */
 artisanRouter.get("/disputes", async (req, res) => {
   try {
-    const allDisputes = db.select().from(disputes).orderBy(desc(disputes.createdAt)).all();
-    const allOrders = db.select().from(orders).all();
+    const allDisputes = await db.select().from(disputes).orderBy(desc(disputes.createdAt));
+    const allOrders = await db.select().from(orders);
     const ordersMap = new Map(allOrders.map(o => [o.id, o]));
 
     const enriched = allDisputes.map(d => ({
@@ -309,11 +309,11 @@ artisanRouter.post("/disputes/:id/respond", async (req, res) => {
 
   try {
     const now = new Date().toISOString();
-    db.update(disputes).set({
+    await db.update(disputes).set({
       artisanResponse: artisanResponse.trim(),
       artisanEvidencePhotos: JSON.stringify(artisanEvidencePhotos),
       status: "en_arbitrage_admin",
-    }).where(eq(disputes.id, id)).run();
+    }).where(eq(disputes.id, id));
 
     return res.json({ success: true, message: "Votre réponse contradictoire a été transmise à la médiation Vork." });
   } catch (err) {
@@ -328,8 +328,8 @@ artisanRouter.post("/disputes/:id/respond", async (req, res) => {
 artisanRouter.get("/wallet", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
-    const allOrders = db.select().from(orders).where(eq(orders.artisanRef, artisanRef)).all();
-    const allWithdrawals = db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef)).all();
+    const allOrders = await db.select().from(orders).where(eq(orders.artisanRef, artisanRef));
+    const allWithdrawals = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
 
     let availableBalance = 0;
     let lockedEscrow = 0;
@@ -337,8 +337,12 @@ artisanRouter.get("/wallet", async (req, res) => {
 
     allOrders.forEach(o => {
       // Formule exacte Vork : Prix Client TTC = Prix Net Artisan + 5% Comm HT + 20% TVA sur Comm (Majoration 6%)
-      const netAmount = Math.round((o.totalPrice / 1.06) * 100) / 100;
-      totalGrossSales += o.totalPrice;
+      const netAmount = Math.round((Number(o.totalPrice) / 1.06) * 100) / 100;
+      totalGrossSales += Number(o.totalPrice);
+
+      if (o.status === "annulee") {
+        return;
+      }
 
       if (o.escrowReleasedAt) {
         availableBalance += netAmount;
@@ -347,25 +351,22 @@ artisanRouter.get("/wallet", async (req, res) => {
       }
     });
 
-    // Déduction des retraits bancaires déjà validés ou en cours
-    const processedWithdrawals = allWithdrawals
+    const pendingOrProcessedWithdrawals = allWithdrawals
       .filter(w => ["processed", "pending", "en_attente_lot_vendredi"].includes(w.status))
-      .reduce((sum, w) => sum + w.amount, 0);
+      .reduce((sum, w) => sum + (Number(w.amount) || 0), 0);
 
-    availableBalance = Math.max(0, Math.round((availableBalance - processedWithdrawals) * 100) / 100);
-    const totalNetEarnings = Math.round((totalGrossSales / 1.06) * 100) / 100;
-    const vorkPlatformFeesTotal = Math.round((totalGrossSales - totalNetEarnings) * 100) / 100;
+    availableBalance = Math.max(0, Math.round((availableBalance - pendingOrProcessedWithdrawals) * 100) / 100);
+    lockedEscrow = Math.round(lockedEscrow * 100) / 100;
+    totalGrossSales = Math.round(totalGrossSales * 100) / 100;
 
     return res.json({
       success: true,
       wallet: {
-        artisanRef,
         availableBalance,
-        lockedEscrow: Math.round(lockedEscrow * 100) / 100,
-        totalGrossSales: Math.round(totalGrossSales * 100) / 100,
-        totalNetEarnings,
-        vorkPlatformFeesTotal,
-        withdrawals: allWithdrawals,
+        lockedEscrow,
+        totalGrossSales,
+        withdrawalBatchDay: "Chaque Vendredi ouvré à 16h00 (Wafacash / CIH Bank)",
+        withdrawalsHistory: allWithdrawals,
       }
     });
   } catch (err) {
@@ -375,8 +376,7 @@ artisanRouter.get("/wallet", async (req, res) => {
 
 /**
  * POST /api/artisan/wallet/withdraw
- * Demande de virement des gains sur RIB marocain (24 chiffres - Art. 15).
- * Contrôle de solvabilité atomique : rejet HTTP 422 si le solde disponible est insuffisant.
+ * Demande de virement bancaire des fonds débloqués vers le RIB du Maâlem (Art. 18.2).
  */
 artisanRouter.post("/wallet/withdraw", async (req, res) => {
   const artisanRef = getArtisanRef(req);
@@ -398,16 +398,16 @@ artisanRouter.post("/wallet/withdraw", async (req, res) => {
   try {
     let txResult;
     try {
-      txResult = db.transaction((tx) => {
+      txResult = await db.transaction(async (tx) => {
         // 1. Calcul en temps réel du solde net débloqué issu des ventes
-        const allOrders = tx.select().from(orders).where(eq(orders.artisanRef, artisanRef)).all();
-        const allWithdrawals = tx.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef)).all();
+        const allOrders = await tx.select().from(orders).where(eq(orders.artisanRef, artisanRef));
+        const allWithdrawals = await tx.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
 
         let totalReleased = 0;
         allOrders.forEach((o) => {
           if (o.escrowReleasedAt) {
             // Formule Vork : Prix Net = Prix Client / 1.06
-            totalReleased += Math.round((o.totalPrice / 1.06) * 100) / 100;
+            totalReleased += Math.round((Number(o.totalPrice) / 1.06) * 100) / 100;
           }
         });
 
@@ -430,17 +430,17 @@ artisanRouter.post("/wallet/withdraw", async (req, res) => {
         const withdrawalId = `with-${Date.now()}`;
 
         // 4. Enregistrement de la demande de virement
-        tx.insert(withdrawalRequests).values({
+        await tx.insert(withdrawalRequests).values({
           id: withdrawalId,
           userId: artisanRef,
           amount: numericAmount,
           rib: cleanRib,
           status: "en_attente_lot_vendredi",
           createdAt: now,
-        }).run();
+        });
 
         // 5. Consignation immédiate dans le Grand Livre comptable
-        tx.insert(ledgerEntries).values({
+        await tx.insert(ledgerEntries).values({
           id: `ledger-${Date.now()}`,
           orderId: null,
           compteDebit: `VENDOR_WALLET:${artisanRef}`,
@@ -454,7 +454,7 @@ artisanRouter.post("/wallet/withdraw", async (req, res) => {
             artisanRef,
           }),
           createdAt: now,
-        }).run();
+        });
 
         return {
           withdrawalId,
@@ -491,7 +491,7 @@ artisanRouter.post("/wallet/withdraw", async (req, res) => {
 artisanRouter.get("/profile/health", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
-    let profile = db.select().from(vendorProfiles).where(eq(vendorProfiles.id, artisanRef)).get();
+    let [profile] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.id, artisanRef));
     if (!profile) {
       profile = {
         id: artisanRef,
@@ -500,10 +500,10 @@ artisanRouter.get("/profile/health", async (req, res) => {
         suspendedUntil: null,
         updatedAt: new Date().toISOString(),
       };
-      try { db.insert(vendorProfiles).values(profile).run(); } catch {}
+      try { await db.insert(vendorProfiles).values(profile); } catch {}
     }
 
-    const warnings = db.select().from(vendorWarnings).where(eq(vendorWarnings.vendorRef, artisanRef)).orderBy(desc(vendorWarnings.createdAt)).all();
+    const warnings = await db.select().from(vendorWarnings).where(eq(vendorWarnings.vendorRef, artisanRef)).orderBy(desc(vendorWarnings.createdAt));
 
     return res.json({ success: true, profile, warnings });
   } catch (err) {
@@ -712,10 +712,10 @@ artisanRouter.put("/products/:id", async (req, res) => {
 artisanRouter.get("/notifications", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
-    const allOrders = db.select().from(orders).where(eq(orders.artisanRef, artisanRef)).all();
-    const allDisputes = db.select().from(disputes).all();
-    const allReturns = db.select().from(returnRequests).all();
-    const allWithdrawals = db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef)).all();
+    const allOrders = await db.select().from(orders).where(eq(orders.artisanRef, artisanRef));
+    const allDisputes = await db.select().from(disputes);
+    const allReturns = await db.select().from(returnRequests);
+    const allWithdrawals = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
 
     const notifications = [];
 
@@ -920,7 +920,7 @@ artisanRouter.put("/profile/details", async (req, res) => {
 artisanRouter.get("/stats", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
-    const allOrders = db.select().from(orders).where(eq(orders.artisanRef, artisanRef)).all();
+    const allOrders = await db.select().from(orders).where(eq(orders.artisanRef, artisanRef));
 
     const totalOrders = allOrders.length;
     const acceptedOrders = allOrders.filter(o => o.status !== "annulee").length;
@@ -1046,15 +1046,16 @@ artisanRouter.post("/orders/:id/ship", async (req, res) => {
  * GET /api/artisan/vendor/:vendorRef/profile
  * Profil public de boutique artisanale & historique des avertissements
  */
-artisanRouter.get("/vendor/:vendorRef/profile", (req, res) => {
+artisanRouter.get("/vendor/:vendorRef/profile", async (req, res) => {
   const vendorRef = req.params.vendorRef;
-  const profile = db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef)).get() || {
+  const [profileFound] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef));
+  const profile = profileFound || {
     id: vendorRef,
     warningCountCurrentMonth: 0,
     suspensionStatus: "active",
     suspendedUntil: null,
   };
-  const warnings = db.select().from(vendorWarnings).where(eq(vendorWarnings.vendorRef, vendorRef)).all();
+  const warnings = await db.select().from(vendorWarnings).where(eq(vendorWarnings.vendorRef, vendorRef));
   res.json({ success: true, profile, warnings });
 });
 

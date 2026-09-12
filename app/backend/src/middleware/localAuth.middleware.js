@@ -40,8 +40,8 @@ export function requireAuth(allowedRoles = []) {
       });
     }
 
-    // Vérification de l'utilisateur actif en base SQLite
-    const user = db.select().from(appUsers).where(eq(appUsers.id, decoded.id)).get();
+    // Vérification de l'utilisateur actif en base PostgreSQL Supabase
+    const [user] = await db.select().from(appUsers).where(eq(appUsers.id, decoded.id));
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -150,10 +150,10 @@ export function requireAdmin(req, res, next) {
 /**
  * Helper d'audit log pour consigner les actions d'arbitrage et de gestion manuelle
  */
-export function logAdminAction(operatorId, action, targetId, details = null, ipAddress = null) {
+export async function logAdminAction(operatorId, action, targetId, details = null, ipAddress = null) {
   try {
     const id = `audit-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-    db.insert(adminAuditLogs).values({
+    await db.insert(adminAuditLogs).values({
       id,
       operatorId,
       action,
@@ -161,7 +161,7 @@ export function logAdminAction(operatorId, action, targetId, details = null, ipA
       details: details ? (typeof details === "string" ? details : JSON.stringify(details)) : null,
       ipAddress: ipAddress || null,
       createdAt: new Date().toISOString(),
-    }).run();
+    });
   } catch (err) {
     console.error("[ADMIN-AUDIT] ⚠️ Échec de consignation dans le journal d'audit :", err.message);
   }

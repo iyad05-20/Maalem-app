@@ -20,7 +20,7 @@ export const cronRouter = express.Router();
  */
 cronRouter.get("/status", async (req, res) => {
   try {
-    const executions = db.select().from(cronExecutions).orderBy(desc(cronExecutions.executedAt)).limit(20).all();
+    const executions = await db.select().from(cronExecutions).orderBy(desc(cronExecutions.executedAt)).limit(20);
     return res.json({ success: true, count: executions.length, executions });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });

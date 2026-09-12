@@ -8,13 +8,13 @@ import { processCallback } from "../../client/services/clientPaymentService.js";
 const router = Router();
 const provider = new MockCmiProvider();
 
-router.get("/pay", (req, res) => {
+router.get("/pay", async (req, res) => {
   const intentId = String(req.query.intent_id ?? "");
   const amount = String(req.query.amount ?? "");
   
   let orderId = "";
   try {
-    const payment = db.select().from(paymentIntents).where(eq(paymentIntents.id, intentId)).get();
+    const [payment] = await db.select().from(paymentIntents).where(eq(paymentIntents.id, intentId));
     if (payment) {
       orderId = payment.orderId;
     }
@@ -82,13 +82,12 @@ router.post("/simulate", async (req, res) => {
       const orderId = intentId.replace("mock-intent-", "");
       console.log(`[VORK-CMI] ℹ️ Mock intent detected. Simulating order state change for OrderID: ${orderId}`);
       try {
-        db.update(orders)
+        await db.update(orders)
           .set({ 
             status: resultat === "succes" ? "payee_integralement" : "paiement_echoue", 
             updatedAt: new Date().toISOString() 
           })
-          .where(eq(orders.id, orderId))
-          .run();
+          .where(eq(orders.id, orderId));
       } catch (dbErr) {
         console.warn("[VORK-CMI] Non-fatal: Failed to update mock order status in DB:", dbErr.message);
       }

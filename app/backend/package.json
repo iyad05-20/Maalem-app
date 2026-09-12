@@ -11,7 +11,6 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^11.3.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "drizzle-orm": "^0.33.0",
@@ -20,6 +19,7 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "meilisearch": "^0.59.0",
+    "postgres": "^3.4.9",
     "zod": "^3.23.8"
   }
 }

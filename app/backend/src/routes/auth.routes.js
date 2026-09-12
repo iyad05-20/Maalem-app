@@ -123,7 +123,7 @@ router.get('/me', async (req, res) => {
       });
     }
 
-    const user = db.select().from(appUsers).where(eq(appUsers.id, decoded.id)).get();
+    const [user] = await db.select().from(appUsers).where(eq(appUsers.id, decoded.id));
     if (!user) {
       return res.status(401).json({
         success: false,

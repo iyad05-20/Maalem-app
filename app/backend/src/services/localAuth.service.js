@@ -65,7 +65,7 @@ export async function signUpUser({ email, password, fullName, role = "client", p
     throw new Error("Le mot de passe doit comporter au moins 8 caractères.");
   }
 
-  const existing = db.select().from(appUsers).where(eq(appUsers.email, cleanEmail)).get();
+  const [existing] = await db.select().from(appUsers).where(eq(appUsers.email, cleanEmail));
   if (existing) {
     throw new Error("Un compte existe déjà avec cette adresse email.");
   }
@@ -77,7 +77,7 @@ export async function signUpUser({ email, password, fullName, role = "client", p
   const now = new Date().toISOString();
   const id = `usr-${crypto.randomUUID()}`;
 
-  db.insert(appUsers).values({
+  await db.insert(appUsers).values({
     id,
     email: cleanEmail,
     passwordHash,
@@ -90,9 +90,9 @@ export async function signUpUser({ email, password, fullName, role = "client", p
     lockedUntil: null,
     createdAt: now,
     updatedAt: now,
-  }).run();
+  });
 
-  const user = db.select().from(appUsers).where(eq(appUsers.id, id)).get();
+  const [user] = await db.select().from(appUsers).where(eq(appUsers.id, id));
   const token = generateToken(user);
 
   const { passwordHash: _, ...safeUser } = user;
@@ -108,7 +108,7 @@ export async function signInUser({ email, password, expectedRole = null }) {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const user = db.select().from(appUsers).where(eq(appUsers.email, cleanEmail)).get();
+  const [user] = await db.select().from(appUsers).where(eq(appUsers.email, cleanEmail));
 
   if (!user) {
     // Message générique pour éviter l'énumération des comptes
@@ -125,10 +125,9 @@ export async function signInUser({ email, password, expectedRole = null }) {
       throw new Error(`Compte temporairement verrouillé par mesure de sécurité suite à plusieurs échecs. Réessayez dans ${remainingMinutes} minute(s).`);
     } else {
       // Période de verrouillage expirée : réinitialiser
-      db.update(appUsers)
+      await db.update(appUsers)
         .set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: new Date().toISOString() })
-        .where(eq(appUsers.id, user.id))
-        .run();
+        .where(eq(appUsers.id, user.id));
     }
   }
 
@@ -140,7 +139,7 @@ export async function signInUser({ email, password, expectedRole = null }) {
   // 3. Vérification du mot de passe
   const isMatch = await comparePassword(password, user.passwordHash);
   if (!isMatch) {
-    const newAttempts = (user.failedLoginAttempts || 0) + 1;
+    const newAttempts = Number(user.failedLoginAttempts || 0) + 1;
     let lockedUntil = null;
 
     if (newAttempts >= MAX_FAILED_ATTEMPTS) {
@@ -148,14 +147,13 @@ export async function signInUser({ email, password, expectedRole = null }) {
       console.warn(`[SECURITY-ALERT] ⚠️ Compte ${cleanEmail} verrouillé après ${newAttempts} tentatives échouées.`);
     }
 
-    db.update(appUsers)
+    await db.update(appUsers)
       .set({
         failedLoginAttempts: newAttempts,
         lockedUntil,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(appUsers.id, user.id))
-      .run();
+      .where(eq(appUsers.id, user.id));
 
     if (lockedUntil) {
       throw new Error(`Trop de tentatives erronées. Compte verrouillé pendant ${LOCKOUT_MINUTES} minutes.`);
@@ -170,11 +168,10 @@ export async function signInUser({ email, password, expectedRole = null }) {
   }
 
   // 5. Réinitialisation des tentatives échouées en cas de succès
-  if (user.failedLoginAttempts > 0 || user.lockedUntil) {
-    db.update(appUsers)
+  if (Number(user.failedLoginAttempts || 0) > 0 || user.lockedUntil) {
+    await db.update(appUsers)
       .set({ failedLoginAttempts: 0, lockedUntil: null, updatedAt: new Date().toISOString() })
-      .where(eq(appUsers.id, user.id))
-      .run();
+      .where(eq(appUsers.id, user.id));
   }
 
   const token = generateToken(user, user.role === "admin" ? "4h" : "24h");
@@ -188,7 +185,7 @@ export async function signInUser({ email, password, expectedRole = null }) {
  */
 export async function seedDefaultAccounts() {
   try {
-    const existing = db.select().from(appUsers).all();
+    const existing = await db.select().from(appUsers);
     if (existing.length === 0) {
       console.log("[LOCAL-AUTH] 🌱 Initialisation des comptes sécurisés de démarrage...");
       const now = new Date().toISOString();
@@ -225,7 +222,7 @@ export async function seedDefaultAccounts() {
 
       for (const acc of defaultAccounts) {
         const passwordHash = await hashPassword(acc.password);
-        db.insert(appUsers).values({
+        await db.insert(appUsers).values({
           id: acc.id,
           email: acc.email,
           passwordHash,
@@ -238,7 +235,7 @@ export async function seedDefaultAccounts() {
           lockedUntil: null,
           createdAt: now,
           updatedAt: now,
-        }).run();
+        });
       }
       console.log("[LOCAL-AUTH] ✅ 3 comptes par défaut initialisés avec succès (artisan@vork.ma, client@vork.ma, admin@vork.ma).");
     }

@@ -9,14 +9,14 @@ import { recordVendorWarning } from "../client/services/artisanOrderService.js";
 async function logCronExecution(jobName, status, itemsProcessed = 0, details = "") {
   try {
     const id = `cron-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    db.insert(cronExecutions).values({
+    await db.insert(cronExecutions).values({
       id,
       jobName,
       status,
       itemsProcessed,
       details: typeof details === "object" ? JSON.stringify(details) : String(details),
       executedAt: new Date().toISOString(),
-    }).run();
+    });
   } catch (e) {
     console.error(`[CRON] Failed to log execution for ${jobName}:`, e.message);
   }
@@ -35,9 +35,9 @@ export async function runJ2RelanceJob() {
   const logs = [];
 
   try {
-    const pendingOrders = db.select().from(orders).where(
+    const pendingOrders = await db.select().from(orders).where(
       inArray(orders.status, ["acompte_verse", "payee_integralement"])
-    ).all();
+    );
 
     for (const order of pendingOrders) {
       const createdMs = new Date(order.createdAt).getTime();
@@ -45,16 +45,16 @@ export async function runJ2RelanceJob() {
 
       // Cas A : Dépassement 72h (J+3) sans acceptation -> Annulation automatique & Sanction
       if (diffHours >= 72) {
-        db.update(orders).set({
+        await db.update(orders).set({
           status: "annulee",
           updatedAt: now.toISOString(),
-        }).where(eq(orders.id, order.id)).run();
+        }).where(eq(orders.id, order.id));
 
         // Émission d'un avertissement au vendeur (Art. 6.4)
         await recordVendorWarning(
           order.artisanRef,
-          order.id,
-          "Annulation automatique : Commande non acceptée dans le délai limite de 72h (Art. 6.4)"
+          "Annulation automatique : Commande non acceptée dans le délai limite de 72h (Art. 6.4)",
+          order.id
         );
 
         logs.push(`Commande ${order.id} : Annulée automatiquement après 72h (Avertissement émis).`);
@@ -62,10 +62,10 @@ export async function runJ2RelanceJob() {
       }
       // Cas B : Dépassement 48h (J+2) sans relance encore envoyée
       else if (diffHours >= 48 && !order.j2RelanceSentAt) {
-        db.update(orders).set({
+        await db.update(orders).set({
           j2RelanceSentAt: now.toISOString(),
           updatedAt: now.toISOString(),
-        }).where(eq(orders.id, order.id)).run();
+        }).where(eq(orders.id, order.id));
 
         logs.push(`Commande ${order.id} : Relance J+2 enregistrée pour l'artisan ${order.artisanRef}.`);
         processedCount++;
@@ -96,13 +96,13 @@ export async function runAutoValidationJob() {
   const logs = [];
 
   try {
-    const deliveredOrders = db.select().from(orders).where(
+    const deliveredOrders = await db.select().from(orders).where(
       and(
         eq(orders.status, "livre"),
         isNull(orders.receptionValidatedBy),
         isNull(orders.nonReceptionClaimedAt)
       )
-    ).all();
+    );
 
     for (const order of deliveredOrders) {
       if (!order.deliveredAt) continue;
@@ -116,23 +116,23 @@ export async function runAutoValidationJob() {
 
         if (isCustom) {
           // Produits sur-mesure / sur-commande : Pas de rétractation, libération immédiate (Art. 9.3)
-          db.update(orders).set({
+          await db.update(orders).set({
             status: "auto_valide",
             receptionValidatedBy: "auto",
             escrowReleasedAt: now.toISOString(),
             updatedAt: now.toISOString(),
-          }).where(eq(orders.id, order.id)).run();
+          }).where(eq(orders.id, order.id));
 
           logs.push(`Commande Sur-Mesure ${order.id} : Auto-validée (Séquestre libéré immédiatement).`);
         } else {
           // Produits standards : Début des 7 jours calendaires de rétractation (Art. 13.1)
           const withdrawalExpires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-          db.update(orders).set({
+          await db.update(orders).set({
             status: "auto_valide",
             receptionValidatedBy: "auto",
             withdrawalExpiresAt: withdrawalExpires,
             updatedAt: now.toISOString(),
-          }).where(eq(orders.id, order.id)).run();
+          }).where(eq(orders.id, order.id));
 
           logs.push(`Commande Standard ${order.id} : Auto-validée (Rétractation jusqu'au ${withdrawalExpires}).`);
         }
@@ -162,12 +162,12 @@ export async function runEscrowReleaseJob() {
   const logs = [];
 
   try {
-    const eligibleOrders = db.select().from(orders).where(
+    const eligibleOrders = await db.select().from(orders).where(
       and(
         inArray(orders.status, ["livre", "auto_valide"]),
         isNull(orders.escrowReleasedAt)
       )
-    ).all();
+    );
 
     for (const order of eligibleOrders) {
       if (!order.withdrawalExpiresAt) continue;
@@ -175,10 +175,10 @@ export async function runEscrowReleaseJob() {
       const expiryMs = new Date(order.withdrawalExpiresAt).getTime();
       // Si la date limite de rétractation est dépassée
       if (expiryMs <= now.getTime() && order.status !== "en_reclamation") {
-        db.update(orders).set({
+        await db.update(orders).set({
           escrowReleasedAt: now.toISOString(),
           updatedAt: now.toISOString(),
-        }).where(eq(orders.id, order.id)).run();
+        }).where(eq(orders.id, order.id));
 
         logs.push(`Commande ${order.id} : Séquestre libéré (${order.totalPrice} MAD vers ${order.artisanRef}).`);
         processedCount++;
@@ -207,9 +207,9 @@ export async function runExpiredReturnsJob() {
   const logs = [];
 
   try {
-    const pendingReturns = db.select().from(returnRequests).where(
+    const pendingReturns = await db.select().from(returnRequests).where(
       eq(returnRequests.status, "initie")
-    ).all();
+    );
 
     for (const ret of pendingReturns) {
       const createdMs = new Date(ret.createdAt).getTime();
@@ -217,17 +217,17 @@ export async function runExpiredReturnsJob() {
 
       // Seuil de 17 jours (10j dépôt + 7j tolérance)
       if (diffDays >= 17) {
-        db.update(returnRequests).set({
+        await db.update(returnRequests).set({
           status: "expire",
           resolvedAt: now.toISOString(),
-        }).where(eq(returnRequests.id, ret.id)).run();
+        }).where(eq(returnRequests.id, ret.id));
 
         // Réactivation de la commande au statut 'livre' et déblocage séquestre
-        db.update(orders).set({
+        await db.update(orders).set({
           status: "livre",
           escrowReleasedAt: now.toISOString(),
           updatedAt: now.toISOString(),
-        }).where(eq(orders.id, ret.orderId)).run();
+        }).where(eq(orders.id, ret.orderId));
 
         logs.push(`Retour ${ret.id} pour commande ${ret.orderId} : Expiré (Fonds libérés à l'artisan).`);
         processedCount++;
@@ -256,7 +256,7 @@ export async function runMonthlyWarningResetJob() {
   const logs = [];
 
   try {
-    const profiles = db.select().from(vendorProfiles).all();
+    const profiles = await db.select().from(vendorProfiles);
 
     for (const profile of profiles) {
       const updateData = {
@@ -273,7 +273,7 @@ export async function runMonthlyWarningResetJob() {
         logs.push(`Vendeur ${profile.id} : Compteur réinitialisé à 0.`);
       }
 
-      db.update(vendorProfiles).set(updateData).where(eq(vendorProfiles.id, profile.id)).run();
+      await db.update(vendorProfiles).set(updateData).where(eq(vendorProfiles.id, profile.id));
       processedCount++;
     }
 
@@ -301,18 +301,18 @@ export async function runWeeklyWithdrawalBatchJob() {
   const logs = [];
 
   try {
-    const allPending = db.select().from(withdrawalRequests).where(
+    const allPending = await db.select().from(withdrawalRequests).where(
       inArray(withdrawalRequests.status, ["pending", "en_attente_lot_vendredi"])
-    ).all();
+    );
 
     for (const req of allPending) {
-      db.update(withdrawalRequests).set({
+      await db.update(withdrawalRequests).set({
         status: "processed",
         processedAt: now.toISOString(),
-      }).where(eq(withdrawalRequests.id, req.id)).run();
+      }).where(eq(withdrawalRequests.id, req.id));
 
       processedCount++;
-      totalAmount += req.amount;
+      totalAmount += Number(req.amount);
       logs.push(`Virement #${req.id} de ${req.amount} MAD exécuté vers le RIB ${req.rib.slice(0, 4)}...${req.rib.slice(-4)} (${req.userId}).`);
     }
 

@@ -7,12 +7,12 @@ import { senditClient } from "../../services/sendit/senditClient.js";
  * 1. Acceptation par l'artisan (lance la fabrication / préparation)
  */
 export async function acceptOrder(orderId) {
-  return db.transaction((tx) => {
-    let order = tx.select().from(orders).where(eq(orders.id, orderId)).get();
+  return await db.transaction(async (tx) => {
+    let [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
     if (!order) {
       console.warn(`[VORK-API] ⚠️ Order ${orderId} not found in DB. Auto-creating as PAID for accept simulation.`);
       const now = new Date().toISOString();
-      tx.insert(orders)
+      await tx.insert(orders)
         .values({
           id: orderId,
           clientRef: "767f1271-a560-491c-8225-91bcb06e8930",
@@ -22,23 +22,22 @@ export async function acceptOrder(orderId) {
           status: "acompte_verse",
           createdAt: now,
           updatedAt: now,
-        })
-        .run();
-      order = tx.select().from(orders).where(eq(orders.id, orderId)).get();
+        });
+      const [newOrder] = await tx.select().from(orders).where(eq(orders.id, orderId));
+      order = newOrder;
     }
     if (!["payee_integralement", "acompte_verse"].includes(order.status)) {
       throw new Error(`statut_incompatible_pour_acceptation:${order.status}`);
     }
 
     const now = new Date().toISOString();
-    tx.update(orders)
+    await tx.update(orders)
       .set({
         status: "en_preparation",
         acceptedAt: now,
         updatedAt: now,
       })
-      .where(eq(orders.id, orderId))
-      .run();
+      .where(eq(orders.id, orderId));
   });
 }
 
@@ -46,17 +45,16 @@ export async function acceptOrder(orderId) {
  * 2. Upload des photos de préparation obligatoires (Art. 8.1, 9.2, 10.2)
  */
 export async function uploadPrepPhotos(orderId, photoUrls) {
-  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw new Error("commande_introuvable");
   
   const now = new Date().toISOString();
-  db.update(orders)
+  await db.update(orders)
     .set({
       prepPhotos: JSON.stringify(photoUrls),
       updatedAt: now,
     })
-    .where(eq(orders.id, orderId))
-    .run();
+    .where(eq(orders.id, orderId));
   return { success: true, count: photoUrls.length };
 }
 
@@ -64,11 +62,11 @@ export async function uploadPrepPhotos(orderId, photoUrls) {
  * 3. Sendit Étape 1 : Déclaration Commande Prête -> Génération du Bon de Livraison (BL)
  */
 export async function prepareSenditShipping(orderId, deliveryData) {
-  let order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  let [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) {
     console.warn(`[VORK-API] ⚠️ Order ${orderId} not found in DB. Auto-creating as IN_PREPARATION for ship simulation.`);
     const now = new Date().toISOString();
-    db.insert(orders)
+    await db.insert(orders)
       .values({
         id: orderId,
         clientRef: "767f1271-a560-491c-8225-91bcb06e8930",
@@ -78,9 +76,9 @@ export async function prepareSenditShipping(orderId, deliveryData) {
         status: "en_preparation",
         createdAt: now,
         updatedAt: now,
-      })
-      .run();
-    order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+      });
+    const [newOrder] = await db.select().from(orders).where(eq(orders.id, orderId));
+    order = newOrder;
   }
 
   // Seuls les produits standards peuvent être expédiés par Sendit (Art. 8.3)
@@ -98,7 +96,7 @@ export async function prepareSenditShipping(orderId, deliveryData) {
         pickup_district_id: Number(deliveryData.pickup_district_id || 46),
         district_id: Number(deliveryData.district_id || 1),
         name: deliveryData.name || "Client Destinataire",
-        amount: order.totalPrice,
+        amount: Number(order.totalPrice),
         address: deliveryData.address || "Adresse Client",
         phone: deliveryData.phone || "0600000000",
         reference: order.id,
@@ -121,7 +119,7 @@ export async function prepareSenditShipping(orderId, deliveryData) {
   }
 
   const now = new Date().toISOString();
-  db.update(orders)
+  await db.update(orders)
     .set({
       senditDeliveryCode: senditDeliveryCode,
       senditWaybillUrl: waybillUrl,
@@ -130,8 +128,7 @@ export async function prepareSenditShipping(orderId, deliveryData) {
       readyToShipAt: now,
       updatedAt: now,
     })
-    .where(eq(orders.id, orderId))
-    .run();
+    .where(eq(orders.id, orderId));
 
   return {
     success: true,
@@ -146,20 +143,19 @@ export async function prepareSenditShipping(orderId, deliveryData) {
  */
 export async function confirmSenditPickupReady(orderId, payload = {}) {
   const blAttachedPhoto = typeof payload === "string" ? payload : payload?.blAttachedPhoto;
-  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw new Error("commande_introuvable");
   if (!order.senditDeliveryCode) throw new Error("bl_non_encore_genere");
 
   const now = new Date().toISOString();
-  db.update(orders)
+  await db.update(orders)
     .set({
       status: "en_cours_de_transport",
       senditWaybillPhoto: blAttachedPhoto || "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=500",
       shippedAt: now,
       updatedAt: now,
     })
-    .where(eq(orders.id, orderId))
-    .run();
+    .where(eq(orders.id, orderId));
 
   return {
     success: true,
@@ -172,7 +168,7 @@ export async function confirmSenditPickupReady(orderId, payload = {}) {
  * 5. Transport assuré directement par l'Artisan (Vendeur Self-Transport - Art. 8.2, 9.3, 10.3)
  */
 export async function shipVendeurSelf(orderId, { transportDurationDays = 7, notes = "" }) {
-  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw new Error("commande_introuvable");
 
   if (transportDurationDays > 30) {
@@ -180,15 +176,14 @@ export async function shipVendeurSelf(orderId, { transportDurationDays = 7, note
   }
 
   const now = new Date().toISOString();
-  db.update(orders)
+  await db.update(orders)
     .set({
       status: "en_cours_de_transport",
       transportProvider: "vendeur",
       shippedAt: now,
       updatedAt: now,
     })
-    .where(eq(orders.id, orderId))
-    .run();
+    .where(eq(orders.id, orderId));
 
   return {
     success: true,
@@ -202,7 +197,7 @@ export async function shipVendeurSelf(orderId, { transportDurationDays = 7, note
  * 6. Validation de Livraison Vendeur avec Signature Manuscrite (Art. 11.5)
  */
 export async function completeVendeurDelivery(orderId, { signaturePhoto }) {
-  const order = db.select().from(orders).where(eq(orders.id, orderId)).get();
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw new Error("commande_introuvable");
 
   const now = new Date().toISOString();
@@ -215,7 +210,7 @@ export async function completeVendeurDelivery(orderId, { signaturePhoto }) {
     : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const escrowReleasedAt = isCustom ? now : null;
 
-  db.update(orders)
+  await db.update(orders)
     .set({
       status: "livre",
       deliveredAt: now,
@@ -225,8 +220,7 @@ export async function completeVendeurDelivery(orderId, { signaturePhoto }) {
       escrowReleasedAt,
       updatedAt: now,
     })
-    .where(eq(orders.id, orderId))
-    .run();
+    .where(eq(orders.id, orderId));
 
   return {
     success: true,
@@ -244,7 +238,7 @@ export async function recordVendorWarning(vendorRef, reason, orderId = null) {
   const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const warningId = `warn-${Date.now()}`;
 
-  db.insert(vendorWarnings)
+  await db.insert(vendorWarnings)
     .values({
       id: warningId,
       vendorRef,
@@ -252,23 +246,22 @@ export async function recordVendorWarning(vendorRef, reason, orderId = null) {
       reason,
       monthYear,
       createdAt: now.toISOString(),
-    })
-    .run();
+    });
 
   // Mettre à jour le profil du vendeur
-  let profile = db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef)).get();
+  let [profile] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef));
   if (!profile) {
-    db.insert(vendorProfiles)
+    await db.insert(vendorProfiles)
       .values({
         id: vendorRef,
         warningCountCurrentMonth: 1,
         suspensionStatus: "active",
         updatedAt: now.toISOString(),
-      })
-      .run();
-    profile = db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef)).get();
+      });
+    const [newProfile] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef));
+    profile = newProfile;
   } else {
-    const newCount = (profile.warningCountCurrentMonth || 0) + 1;
+    const newCount = Number(profile.warningCountCurrentMonth || 0) + 1;
     let newStatus = profile.suspensionStatus || "active";
     let suspendedUntil = profile.suspendedUntil;
 
@@ -277,15 +270,14 @@ export async function recordVendorWarning(vendorRef, reason, orderId = null) {
       suspendedUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     }
 
-    db.update(vendorProfiles)
+    await db.update(vendorProfiles)
       .set({
         warningCountCurrentMonth: newCount,
         suspensionStatus: newStatus,
         suspendedUntil,
         updatedAt: now.toISOString(),
       })
-      .where(eq(vendorProfiles.id, vendorRef))
-      .run();
+      .where(eq(vendorProfiles.id, vendorRef));
   }
 
   return { success: true, warningId, monthYear };

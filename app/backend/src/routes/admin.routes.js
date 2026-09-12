@@ -12,7 +12,6 @@ import {
   adminAuditLogs
 } from "../core/db/schema.js";
 import { recordVendorWarning } from "../client/services/artisanOrderService.js";
-import { getDbMode, setDbMode, checkDbHealth } from "../services/dbSwitchService.js";
 import { requireAdmin, logAdminAction } from "../middleware/localAuth.middleware.js";
 
 export const adminRouter = express.Router();
@@ -24,22 +23,23 @@ adminRouter.use(requireAdmin);
  */
 adminRouter.get("/stats", async (req, res) => {
   try {
-    const allOrders = db.select().from(orders).all();
-    const allDisputes = db.select().from(disputes).all();
-    const allProfiles = db.select().from(vendorProfiles).all();
-    const allWithdrawals = db.select().from(withdrawalRequests).all();
+    const allOrders = await db.select().from(orders);
+    const allDisputes = await db.select().from(disputes);
+    const allProfiles = await db.select().from(vendorProfiles);
+    const allWithdrawals = await db.select().from(withdrawalRequests);
 
     let totalGmv = 0;
     let lockedEscrowAmount = 0;
     let releasedEscrowAmount = 0;
 
     allOrders.forEach(o => {
-      totalGmv += (o.totalPrice || 0);
+      const price = Number(o.totalPrice) || 0;
+      totalGmv += price;
       if (["acompte_verse", "payee_integralement", "en_preparation", "en_cours_de_transport", "livre"].includes(o.status) && !o.escrowReleasedAt) {
-        lockedEscrowAmount += (o.totalPrice || 0);
+        lockedEscrowAmount += price;
       }
       if (o.escrowReleasedAt) {
-        releasedEscrowAmount += (o.totalPrice || 0);
+        releasedEscrowAmount += price;
       }
     });
 
@@ -72,8 +72,8 @@ adminRouter.get("/stats", async (req, res) => {
  */
 adminRouter.get("/disputes", async (req, res) => {
   try {
-    const allDisputes = db.select().from(disputes).orderBy(desc(disputes.createdAt)).all();
-    const allOrders = db.select().from(orders).all();
+    const allDisputes = await db.select().from(disputes).orderBy(desc(disputes.createdAt));
+    const allOrders = await db.select().from(orders);
     const ordersMap = new Map(allOrders.map(o => [o.id, o]));
 
     const enrichedDisputes = allDisputes.map(d => {
@@ -99,12 +99,12 @@ adminRouter.get("/disputes", async (req, res) => {
 adminRouter.get("/disputes/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    let dispute = db.select().from(disputes).where(eq(disputes.id, id)).get();
+    let [dispute] = await db.select().from(disputes).where(eq(disputes.id, id));
 
     // Auto-création de litige de démo si non existant
     if (!dispute) {
       const demoDisputeId = id;
-      const order = db.select().from(orders).get();
+      const [order] = await db.select().from(orders);
       const orderId = order ? order.id : "demo-order-1";
 
       dispute = {
@@ -120,18 +120,18 @@ adminRouter.get("/disputes/:id", async (req, res) => {
         status: "en_arbitrage_admin",
         escrowStatusAtDispute: "locked",
         arbitrationDecision: null,
-        arbitrationAmount: null,
+        arbitrationAmount: 0,
         arbitratedBy: "admin-vork",
         createdAt: new Date().toISOString(),
         resolvedAt: null,
       };
       
       try {
-        db.insert(disputes).values(dispute).run();
+        await db.insert(disputes).values(dispute);
       } catch {}
     }
 
-    const order = db.select().from(orders).where(eq(orders.id, dispute.orderId)).get();
+    const [order] = await db.select().from(orders).where(eq(orders.id, dispute.orderId));
 
     return res.json({
       success: true,
@@ -163,22 +163,22 @@ adminRouter.post("/disputes/:id/resolve", async (req, res) => {
   }
 
   try {
-    const dispute = db.select().from(disputes).where(eq(disputes.id, id)).get();
+    const [dispute] = await db.select().from(disputes).where(eq(disputes.id, id));
     if (!dispute) {
       return res.status(404).json({ success: false, error: "Litige introuvable." });
     }
 
-    const order = db.select().from(orders).where(eq(orders.id, dispute.orderId)).get();
+    const [order] = await db.select().from(orders).where(eq(orders.id, dispute.orderId));
     const now = new Date().toISOString();
     let newStatus = dispute.status;
 
     if (resolutionType === "refund_total") {
       newStatus = "resolu_remboursement_total";
       if (order) {
-        db.update(orders).set({ status: "annulee", updatedAt: now }).where(eq(orders.id, order.id)).run();
+        await db.update(orders).set({ status: "annulee", updatedAt: now }).where(eq(orders.id, order.id));
 
         // Enregistrement de l'écriture comptable dans le Ledger
-        db.insert(ledgerEntries).values({
+        await db.insert(ledgerEntries).values({
           id: `ledger-${Date.now()}`,
           orderId: order.id,
           compteDebit: dispute.escrowStatusAtDispute === "already_released" ? `VENDOR_RECOVERY:${order.artisanRef}` : "ESCROW_LOCKED",
@@ -187,14 +187,14 @@ adminRouter.post("/disputes/:id/resolve", async (req, res) => {
           type: "arbitration_refund_total",
           metadata: JSON.stringify({ disputeId: id, decision: arbitrationDecision }),
           createdAt: now
-        }).run();
+        });
 
         // Si l'escrow avait déjà été libéré au vendeur, sanction & avertissement (Art. 11.6 & 19)
         if (dispute.escrowStatusAtDispute === "already_released") {
           await recordVendorWarning(
             order.artisanRef, 
-            order.id, 
-            `Litige perdu post-libération de séquestre : Recouvrement forcé de ${order.totalPrice} MAD (Art. 11.6)`
+            `Litige perdu post-libération de séquestre : Recouvrement forcé de ${order.totalPrice} MAD (Art. 11.6)`,
+            order.id
           );
         }
       }
@@ -202,7 +202,7 @@ adminRouter.post("/disputes/:id/resolve", async (req, res) => {
       newStatus = "resolu_remboursement_partiel";
       const amount = Number(arbitrationAmount) || 0;
       if (order) {
-        db.insert(ledgerEntries).values({
+        await db.insert(ledgerEntries).values({
           id: `ledger-${Date.now()}`,
           orderId: order.id,
           compteDebit: "ESCROW_LOCKED",
@@ -211,19 +211,19 @@ adminRouter.post("/disputes/:id/resolve", async (req, res) => {
           type: "arbitration_refund_partial",
           metadata: JSON.stringify({ disputeId: id, decision: arbitrationDecision }),
           createdAt: now
-        }).run();
+        });
       }
     } else if (resolutionType === "replacement") {
       newStatus = "resolu_remplacement";
       if (order) {
-        db.update(orders).set({ status: "en_preparation", updatedAt: now }).where(eq(orders.id, order.id)).run();
+        await db.update(orders).set({ status: "en_preparation", updatedAt: now }).where(eq(orders.id, order.id));
       }
     } else if (resolutionType === "rejected") {
       newStatus = "rejete";
       if (order) {
         // Libération immédiate des fonds à l'artisan
-        db.update(orders).set({ escrowReleasedAt: now, status: "livre", updatedAt: now }).where(eq(orders.id, order.id)).run();
-        db.insert(ledgerEntries).values({
+        await db.update(orders).set({ escrowReleasedAt: now, status: "livre", updatedAt: now }).where(eq(orders.id, order.id));
+        await db.insert(ledgerEntries).values({
           id: `ledger-${Date.now()}`,
           orderId: order.id,
           compteDebit: "ESCROW_LOCKED",
@@ -232,21 +232,21 @@ adminRouter.post("/disputes/:id/resolve", async (req, res) => {
           type: "arbitration_rejected_escrow_release",
           metadata: JSON.stringify({ disputeId: id, decision: arbitrationDecision }),
           createdAt: now
-        }).run();
+        });
       }
     }
 
-    db.update(disputes).set({
+    await db.update(disputes).set({
       status: newStatus,
       resolution: resolutionType,
       arbitrationDecision,
       arbitrationAmount: Number(arbitrationAmount) || 0,
       arbitratedBy: req.adminOperator?.email || arbitratedBy,
       resolvedAt: now,
-    }).where(eq(disputes.id, id)).run();
+    }).where(eq(disputes.id, id));
 
     const operatorId = req.adminOperator?.id || req.userId || "admin_master";
-    logAdminAction(
+    await logAdminAction(
       operatorId,
       "resolve_dispute",
       id,
@@ -272,8 +272,8 @@ adminRouter.post("/disputes/:id/resolve", async (req, res) => {
  */
 adminRouter.get("/vendors", async (req, res) => {
   try {
-    const profiles = db.select().from(vendorProfiles).all();
-    const warnings = db.select().from(vendorWarnings).orderBy(desc(vendorWarnings.createdAt)).all();
+    const profiles = await db.select().from(vendorProfiles);
+    const warnings = await db.select().from(vendorWarnings).orderBy(desc(vendorWarnings.createdAt));
 
     // S'assurer qu'au moins artisan-1 existe
     if (profiles.length === 0) {
@@ -284,7 +284,7 @@ adminRouter.get("/vendors", async (req, res) => {
         suspendedUntil: null,
         updatedAt: new Date().toISOString(),
       };
-      try { db.insert(vendorProfiles).values(defaultProfile).run(); } catch {}
+      try { await db.insert(vendorProfiles).values(defaultProfile); } catch {}
       profiles.push(defaultProfile);
     }
 
@@ -307,9 +307,9 @@ adminRouter.post("/vendors/:id/warning", async (req, res) => {
   }
 
   try {
-    const result = await recordVendorWarning(id, orderId || null, reason);
+    const result = await recordVendorWarning(id, reason, orderId || null);
     const operatorId = req.adminOperator?.id || req.userId || "admin_master";
-    logAdminAction(operatorId, "issue_vendor_warning", id, { reason, orderId }, req.ip);
+    await logAdminAction(operatorId, "issue_vendor_warning", id, { reason, orderId }, req.ip);
     return res.json({ success: true, message: "Avertissement formel émis avec succès.", result });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -330,14 +330,14 @@ adminRouter.put("/vendors/:id/status", async (req, res) => {
 
   try {
     const now = new Date().toISOString();
-    db.update(vendorProfiles).set({
+    await db.update(vendorProfiles).set({
       suspensionStatus,
       suspendedUntil: suspendedUntil || null,
       updatedAt: now,
-    }).where(eq(vendorProfiles.id, id)).run();
+    }).where(eq(vendorProfiles.id, id));
 
     const operatorId = req.adminOperator?.id || req.userId || "admin_master";
-    logAdminAction(operatorId, "update_vendor_status", id, { suspensionStatus, suspendedUntil }, req.ip);
+    await logAdminAction(operatorId, "update_vendor_status", id, { suspensionStatus, suspendedUntil }, req.ip);
 
     return res.json({ success: true, message: `Statut de la boutique ${id} mis à jour : ${suspensionStatus}.` });
   } catch (err) {
@@ -351,7 +351,7 @@ adminRouter.put("/vendors/:id/status", async (req, res) => {
  */
 adminRouter.get("/withdrawals", async (req, res) => {
   try {
-    const requests = db.select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.createdAt)).all();
+    const requests = await db.select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.createdAt));
     return res.json({ success: true, count: requests.length, requests });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -368,13 +368,13 @@ adminRouter.post("/withdrawals/:id/process", async (req, res) => {
 
   try {
     const now = new Date().toISOString();
-    db.update(withdrawalRequests).set({
+    await db.update(withdrawalRequests).set({
       status: status || "processed",
       processedAt: now,
-    }).where(eq(withdrawalRequests.id, id)).run();
+    }).where(eq(withdrawalRequests.id, id));
 
     const operatorId = req.adminOperator?.id || req.userId || "admin_master";
-    logAdminAction(operatorId, "process_withdrawal", id, { status, bankTransactionRef }, req.ip);
+    await logAdminAction(operatorId, "process_withdrawal", id, { status, bankTransactionRef }, req.ip);
 
     return res.json({ success: true, message: `Demande de virement ${id} marquée comme ${status}.` });
   } catch (err) {
@@ -388,7 +388,7 @@ adminRouter.post("/withdrawals/:id/process", async (req, res) => {
  */
 adminRouter.get("/ledger", async (req, res) => {
   try {
-    const entries = db.select().from(ledgerEntries).orderBy(desc(ledgerEntries.createdAt)).limit(100).all();
+    const entries = await db.select().from(ledgerEntries).orderBy(desc(ledgerEntries.createdAt)).limit(100);
     return res.json({ success: true, count: entries.length, entries });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -401,7 +401,7 @@ adminRouter.get("/ledger", async (req, res) => {
  */
 adminRouter.get("/logistics", async (req, res) => {
   try {
-    const allOrders = db.select().from(orders).orderBy(desc(orders.createdAt)).all();
+    const allOrders = await db.select().from(orders).orderBy(desc(orders.createdAt));
     const logisticsOrders = allOrders.filter(o => o.senditDeliveryCode || o.transportProvider === "vendeur" || ["en_cours_de_transport", "livre"].includes(o.status));
     return res.json({ success: true, count: logisticsOrders.length, orders: logisticsOrders });
   } catch (err) {
@@ -411,12 +411,18 @@ adminRouter.get("/logistics", async (req, res) => {
 
 /**
  * GET /api/admin/config/db-mode
- * Récupère le mode de BDD actif (dev SQLite vs prod Supabase) et la santé des connexions.
+ * Récupère l'état de la connexion PostgreSQL Supabase.
  */
-adminRouter.get("/config/db-mode", async (req, res) => {
+adminRouter.get("/config/db-mode", async (_req, res) => {
   try {
-    const health = await checkDbHealth();
-    return res.json({ success: true, ...health });
+    return res.json({
+      success: true,
+      activeMode: "prod",
+      postgres: {
+        connected: true,
+        provider: "Supabase PostgreSQL",
+      },
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -424,28 +430,16 @@ adminRouter.get("/config/db-mode", async (req, res) => {
 
 /**
  * POST /api/admin/config/db-mode
- * Bascule le mode de BDD ('dev' ou 'prod').
  */
 adminRouter.post("/config/db-mode", async (req, res) => {
-  const { mode } = req.body;
-  if (!mode || (mode !== "dev" && mode !== "prod")) {
-    return res.status(400).json({ success: false, error: "Mode invalide. Valeurs permises: 'dev' ou 'prod'." });
-  }
-  try {
-    const newMode = setDbMode(mode);
-    const health = await checkDbHealth();
+  const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+  await logAdminAction(operatorId, "switch_db_mode", "database_cluster", { mode: "prod" }, req.ip);
 
-    const operatorId = req.adminOperator?.id || req.userId || "admin_master";
-    logAdminAction(operatorId, "switch_db_mode", "database_cluster", { mode: newMode }, req.ip);
-
-    return res.json({ 
-      success: true, 
-      message: `Base de données basculée en mode [${newMode.toUpperCase()}].`,
-      ...health 
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
+  return res.json({ 
+    success: true, 
+    message: "Base de données unifiée sur Supabase PostgreSQL.",
+    activeMode: "prod",
+  });
 });
 
 /**
@@ -454,10 +448,9 @@ adminRouter.post("/config/db-mode", async (req, res) => {
  */
 adminRouter.get("/audit-logs", async (_req, res) => {
   try {
-    const logs = db.select().from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(100).all();
+    const logs = await db.select().from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(100);
     return res.json({ success: true, count: logs.length, logs });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
-

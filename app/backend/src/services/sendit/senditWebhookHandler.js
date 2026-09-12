@@ -63,14 +63,17 @@ export async function senditWebhookHandler(req, res) {
     // Retrouver la commande Vork correspondante
     let order = null;
     if (code) {
-      order = db.select().from(orders).where(eq(orders.senditDeliveryCode, code)).get();
+      const [o] = await db.select().from(orders).where(eq(orders.senditDeliveryCode, code));
+      order = o;
     }
     if (!order && (payload.reference || payload.orderId)) {
       const refId = payload.reference || payload.orderId;
-      order = db.select().from(orders).where(eq(orders.id, refId)).get();
+      const [o] = await db.select().from(orders).where(eq(orders.id, refId));
+      order = o;
     }
     if (!order && code) {
-      order = db.select().from(orders).where(eq(orders.id, code)).get();
+      const [o] = await db.select().from(orders).where(eq(orders.id, code));
+      order = o;
     }
     if (!order) {
       return res.status(404).json({ 
@@ -84,17 +87,16 @@ export async function senditWebhookHandler(req, res) {
     // Traitement des transitions logistiques Sendit
     if (newStatus === "DELIVERED") {
       // Exécute la livraison et la régularisation du solde COD 50% (si > 1000 DH)
-      deliverOrder(db, order.id, lastActionAt || now);
+      await deliverOrder(db, order.id, lastActionAt || now);
 
       if (proofImage || counterUnreachable !== undefined) {
-        db.update(orders)
+        await db.update(orders)
           .set({
             proofImage: proofImage || order.proofImage,
             counterUnreachable: counterUnreachable !== undefined ? counterUnreachable : order.counterUnreachable,
             updatedAt: now,
           })
-          .where(eq(orders.id, order.id))
-          .run();
+          .where(eq(orders.id, order.id));
       }
       console.log(`[SENDIT-WEBHOOK] 📦 Commande #${order.id} livrée par Sendit (Début du séquestre 7j).`);
     } else {
@@ -113,15 +115,14 @@ export async function senditWebhookHandler(req, res) {
           break;
       }
 
-      db.update(orders)
+      await db.update(orders)
         .set({
           status: vorkStatus,
           proofImage: proofImage || order.proofImage,
           counterUnreachable: counterUnreachable !== undefined ? counterUnreachable : order.counterUnreachable,
           updatedAt: now,
         })
-        .where(eq(orders.id, order.id))
-        .run();
+        .where(eq(orders.id, order.id));
 
       console.log(`[SENDIT-WEBHOOK] 🚚 Commande #${order.id} mise à jour : ${vorkStatus}`);
     }

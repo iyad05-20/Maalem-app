@@ -1,6 +1,6 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 
@@ -22,8 +22,6 @@ import { initSchema }       from './core/db/index.js';
 import { seedDefaultAccounts } from './services/localAuth.service.js';
 import { senditWebhookHandler } from './services/sendit/senditWebhookHandler.js';
 import { senditClient } from './services/sendit/senditClient.js';
-
-dotenv.config();
 
 (async () => {
   try {
