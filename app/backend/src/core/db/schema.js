@@ -143,3 +143,17 @@ export const vendorProfiles = sqliteTable("vendor_profiles", {
   suspendedUntil: text("suspended_until"),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const customRequests = sqliteTable("custom_requests", {
+  id: text("id").primaryKey(),
+  clientRef: text("client_ref").notNull(),
+  artisanRef: text("artisan_ref").notNull().default("artisan-open"),
+  totalPrice: real("total_price").notNull().default(0),
+  productType: text("product_type").notNull().default("personnalise"), // 'personnalise' | 'sur_commande'
+  transportProvider: text("transport_provider").notNull().default("sendit"),
+  status: text("status").notNull().default("en_attente_artisan"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  proofImage: text("proof_image"),
+  customizationTags: text("customization_tags"),
+});

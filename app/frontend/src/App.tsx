@@ -67,6 +67,7 @@ function App() {
   const [dbProducts, setDbProducts] = useState<Product[]>([]);
   const [isOrderDetailOpen, setIsOrderDetailOpen] = useState(false);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isAtelierModalOpen, setIsAtelierModalOpen] = useState(false);
   const [showNotificationsOverlay, setShowNotificationsOverlay] = useState(false);
   const [clientOrdersList, setClientOrdersList] = useState<ClientOrder[]>([]);
 
@@ -288,7 +289,12 @@ function App() {
             />
           )}
           {view === 'atelier' && (
-            <AtelierView key="atelier" />
+            <AtelierView
+              key="atelier"
+              currentUser={currentUser}
+              onNavigate={setView}
+              onModalStateChange={setIsAtelierModalOpen}
+            />
           )}
           {view === 'profile' && (
             <ProfileView
@@ -401,7 +407,7 @@ function App() {
 
       {/* Floating Bottom Nav */}
       <AnimatePresence>
-        {view !== 'search' && !selectedProduct && !showFavoritesOverlay && !showSeeAllOverlay && !isOrderDetailOpen && !isWalletModalOpen && (
+        {view !== 'search' && !selectedProduct && !showFavoritesOverlay && !showSeeAllOverlay && !isOrderDetailOpen && !isWalletModalOpen && !isAtelierModalOpen && (
           <motion.div
             key="bottom-nav"
             initial={{ opacity: 0, y: 20 }}
