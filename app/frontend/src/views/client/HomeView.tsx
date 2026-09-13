@@ -9,6 +9,7 @@ import { OccasionsModule } from '../../components/Home/OccasionsModule';
 import { ArtisanCard } from '../../components/Home/ArtisanCard';
 import { ArtisanAtelierModal } from '../../components/Home/ArtisanAtelierModal';
 import type { Product, HeroData, ArtisanProfile, PromoData, View } from '../../types';
+import { useClientI18n } from '../../services/i18n';
 
 interface HomeViewProps {
   hero: HeroData;
@@ -134,13 +135,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [scrollY, setScrollY] = useState(0);
   const [isAtelierModalOpen, setIsAtelierModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { lang, changeLanguage, t } = useClientI18n();
 
   // Profile Maturity & Exploration Strategy Metadata
   const sectionState = recResponseState?.sectionState || 'hidden';
-  const sectionTitle = recResponseState?.sectionTitle || (sectionState === 'personalized' ? '✨ Pour vous' : sectionState === 'discovery' ? "Découvrez l'artisanat marocain" : null);
+  const sectionTitle = recResponseState?.sectionTitle || (sectionState === 'personalized' ? t('home_for_you') : sectionState === 'discovery' ? t('home_discover_craft') : null);
   const highestTagScore = recResponseState?.highestTagScore || 0;
   const activeTagsCount = recResponseState?.activeTagsCount || 0;
-  const epsilon = recResponseState?.epsilon || 0.50;
 
   const handleSwiftRefresh = async () => {
     if (!onRefreshFeed || isRefreshing) return;
@@ -205,7 +206,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {/* ─── HEADER ───────────────────────────────────────────────────────── */}
       <header className="app-header">
         <h1 className="brand-logo">MAALEM</h1>
-        <div className="header-actions">
+        <div className="header-actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Language Toggle Button */}
+          <button
+            className="pill-tab"
+            style={{
+              padding: "4px 8px",
+              fontSize: 10,
+              fontWeight: 800,
+              background: "rgba(196,169,106,0.18)",
+              color: "#1A2A3A",
+              border: "1px solid rgba(196,169,106,0.45)",
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+            onClick={() => changeLanguage(lang === "ar" ? "fr" : "ar")}
+            title="Changer de langue (العربية / Français)"
+          >
+            {lang === "ar" ? "Français" : "العربية"}
+          </button>
+
           <button className="icon-btn" aria-label="Notifications" onClick={onOpenNotifications} style={{ position: "relative" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -220,6 +240,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
             src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=150&auto=format&fit=crop"
             alt="Mon profil"
             className="user-avatar"
+            onClick={() => onNavigate('profile')}
+            style={{ cursor: 'pointer' }}
           />
         </div>
       </header>
@@ -240,7 +262,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <input
             type="text"
             className="search-input"
-            placeholder="Rechercher des créations..."
+            placeholder={t('home_search_placeholder')}
             readOnly
             style={{ pointerEvents: 'none' }}
             aria-label="Recherche"
@@ -262,7 +284,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Status Indicator & Swift Refresh */}
           <div className="maturity-switch-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: '0.78rem', color: '#4A5568', background: 'rgba(235, 230, 220, 0.5)', padding: '5px 12px', borderRadius: 12 }}>
-              📊 Score Max: <strong>{highestTagScore.toFixed(1)}</strong> | Tags: <strong>{activeTagsCount}</strong> | Mode: <strong>{sectionState.toUpperCase()}</strong> | Epsilon: <strong>{epsilon}</strong>
+              📊 {t('home_score_max')}: <strong>{highestTagScore.toFixed(1)}</strong> | {t('home_tags_count')}: <strong>{activeTagsCount}</strong> | {t('home_mode')}: <strong>{sectionState.toUpperCase()}</strong>
             </div>
 
             <button
@@ -287,7 +309,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <span style={{ display: 'inline-block', transform: isRefreshing ? 'rotate(360deg)' : 'none', transition: 'transform 0.6s ease' }}>
                 ✦
               </span>
-              {isRefreshing ? 'Recalcul IA...' : 'Swift Refresh'}
+              {isRefreshing ? t('home_recalc_ai') : t('home_swift_refresh')}
             </button>
           </div>
 
@@ -295,10 +317,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {sectionState !== 'hidden' && (
             <div style={{ marginBottom: 28 }}>
               <ChapterHeader
-                title={sectionTitle || "Découvrez l'artisanat marocain"}
-                subtitle={sectionState === 'personalized' ? "Sélection personnalisée selon vos goûts" : "Une immersion dans nos ateliers de création"}
+                title={sectionTitle || t('home_discover_craft')}
+                subtitle={sectionState === 'personalized' ? t('home_for_you_sub') : t('home_discover_craft_sub')}
                 hasAccentBar={sectionState === 'personalized'}
-                linkLabel={sectionState === 'personalized' ? "Voir tout" : "Explorer"}
+                linkLabel={sectionState === 'personalized' ? t('see_all') : t('explore')}
                 onLinkClick={onSeeAllRecs}
               />
               <ProductRow
@@ -313,9 +335,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Rail 2: "Tendances actuelles" (Always visible) */}
           <div>
             <ChapterHeader
-              title="Tendances actuelles"
-              subtitle="Les pièces les plus convoitées en ce moment"
-              linkLabel="Tout voir"
+              title={t('home_trending')}
+              subtitle={t('home_trending_sub')}
+              linkLabel={t('see_all')}
             />
             <ProductRow
               products={trending}
@@ -336,7 +358,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Transition 1 au début du Chapitre 2 */}
           <div className="inspiring-transition" style={{ paddingTop: 8, paddingBottom: 20 }}>
             <p className="inspiring-phrase">
-              « Découvrez les créations qui font vivre le savoir-faire marocain. »
+              {t('home_quote_inspire')}
             </p>
           </div>
 
@@ -350,21 +372,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Duo Spotlight (2 grandes cartes côte à côte - Éditions limitées) */}
           <div className="duo-spotlight-wrapper">
             <ChapterHeader
-              title="Éditions Limitées & Pièces Uniques"
-              subtitle="Des œuvres rares façonnées en petite série"
+              title={t('home_limited_editions')}
+              subtitle={t('home_limited_editions_sub')}
             />
             <DuoSpotlight
               products={duoSpotlight.length > 0 ? duoSpotlight : premium.slice(0, 2)}
               onSelectProduct={onSelectProduct}
-              badgeTag="Édition Limitée"
+              badgeTag={t('home_limited_badge')}
             />
           </div>
 
           {/* Module "Occasions" (1 composant avec 3 onglets Cadeaux / Maison / Cuisine) */}
           <div className="occasions-wrapper" style={{ marginBottom: 12 }}>
             <ChapterHeader
-              title="Par Occasion"
-              subtitle="Trouvez la création idéale selon l'instant"
+              title={t('home_by_occasion')}
+              subtitle={t('home_by_occasion_sub')}
             />
             <OccasionsModule
               occasionsData={occasionsData}
@@ -390,7 +412,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="editorial-divider-wrap" style={{ paddingTop: 8, paddingBottom: 20 }}>
             <div className="editorial-divider-line">
               <div className="editorial-line" />
-              <h4 className="editorial-divider-title">L'âme de l'artisanat marocain</h4>
+              <h4 className="editorial-divider-title">{t('home_soul_craft')}</h4>
               <div className="editorial-line" />
             </div>
           </div>
@@ -398,16 +420,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Module 1: Région mise à l'honneur (Les trésors de Fès) */}
           <div style={{ marginBottom: 28 }}>
             <ChapterHeader
-              title="Les trésors de Fès"
-              subtitle="Ville mise à l'honneur cette semaine"
-              discreetBadge="Région mise à l'honneur"
+              title={t('home_fes_treasures')}
+              subtitle={t('home_city_honored')}
+              discreetBadge={t('home_region_honored')}
               icon={
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M12 2a8 8 0 0 0-8 8c0 5.25 8 12 8 12s8-6.75 8-12a8 8 0 0 0-8-8z" />
                   <circle cx="12" cy="10" r="3" />
                 </svg>
               }
-              linkLabel="Explorer Fès"
+              linkLabel={t('home_explore_fes')}
             />
             <ProductRow
               products={regionFes.length > 0 ? regionFes : trending}
@@ -421,8 +443,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {featuredArtisan && (
             <div className="artisan-card-wrapper">
               <ChapterHeader
-                title="Artisan du Mois"
-                subtitle="Rencontre avec nos maîtres créateurs"
+                title={t('home_artisan_month')}
+                subtitle={t('home_artisan_month_sub')}
               />
               <ArtisanCard
                 artisan={featuredArtisan}
@@ -434,13 +456,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Module 3: Sélection MAALEM (Duo Spotlight Éditorial) */}
           <div className="duo-spotlight-wrapper" style={{ marginBottom: 0 }}>
             <ChapterHeader
-              title="Sélection MAALEM"
-              subtitle="Des créations choisies par notre équipe éditoriale"
+              title={lang === 'ar' ? 'مختارات معلم الفاخرة' : 'Sélection MAALEM'}
+              subtitle={lang === 'ar' ? 'إبداعات مختارة بعناية من فريقنا' : 'Des créations choisies par notre équipe éditoriale'}
             />
             <DuoSpotlight
               products={duoMaalem.length > 0 ? duoMaalem : premium.slice(2, 4)}
               onSelectProduct={onSelectProduct}
-              badgeTag="Sélection MAALEM"
+              badgeTag={lang === 'ar' ? 'مختارات معلم' : 'Sélection MAALEM'}
             />
           </div>
         </div>

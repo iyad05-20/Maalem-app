@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { RefreshCw, Globe, Bell, Sparkles } from "lucide-react";
-import { getBackendUrl, setBackendUrl } from "../services/artisanApi";
+import React from "react";
+import { Bell, RefreshCw } from "lucide-react";
+import { useI18n } from "../services/i18n";
 
 interface ArtisanMobileHeaderProps {
   title: string;
@@ -19,218 +19,73 @@ export const ArtisanMobileHeader: React.FC<ArtisanMobileHeaderProps> = ({
   unreadNotifsCount,
   loading,
   shopStatus = "active",
-  warningCount = 0,
 }) => {
-  const [targetUrl, setTargetUrl] = useState<string>(getBackendUrl());
-  const [showConfig, setShowConfig] = useState<boolean>(false);
-
-  const handleSaveTarget = () => {
-    setBackendUrl(targetUrl);
-    setShowConfig(false);
-    onRefresh();
-  };
-
-  const isLocal = targetUrl.includes("localhost") || targetUrl.includes("127.0.0.1");
+  const { lang, isRTL, changeLanguage, t } = useI18n();
 
   return (
-    <header className="app-header" style={{
-      padding: "16px 20px 12px",
-      background: "rgba(250, 250, 248, 0.98)",
-      backdropFilter: "blur(14px)",
-      borderBottom: "1px solid var(--border)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      position: "sticky",
-      top: 0,
-      zIndex: 40,
-    }}>
-      {/* Brand Logo matching Client App */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <h1 className="brand-logo" style={{ margin: 0, fontSize: 22, color: "var(--primary)", letterSpacing: "-0.5px" }}>
-              MAÂLEM
-            </h1>
+    <>
+      <div className="app-header">
+        {/* Brand — identical to client HomeView */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="brand-logo">MAÂLEM</span>
             <span style={{
-              background: "linear-gradient(135deg, var(--accent-warm) 0%, #B85830 100%)",
-              color: "#FFFFFF",
-              fontSize: 9,
-              fontWeight: 800,
+              background: "var(--accent-warm)",
+              color: "#FFF",
               fontFamily: "var(--font-display)",
-              padding: "2px 7px",
-              borderRadius: 8,
-              letterSpacing: 0.5,
-              textTransform: "uppercase",
-              boxShadow: "0 2px 6px rgba(204,119,85,0.3)",
+              fontSize: 9,
+              fontWeight: 700,
+              padding: "3px 8px",
+              borderRadius: 10,
+              letterSpacing: "0.5px",
             }}>
               PRO
             </span>
           </div>
-          <span style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 600 }}>
-            {title}
-          </span>
-        </div>
-      </div>
-
-      {/* Header Actions */}
-      <div className="header-actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {/* Notification Bell */}
-        <button
-          onClick={onOpenNotifications}
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "50%",
-            width: 38,
-            height: 38,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--primary)",
-            position: "relative",
-            boxShadow: "var(--shadow-sm)",
-          }}
-          title="Notifications"
-        >
-          <Bell size={18} />
-          {unreadNotifsCount > 0 && (
-            <span style={{
-              position: "absolute",
-              top: 2,
-              right: 2,
-              background: "#DC3545",
-              color: "#FFF",
-              fontSize: 8,
-              fontWeight: 800,
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "1.5px solid #FFF",
-            }}>
-              {unreadNotifsCount}
-            </span>
-          )}
-        </button>
-
-        {/* Target Switcher */}
-        <button
-          onClick={() => setShowConfig(!showConfig)}
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "50%",
-            width: 38,
-            height: 38,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: isLocal ? "#2D6A4F" : "var(--accent-warm)",
-            boxShadow: "var(--shadow-sm)",
-          }}
-          title="Serveur Cible"
-        >
-          <Globe size={18} />
-        </button>
-
-        {/* Refresh */}
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "50%",
-            width: 38,
-            height: 38,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--primary)",
-            boxShadow: "var(--shadow-sm)",
-          }}
-          title="Actualiser"
-        >
-          <RefreshCw size={16} className={loading ? "spin" : ""} />
-        </button>
-      </div>
-
-      {/* Target Config Modal Sheet */}
-      {showConfig && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          zIndex: 100,
-          display: "flex",
-          alignItems: "flex-end",
-          justifyContent: "center",
-        }}>
-          <div style={{
-            background: "#FCFBF9",
-            width: "100%",
-            maxWidth: 440,
-            borderRadius: "24px 24px 0 0",
-            padding: "20px 20px 32px",
-            boxShadow: "0 -10px 30px rgba(0,0,0,0.2)",
-          }}>
-            <div style={{ width: 36, height: 4, background: "rgba(0,0,0,0.15)", borderRadius: 2, margin: "0 auto 16px" }} />
-            <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", marginBottom: 4 }}>
-              Serveur Backend Cible
-            </h3>
-            <p style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 14 }}>
-              Basculez entre le serveur local et votre application déployée en production.
-            </p>
-
-            <input
-              type="text"
-              value={targetUrl}
-              onChange={(e) => setTargetUrl(e.target.value)}
-              placeholder="https://votre-backend.com/api"
-              style={{
-                width: "100%",
-                padding: "12px",
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                fontSize: 12,
-                color: "var(--primary)",
-                marginBottom: 14,
-              }}
-            />
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setTargetUrl("http://localhost:3001/api");
-                  setBackendUrl("http://localhost:3001/api");
-                  setShowConfig(false);
-                  onRefresh();
-                }}
-                className="btn-mobile-outline"
-                style={{ flex: 1 }}
-              >
-                Reset Local
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveTarget}
-                className="btn-mobile-primary"
-                style={{ flex: 2 }}
-              >
-                Connecter
-              </button>
-            </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 1, display: "flex", alignItems: "center", gap: 6 }}>
+            <span>{title}</span>
+            {shopStatus !== "active" && (
+              <span className="badge badge-warning" style={{ fontSize: 8, padding: "2px 6px" }}>
+                {shopStatus === "paused" ? t("header_vacation_paused") : shopStatus}
+              </span>
+            )}
           </div>
         </div>
-      )}
-    </header>
+
+        {/* Header Actions */}
+        <div className="header-actions">
+          {/* Language Toggle FR / AR */}
+          <button 
+            className="pill-tab"
+            style={{ 
+              padding: "4px 8px", 
+              fontSize: 10, 
+              fontWeight: 800, 
+              background: "rgba(184,98,63,0.1)", 
+              color: "var(--accent-warm)",
+              border: "1px solid rgba(184,98,63,0.3)",
+              cursor: "pointer",
+              borderRadius: 8
+            }}
+            onClick={() => changeLanguage(lang === "ar" ? "fr" : "ar")}
+            title={isRTL ? "تغيير اللغة (العربية / Français)" : "Changer de langue (العربية / Français)"}
+          >
+            {lang === "ar" ? "Français" : "العربية"}
+          </button>
+
+          <button className="icon-btn" onClick={onOpenNotifications} title={t("header_notifications")}>
+            <Bell size={18} color="var(--text-secondary)" />
+            {unreadNotifsCount > 0 && (
+              <span className="notif-count">{unreadNotifsCount}</span>
+            )}
+          </button>
+          <button className="icon-btn" onClick={onRefresh} disabled={loading} title={t("header_refresh")}>
+            <RefreshCw size={16} color="var(--text-secondary)" style={{ animation: loading ? "spin 1s linear infinite" : "none" }} />
+          </button>
+        </div>
+      </div>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </>
   );
 };

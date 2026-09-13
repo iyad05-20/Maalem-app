@@ -2,95 +2,134 @@ import crypto from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../../core/db/index.js";
 import { orders } from "../../core/db/schema.js";
+import { deliverOrder } from "../../client/services/clientPaymentService.js";
 
-const SENDIT_SECRET_KEY = process.env.SENDIT_SECRET_KEY || "";
+const SENDIT_SECRET_KEY = process.env.SENDIT_SECRET_KEY || "vork_sendit_webhook_secret_key_2026";
 
 /**
- * Express Middleware/Handler to process Sendit Webhook notifications.
+ * Express Middleware/Handler pour traiter les notifications Webhook officielles Sendit Express.
+ * Sécurité : HMAC-SHA256 sur buffer brut req.rawBody avec timingSafeEqual en temps constant.
  */
 export async function senditWebhookHandler(req, res) {
   const signature = req.headers["x-sendit-signature"];
   if (!signature) {
-    return res.status(401).json({ success: false, error: "Missing signature header" });
+    return res.status(401).json({ success: false, error: "En-tête de signature manquant (x-sendit-signature requis)." });
   }
 
-  // Verify HMAC-SHA256 signature
-  let isSignatureValid = false;
-  if (signature === "dummy_signature") {
-    isSignatureValid = true;
-  } else {
-    const rawBody = JSON.stringify(req.body);
-    const hmac = crypto.createHmac("sha256", SENDIT_SECRET_KEY);
-    hmac.update(rawBody);
-    const digest = hmac.digest("hex");
+  // 1. Calcul HMAC-SHA256 sur le Buffer brut req.rawBody (préservant l'ordre des octets)
+  const rawBuffer = req.rawBody ? req.rawBody : Buffer.from(JSON.stringify(req.body));
+  const hmac = crypto.createHmac("sha256", SENDIT_SECRET_KEY);
+  hmac.update(rawBuffer);
+  const digest = hmac.digest("hex");
 
-    // A secure constant-time check is recommended for production
+  // 2. Vérification cryptographique en temps constant
+  const isProd = process.env.NODE_ENV === "production";
+  let isSignatureValid = false;
+
+  if (signature === "dummy_signature") {
+    if (isProd) {
+      console.error("[SENDIT-WEBHOOK] ❌ Rejet strict de 'dummy_signature' en production !");
+      isSignatureValid = false;
+    } else {
+      console.warn("[SENDIT-WEBHOOK] ⚠️ Acceptation de 'dummy_signature' en environnement local de développement.");
+      isSignatureValid = true;
+    }
+  } else {
     try {
-      isSignatureValid = crypto.timingSafeEqual(
-        Buffer.from(digest, "utf-8"),
-        Buffer.from(String(signature), "utf-8")
-      );
-    } catch (err) {
-      isSignatureValid = (digest === signature);
+      const digestBuf = Buffer.from(digest, "utf-8");
+      const sigBuf = Buffer.from(String(signature), "utf-8");
+      isSignatureValid = (digestBuf.length === sigBuf.length) && crypto.timingSafeEqual(digestBuf, sigBuf);
+    } catch {
+      isSignatureValid = false;
     }
   }
 
   if (!isSignatureValid) {
-    return res.status(401).json({ success: false, error: "Invalid signature" });
+    console.warn("[SENDIT-WEBHOOK] 🚨 Échec de signature HMAC Webhook Sendit.");
+    return res.status(401).json({ success: false, error: "Signature HMAC non valide." });
   }
 
   const payload = req.body;
 
   if (payload.event !== "delivery.status.update") {
-    return res.status(200).json({ success: true, message: "Ignored unhandled event type" });
+    return res.status(200).json({ success: true, message: "Événement non traité ignoré." });
   }
 
-  const { code, newStatus, proofImage, counterUnreachable, lastActionAt } = payload;
+  const statusKey = payload.newStatus || payload.status;
+  const { code, proofImage, counterUnreachable, lastActionAt } = payload;
+  const newStatus = statusKey;
 
   try {
-    // Find corresponding Vork order
-    const order = db.select().from(orders).where(eq(orders.senditDeliveryCode, code)).get();
+    // Retrouver la commande Vork correspondante
+    let order = null;
+    if (code) {
+      const [o] = await db.select().from(orders).where(eq(orders.senditDeliveryCode, code));
+      order = o;
+    }
+    if (!order && (payload.reference || payload.orderId)) {
+      const refId = payload.reference || payload.orderId;
+      const [o] = await db.select().from(orders).where(eq(orders.id, refId));
+      order = o;
+    }
+    if (!order && code) {
+      const [o] = await db.select().from(orders).where(eq(orders.id, code));
+      order = o;
+    }
     if (!order) {
-      return res.status(404).json({ success: false, error: `Order not found for Sendit code: ${code}` });
+      return res.status(404).json({ 
+        success: false, 
+        error: `Commande Vork introuvable pour le code Sendit: ${code || payload.reference}` 
+      });
     }
 
     const now = new Date().toISOString();
-    let vorkStatus = order.status;
 
-    // Map Sendit status to Vork order status
-    switch (newStatus) {
-      case "DELIVERED":
-        vorkStatus = "livre";
-        break;
-      case "CANCELED":
-      case "REJECTED":
-        vorkStatus = "annulee";
-        break;
-      case "TRANSIT":
-      case "DISTRIBUTED":
-      case "DELIVERING":
-        vorkStatus = "en_cours_de_transport";
-        break;
-      default:
-        // Keep current status or map accordingly
-        break;
+    // Traitement des transitions logistiques Sendit
+    if (newStatus === "DELIVERED") {
+      // Exécute la livraison et la régularisation du solde COD 50% (si > 1000 DH)
+      await deliverOrder(db, order.id, lastActionAt || now);
+
+      if (proofImage || counterUnreachable !== undefined) {
+        await db.update(orders)
+          .set({
+            proofImage: proofImage || order.proofImage,
+            counterUnreachable: counterUnreachable !== undefined ? counterUnreachable : order.counterUnreachable,
+            updatedAt: now,
+          })
+          .where(eq(orders.id, order.id));
+      }
+      console.log(`[SENDIT-WEBHOOK] 📦 Commande #${order.id} livrée par Sendit (Début du séquestre 7j).`);
+    } else {
+      let vorkStatus = order.status;
+      switch (newStatus) {
+        case "CANCELED":
+        case "REJECTED":
+          vorkStatus = "annulee";
+          break;
+        case "TRANSIT":
+        case "DISTRIBUTED":
+        case "DELIVERING":
+          vorkStatus = "en_cours_de_transport";
+          break;
+        default:
+          break;
+      }
+
+      await db.update(orders)
+        .set({
+          status: vorkStatus,
+          proofImage: proofImage || order.proofImage,
+          counterUnreachable: counterUnreachable !== undefined ? counterUnreachable : order.counterUnreachable,
+          updatedAt: now,
+        })
+        .where(eq(orders.id, order.id));
+
+      console.log(`[SENDIT-WEBHOOK] 🚚 Commande #${order.id} mise à jour : ${vorkStatus}`);
     }
 
-    // Update order status and Sendit audit metrics in DB
-    db.update(orders)
-      .set({
-        status: vorkStatus,
-        proofImage: proofImage || order.proofImage,
-        counterUnreachable: counterUnreachable !== undefined ? counterUnreachable : order.counterUnreachable,
-        deliveredAt: newStatus === "DELIVERED" ? lastActionAt || now : order.deliveredAt,
-        updatedAt: now,
-      })
-      .where(eq(orders.id, order.id))
-      .run();
-
-    return res.status(200).json({ success: true, message: "Webhook processed successfully" });
+    return res.status(200).json({ success: true, message: "Notification Sendit traitée avec succès." });
   } catch (error) {
-    console.error("Error processing Sendit webhook:", error);
+    console.error("[SENDIT-WEBHOOK] Erreur de traitement Webhook:", error);
     return res.status(500).json({ success: false, error: error.message });
   }
 }

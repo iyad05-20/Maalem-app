@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { Scale, X, Send, Image as ImageIcon, Plus } from "lucide-react";
+import { Scale, X, Send, Plus, Camera } from "lucide-react";
 import type { ArtisanDispute } from "../types/artisanTypes";
+import { useI18n } from "../services/i18n";
 
 interface DisputeReplyModalProps {
   dispute: ArtisanDispute;
@@ -14,12 +15,24 @@ export const DisputeReplyModal: React.FC<DisputeReplyModalProps> = ({
   onClose,
   onRespond,
 }) => {
+  const { lang, t } = useI18n();
   const [responseText, setResponseText] = useState("");
-  const [photoUrls, setPhotoUrls] = useState<string[]>([
-    "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=600"
-  ]);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [photoInput, setPhotoInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && photoUrls.length < 3) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === "string") {
+          setPhotoUrls(prev => [...prev, reader.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleAddPhoto = () => {
     if (photoInput.trim() && photoUrls.length < 3) {
@@ -65,23 +78,25 @@ export const DisputeReplyModal: React.FC<DisputeReplyModalProps> = ({
         className="glass-panel"
         style={{
           width: "100%",
-          maxWidth: 620,
+          maxWidth: 580,
           padding: 24,
-          border: "1px solid var(--accent-crimson)",
-          boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+          background: "#FFF",
+          borderRadius: 20,
+          border: "1px solid rgba(220, 53, 69, 0.3)",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.2)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: "var(--accent-crimson-light)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Scale size={20} color="#F87171" />
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(220, 53, 69, 0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Scale size={20} color="#DC3545" />
             </div>
             <div>
-              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--text-main)", margin: 0 }}>
-                Défense Contradictoire sous 48h (Art. 20)
+              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", margin: 0 }}>
+                {t("disputes_banner_title")}
               </h3>
-              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-                Dossier Réclamation N° <strong style={{ color: "#F87171" }}>{dispute.id}</strong> (Commande #{dispute.orderId})
+              <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
+                {t("disputes_dossier")}<strong style={{ color: "#DC3545" }}>{dispute.id}</strong> ({t("disputes_order_label")}{dispute.orderId})
               </p>
             </div>
           </div>
@@ -91,41 +106,43 @@ export const DisputeReplyModal: React.FC<DisputeReplyModalProps> = ({
         </div>
 
         <div style={{ background: "rgba(220, 53, 69, 0.08)", border: "1px solid rgba(220, 53, 69, 0.25)", borderRadius: 12, padding: 12, marginBottom: 16 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#F87171", margin: "0 0 4px" }}>
-            Motif déclaré par le Client :
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#DC3545", margin: "0 0 4px" }}>
+            {t("disputes_client_reason")}
           </p>
-          <p style={{ fontSize: 12, color: "var(--text-main)", margin: 0, fontStyle: "italic" }}>
+          <p style={{ fontSize: 12, color: "var(--primary)", margin: 0, fontStyle: "italic" }}>
             "{dispute.reason}"
           </p>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-              Vos explications contradictoires d'atelier (Art. 20.3) *
+            <label className="form-label">
+              {t("dispute_reply_label")}
             </label>
             <textarea
               required
               rows={4}
+              className="form-input"
               value={responseText}
               onChange={(e) => setResponseText(e.target.value)}
-              placeholder="Expliquez la conformité de votre pièce, l'état lors de la fabrication, ou proposez un geste commercial / réfection amiable..."
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-main)", fontSize: 12 }}
+              placeholder={t("dispute_reply_placeholder")}
+              style={{ resize: "vertical" }}
             />
           </div>
 
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-              Photos justificatives (Atelier, Devis, Accusé)
+            <label className="form-label">
+              {t("dispute_evidence_label")}
             </label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 8 }}>
               {photoUrls.map((url, i) => (
-                <div key={i} style={{ position: "relative", width: 70, height: 70, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-color)" }}>
-                  <img src={url} alt={`Preuve ${i}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <div key={i} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", height: 80 }}>
+                  <img src={url} alt={`Preuve ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   <button
                     type="button"
                     onClick={() => handleRemovePhoto(i)}
-                    style={{ position: "absolute", top: 2, right: 2, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.7)", color: "#FFF", border: "none", cursor: "pointer" }}
+                    style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#FFF", border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
                   >
                     <X size={10} />
                   </button>
@@ -134,26 +151,54 @@ export const DisputeReplyModal: React.FC<DisputeReplyModalProps> = ({
             </div>
 
             {photoUrls.length < 3 && (
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="text"
-                  placeholder="URL photo de preuve..."
-                  value={photoInput}
-                  onChange={(e) => setPhotoInput(e.target.value)}
-                  style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-main)", fontSize: 11 }}
-                />
-                <button type="button" onClick={handleAddPhoto} className="btn-outline" style={{ fontSize: 11, padding: "6px 10px" }}>
-                  <Plus size={14} /> Ajouter
-                </button>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <label style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1.5px dashed var(--border)",
+                  background: "var(--surface)",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--primary)"
+                }}>
+                  <Camera size={16} color="var(--accent-warm)" />
+                  <span>{t("dispute_take_photo")}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    style={{ display: "none" }}
+                    onChange={handleFileUpload}
+                  />
+                </label>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    type="text"
+                    placeholder={t("dispute_url_placeholder")}
+                    value={photoInput}
+                    onChange={(e) => setPhotoInput(e.target.value)}
+                    className="form-input"
+                    style={{ flex: 1, fontSize: 11 }}
+                  />
+                  <button type="button" onClick={handleAddPhoto} className="btn-outline" style={{ fontSize: 11 }}>
+                     <Plus size={14} /> {t("dispute_add_btn")}
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={onClose} className="btn-outline">Annuler</button>
+            <button type="button" onClick={onClose} className="btn-outline">{t("cancel")}</button>
             <button type="submit" disabled={loading || !responseText.trim()} className="btn-terracotta">
-              <Send size={16} />
-              <span>{loading ? "Transmission..." : "Transmettre ma Défense à Vork"}</span>
+              <Send size={15} />
+              <span>{loading ? t("loading") : t("dispute_submit_btn")}</span>
             </button>
           </div>
         </form>

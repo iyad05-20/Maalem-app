@@ -100,10 +100,11 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       recSession.trackAction('ORDER', tags);
       console.log(`[DETAIL] 🛒 ORDER action queued on tags [${tags.join(', ')}]`);
 
+      const pAny = product as any;
       const clientRef = currentUser?.id || "client-me";
-      const artisanRef = product.artisanId || "artisan-default";
-      const artisanName = product.artisanName || "Maâlem Abdelkader";
-      const productImage = product.image || getFallbackImage(product.category);
+      const artisanRef = product.artisanRef || pAny.artisanId || pAny.artisan_ref || pAny.facets?.artisan_ref || "artisan_abdelkader";
+      const artisanName = product.artisanName || pAny.artisan_name || "Maâlem Abdelkader";
+      const productImage = product.image || pAny.image_url || getFallbackImage(product.category);
 
       const newOrder = await clientWalletAPI.createOrder(
         clientRef,
@@ -279,7 +280,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               />
               <div style={{ textAlign: 'left' }}>
                 <p style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--primary)', margin: 0 }}>
-                  {product.artisanName || "Maâlem Abdelkader"}
+                  {product.artisanName || (product as any).artisan_name || "Maâlem Abdelkader"}
                 </p>
                 <p style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
                   Maître artisan • Fès, Maroc

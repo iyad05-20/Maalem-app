@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ArtisanProfile } from '../../types';
+import { useClientI18n } from '../../services/i18n';
 
 interface ArtisanCardProps {
   artisan: ArtisanProfile;
@@ -7,6 +8,8 @@ interface ArtisanCardProps {
 }
 
 export const ArtisanCard: React.FC<ArtisanCardProps> = ({ artisan, onOpenAtelier }) => {
+  const { t } = useClientI18n();
+
   return (
     <div className="artisan-editorial-card">
       <div className="artisan-portrait-frame">
@@ -16,7 +19,7 @@ export const ArtisanCard: React.FC<ArtisanCardProps> = ({ artisan, onOpenAtelier
           className="artisan-portrait-img"
           loading="lazy"
         />
-        <div className="artisan-badge-tag">✦ Artisan d'Art</div>
+        <div className="artisan-badge-tag">{t('home_artisan_badge')}</div>
       </div>
 
       <div className="artisan-card-body">
@@ -33,12 +36,12 @@ export const ArtisanCard: React.FC<ArtisanCardProps> = ({ artisan, onOpenAtelier
         <div className="artisan-footer">
           <div className="artisan-meta">
             <span className="meta-item">
-              <strong>{artisan.experienceYears} ans</strong> de métier
+              <strong>{artisan.experienceYears}</strong> {t('home_years_craft')}
             </span>
           </div>
 
           <button className="artisan-atelier-btn" onClick={onOpenAtelier}>
-            Découvrir son atelier
+            {t('home_discover_atelier')}
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="9 18 15 12 9 6" />
             </svg>

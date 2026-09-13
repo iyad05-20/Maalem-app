@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { orders, returnRequests, ledgerEntries, paymentsReceived } from "../../core/db/schema.js";
 
-export function requestReturn(db, orderId, mode, returnShippingFee = 0) {
-  return db.transaction((tx) => {
-    const order = tx.select().from(orders).where(eq(orders.id, orderId)).get();
+export async function requestReturn(db, orderId, mode, returnShippingFee = 0) {
+  return await db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
     if (!order) {
       throw new Error("commande_introuvable");
     }
@@ -17,7 +17,7 @@ export function requestReturn(db, orderId, mode, returnShippingFee = 0) {
     const now = new Date().toISOString();
     const returnId = crypto.randomUUID();
 
-    tx.insert(returnRequests)
+    await tx.insert(returnRequests)
       .values({
         id: returnId,
         orderId,
@@ -25,24 +25,22 @@ export function requestReturn(db, orderId, mode, returnShippingFee = 0) {
         returnShippingFee: mode === "sendit" ? returnShippingFee : 0,
         status: "initie",
         createdAt: now,
-      })
-      .run();
+      });
 
-    tx.update(orders)
+    await tx.update(orders)
       .set({
         status: "retour_initie",
         updatedAt: now,
       })
-      .where(eq(orders.id, orderId))
-      .run();
+      .where(eq(orders.id, orderId));
 
     return returnId;
   });
 }
 
-export function processReturnRefund(db, returnId, action) {
-  return db.transaction((tx) => {
-    const req = tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).get();
+export async function processReturnRefund(db, returnId, action) {
+  return await db.transaction(async (tx) => {
+    const [req] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId));
     if (!req) {
       throw new Error("demande_retour_introuvable");
     }
@@ -50,7 +48,7 @@ export function processReturnRefund(db, returnId, action) {
       throw new Error("demande_retour_deja_traitee");
     }
 
-    const order = tx.select().from(orders).where(eq(orders.id, req.orderId)).get();
+    const [order] = await tx.select().from(orders).where(eq(orders.id, req.orderId));
     if (!order) {
       throw new Error("commande_introuvable");
     }
@@ -58,33 +56,31 @@ export function processReturnRefund(db, returnId, action) {
     const now = new Date().toISOString();
 
     if (action === "reject") {
-      tx.update(returnRequests)
+      await tx.update(returnRequests)
         .set({ status: "refuse", resolvedAt: now })
-        .where(eq(returnRequests.id, returnId))
-        .run();
+        .where(eq(returnRequests.id, returnId));
 
-      tx.update(orders)
+      await tx.update(orders)
         .set({ status: "livre", updatedAt: now })
-        .where(eq(orders.id, order.id))
-        .run();
+        .where(eq(orders.id, order.id));
 
       return { status: "refuse" };
     }
 
-    const payments = tx
+    const payments = await tx
       .select()
       .from(paymentsReceived)
-      .where(eq(paymentsReceived.orderId, order.id))
-      .all();
-    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+      .where(eq(paymentsReceived.orderId, order.id));
+    const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
 
     let refundCash = totalPaid;
-    if (req.mode === "sendit" && req.returnShippingFee > 0) {
-      refundCash = Math.max(0, Math.round((totalPaid - req.returnShippingFee) * 100) / 100);
+    const fee = Number(req.returnShippingFee || 0);
+    if (req.mode === "sendit" && fee > 0) {
+      refundCash = Math.max(0, Math.round((totalPaid - fee) * 100) / 100);
     }
 
     if (refundCash > 0) {
-      tx.insert(ledgerEntries)
+      await tx.insert(ledgerEntries)
         .values({
           id: crypto.randomUUID(),
           orderId: order.id,
@@ -94,13 +90,12 @@ export function processReturnRefund(db, returnId, action) {
           type: "retour_remboursement_client",
           metadata: JSON.stringify({ mode: req.mode, returnShippingFee: req.returnShippingFee }),
           createdAt: now,
-        })
-        .run();
+        });
     }
 
-    if (req.mode === "sendit" && req.returnShippingFee > 0) {
-      const feeAmount = Math.min(totalPaid, req.returnShippingFee);
-      tx.insert(ledgerEntries)
+    if (req.mode === "sendit" && fee > 0) {
+      const feeAmount = Math.min(totalPaid, fee);
+      await tx.insert(ledgerEntries)
         .values({
           id: crypto.randomUUID(),
           orderId: order.id,
@@ -109,19 +104,16 @@ export function processReturnRefund(db, returnId, action) {
           montant: feeAmount,
           type: "retour_frais_sendit",
           createdAt: now,
-        })
-        .run();
+        });
     }
 
-    tx.update(returnRequests)
+    await tx.update(returnRequests)
       .set({ status: "valide", resolvedAt: now })
-      .where(eq(returnRequests.id, returnId))
-      .run();
+      .where(eq(returnRequests.id, returnId));
 
-    tx.update(orders)
+    await tx.update(orders)
       .set({ status: "annulee", updatedAt: now })
-      .where(eq(orders.id, order.id))
-      .run();
+      .where(eq(orders.id, order.id));
 
     return { status: "valide", refundCash };
   });

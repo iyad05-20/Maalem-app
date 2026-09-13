@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, X, Ban } from "lucide-react";
+import { useI18n } from "../services/i18n";
 
 interface RefuseOrderModalProps {
   orderId: string;
@@ -9,6 +10,7 @@ interface RefuseOrderModalProps {
 }
 
 export const RefuseOrderModal: React.FC<RefuseOrderModalProps> = ({ orderId, onClose, onRefuse }) => {
+  const { lang, t } = useI18n();
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -45,23 +47,25 @@ export const RefuseOrderModal: React.FC<RefuseOrderModalProps> = ({ orderId, onC
         className="glass-panel"
         style={{
           width: "100%",
-          maxWidth: 520,
+          maxWidth: 480,
           padding: 24,
-          border: "1px solid var(--border-color)",
-          boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+          background: "#FFF",
+          borderRadius: 20,
+          border: "1px solid rgba(220, 53, 69, 0.25)",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.2)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: "var(--accent-crimson-light)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <AlertTriangle size={20} color="#F87171" />
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(220, 53, 69, 0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <AlertTriangle size={20} color="#DC3545" />
             </div>
             <div>
-              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--text-main)", margin: 0 }}>
-                Refuser la Commande (Art. 6.4)
+              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", margin: 0 }}>
+                {t("refuse_modal_title")}
               </h3>
-              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-                Commande <strong style={{ color: "#F87171" }}>{orderId}</strong>
+              <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
+                {t("refuse_order_ref")} <strong style={{ color: "#DC3545" }}>{orderId}</strong>
               </p>
             </div>
           </div>
@@ -71,29 +75,30 @@ export const RefuseOrderModal: React.FC<RefuseOrderModalProps> = ({ orderId, onC
         </div>
 
         <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 12, lineHeight: 1.4 }}>
-          Veuillez indiquer le motif explicatif de votre refus. Le client sera immédiatement et intégralement remboursé sur son Wallet.
+          {t("refuse_modal_desc")}
         </p>
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-              Motif du refus (texte libre) *
+            <label className="form-label">
+              {t("refuse_reason_label")} *
             </label>
             <textarea
               required
               rows={4}
+              className="form-input"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Ex: Atelier surchargé jusqu'à la fin du mois, rupture d'approvisionnement sur le bois de cèdre..."
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-main)", fontSize: 12, resize: "vertical" }}
+              placeholder={t("refuse_reason_placeholder")}
+              style={{ resize: "vertical" }}
             />
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={onClose} className="btn-outline">Annuler</button>
+            <button type="button" onClick={onClose} className="btn-outline">{t("cancel")}</button>
             <button type="submit" disabled={loading || !reason.trim()} className="btn-danger">
               <Ban size={16} />
-              <span>{loading ? "Annulation..." : "Confirmer le Refus & Rembourser Client"}</span>
+              <span>{loading ? t("loading") : t("refuse_submit")}</span>
             </button>
           </div>
         </form>

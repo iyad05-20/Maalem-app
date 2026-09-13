@@ -5,12 +5,13 @@ import { calculateCancellationRefund } from "./cancellationService.js";
 export class CallbackError extends Error {}
 
 function isUniqueConstraintError(e) {
+  if (!e || typeof e !== "object") return false;
+  if (e.code === "23505") return true;
+  const msg = String(e.message || "");
   return (
-    typeof e === "object" &&
-    e !== null &&
-    "message" in e &&
-    typeof e.message === "string" &&
-    e.message.includes("UNIQUE constraint failed")
+    msg.includes("UNIQUE constraint failed") ||
+    msg.includes("duplicate key") ||
+    msg.includes("unique constraint")
   );
 }
 
@@ -22,11 +23,10 @@ export async function processCallback(db, result, source) {
     throw new CallbackError("payment_intent_introuvable");
   }
 
-  const intent = db
+  const [intent] = await db
     .select()
     .from(paymentIntents)
-    .where(eq(paymentIntents.id, result.paymentIntentId))
-    .get();
+    .where(eq(paymentIntents.id, result.paymentIntentId));
   if (!intent) {
     throw new CallbackError("payment_intent_introuvable");
   }
@@ -35,7 +35,7 @@ export async function processCallback(db, result, source) {
     return intent;
   }
 
-  const order = db.select().from(orders).where(eq(orders.id, intent.orderId)).get();
+  const [order] = await db.select().from(orders).where(eq(orders.id, intent.orderId));
   if (!order) {
     throw new CallbackError("commande_introuvable");
   }
@@ -47,27 +47,24 @@ export async function processCallback(db, result, source) {
   const now = new Date().toISOString();
 
   if (!result.success) {
-    return db.transaction((tx) => {
-      tx.update(paymentIntents)
+    return await db.transaction(async (tx) => {
+      await tx.update(paymentIntents)
         .set({ statut: "echoue", providerRef: result.providerRef, updatedAt: now })
-        .where(eq(paymentIntents.id, intent.id))
-        .run();
-      tx.update(orders)
+        .where(eq(paymentIntents.id, intent.id));
+      await tx.update(orders)
         .set({ status: "paiement_echoue", updatedAt: now })
-        .where(eq(orders.id, order.id))
-        .run();
+        .where(eq(orders.id, order.id));
       return { ...intent, statut: "echoue", providerRef: result.providerRef };
     });
   }
 
   try {
-    return db.transaction((tx) => {
-      tx.update(paymentIntents)
+    return await db.transaction(async (tx) => {
+      await tx.update(paymentIntents)
         .set({ statut: "confirme", providerRef: result.providerRef, updatedAt: now })
-        .where(eq(paymentIntents.id, intent.id))
-        .run();
+        .where(eq(paymentIntents.id, intent.id));
 
-      tx.insert(ledgerEntries)
+      await tx.insert(ledgerEntries)
         .values({
           id: crypto.randomUUID(),
           orderId: order.id,
@@ -77,10 +74,9 @@ export async function processCallback(db, result, source) {
           type: "paiement_confirme",
           metadata: JSON.stringify({ paymentIntentId: intent.id, tranche: intent.tranche }),
           createdAt: now,
-        })
-        .run();
+        });
 
-      tx.insert(paymentsReceived)
+      await tx.insert(paymentsReceived)
         .values({
           id: crypto.randomUUID(),
           orderId: order.id,
@@ -89,35 +85,32 @@ export async function processCallback(db, result, source) {
           amount: intent.montant,
           tranche: intent.tranche,
           confirmedAt: now,
-        })
-        .run();
+        });
 
-      tx.update(orders)
+      await tx.update(orders)
         .set({
           status: intent.tranche === "total_100" ? "payee_integralement" : "acompte_verse",
           updatedAt: now,
         })
-        .where(eq(orders.id, order.id))
-        .run();
+        .where(eq(orders.id, order.id));
 
       return { ...intent, statut: "confirme", providerRef: result.providerRef };
     });
   } catch (e) {
     if (isUniqueConstraintError(e)) {
-      const current = db
+      const [current] = await db
         .select()
         .from(paymentIntents)
-        .where(eq(paymentIntents.id, intent.id))
-        .get();
+        .where(eq(paymentIntents.id, intent.id));
       if (current) return current;
     }
     throw e;
   }
 }
 
-export function cancelOrder(db, orderId, cancelTimeStr) {
-  return db.transaction((tx) => {
-    const order = tx.select().from(orders).where(eq(orders.id, orderId)).get();
+export async function cancelOrder(db, orderId, cancelTimeStr) {
+  return await db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
     if (!order) {
       throw new Error("commande_introuvable");
     }
@@ -131,17 +124,16 @@ export function cancelOrder(db, orderId, cancelTimeStr) {
     const now = new Date().toISOString();
     const result = calculateCancellationRefund(order, cancelTimeStr || now);
 
-    const payments = tx
+    const payments = await tx
       .select()
       .from(paymentsReceived)
-      .where(eq(paymentsReceived.orderId, orderId))
-      .all();
-    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+      .where(eq(paymentsReceived.orderId, orderId));
+    const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
 
     const refundCash = Math.max(0, Math.round((totalPaid - result.totalRetained) * 100) / 100);
 
     if (refundCash > 0) {
-      tx.insert(ledgerEntries)
+      await tx.insert(ledgerEntries)
         .values({
           id: crypto.randomUUID(),
           orderId,
@@ -151,12 +143,11 @@ export function cancelOrder(db, orderId, cancelTimeStr) {
           type: "annulation_remboursement_client",
           metadata: JSON.stringify(result),
           createdAt: now,
-        })
-        .run();
+        });
     }
 
     if (result.indemnityAmount > 0) {
-      tx.insert(ledgerEntries)
+      await tx.insert(ledgerEntries)
         .values({
           id: crypto.randomUUID(),
           orderId,
@@ -166,12 +157,11 @@ export function cancelOrder(db, orderId, cancelTimeStr) {
           type: "annulation_indemnite_artisan",
           metadata: JSON.stringify(result),
           createdAt: now,
-        })
-        .run();
+        });
     }
 
     if (result.commissionAmount > 0) {
-      tx.insert(ledgerEntries)
+      await tx.insert(ledgerEntries)
         .values({
           id: crypto.randomUUID(),
           orderId,
@@ -181,17 +171,15 @@ export function cancelOrder(db, orderId, cancelTimeStr) {
           type: "annulation_commission_retenue",
           metadata: JSON.stringify(result),
           createdAt: now,
-        })
-        .run();
+        });
     }
 
-    tx.update(orders)
+    await tx.update(orders)
       .set({
         status: "annulee",
         updatedAt: now,
       })
-      .where(eq(orders.id, orderId))
-      .run();
+      .where(eq(orders.id, orderId));
 
     return {
       ...result,
@@ -201,24 +189,23 @@ export function cancelOrder(db, orderId, cancelTimeStr) {
   });
 }
 
-export function confirmDeliveryPayment(db, orderId) {
-  db.transaction((tx) => {
-    const order = tx.select().from(orders).where(eq(orders.id, orderId)).get();
+export async function confirmDeliveryPayment(db, orderId) {
+  await db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
     if (!order) throw new Error("commande_introuvable");
-    if (order.totalPrice < 1000) return;
+    if (Number(order.totalPrice) < 1000) return;
 
-    const payments = tx
+    const payments = await tx
       .select()
       .from(paymentsReceived)
-      .where(eq(paymentsReceived.orderId, orderId))
-      .all();
+      .where(eq(paymentsReceived.orderId, orderId));
     const hasSolde = payments.some((p) => p.tranche === "solde_50");
     if (hasSolde) return;
 
     const now = new Date().toISOString();
-    const soldeAmount = order.totalPrice * 0.5;
+    const soldeAmount = Number(order.totalPrice) * 0.5;
 
-    tx.insert(paymentsReceived)
+    await tx.insert(paymentsReceived)
       .values({
         id: crypto.randomUUID(),
         orderId,
@@ -227,10 +214,9 @@ export function confirmDeliveryPayment(db, orderId) {
         amount: soldeAmount,
         tranche: "solde_50",
         confirmedAt: now,
-      })
-      .run();
+      });
 
-    tx.insert(ledgerEntries)
+    await tx.insert(ledgerEntries)
       .values({
         id: crypto.randomUUID(),
         orderId,
@@ -240,29 +226,27 @@ export function confirmDeliveryPayment(db, orderId) {
         type: "paiement_solde_confirme",
         metadata: JSON.stringify({ tranche: "solde_50" }),
         createdAt: now,
-      })
-      .run();
+      });
   });
 }
 
-export function deliverOrder(db, orderId, deliveryTimeStr) {
-  db.transaction((tx) => {
-    const order = tx.select().from(orders).where(eq(orders.id, orderId)).get();
+export async function deliverOrder(db, orderId, deliveryTimeStr) {
+  await db.transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
     if (!order) throw new Error("commande_introuvable");
     
-    if (order.totalPrice >= 1000) {
-      confirmDeliveryPayment(tx, orderId);
+    if (Number(order.totalPrice) >= 1000) {
+      await confirmDeliveryPayment(tx, orderId);
     }
 
     const now = deliveryTimeStr || new Date().toISOString();
 
-    tx.update(orders)
+    await tx.update(orders)
       .set({
         status: "livre",
         deliveredAt: now,
         updatedAt: now,
       })
-      .where(eq(orders.id, orderId))
-      .run();
+      .where(eq(orders.id, orderId));
   });
 }

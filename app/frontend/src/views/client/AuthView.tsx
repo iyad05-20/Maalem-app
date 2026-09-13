@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { authService, type UserProfile } from '../../services/authService';
+import { useClientI18n } from '../../services/i18n';
 
 interface AuthViewProps {
   onAuthSuccess: (user: UserProfile) => void;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
+  const { lang, changeLanguage, t } = useClientI18n();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,18 +17,19 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
 
     if (!email || !password) {
-      setErrorMsg('Veuillez remplir tous les champs obligatoires.');
+      setErrorMsg(lang === 'ar' ? "يرجى ملء جميع الحقول المطلوبة." : "Veuillez remplir tous les champs obligatoires.");
       return;
     }
 
     if (password.length < 6) {
-      setErrorMsg('Le mot de passe doit contenir au moins 6 caractères.');
+      setErrorMsg(lang === 'ar' ? "يجب أن تتكون كلمة المرور من ٦ أحرف على الأقل." : "Le mot de passe doit contenir au moins 6 caractères.");
       return;
     }
 
@@ -38,21 +41,21 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
         if (res.success && res.user) {
           onAuthSuccess(res.user);
         } else {
-          setErrorMsg(res.error || 'Identifiants incorrects.');
+          setErrorMsg(res.error || (lang === 'ar' ? "بيانات الدخول غير صحيحة." : "Identifiants incorrects."));
         }
       } else {
         const res = await authService.signup(email, password, fullName);
         if (res.success && res.user) {
           onAuthSuccess(res.user);
         } else if (res.success) {
-          setSuccessMsg('Compte créé avec succès ! Connectez-vous.');
+          setSuccessMsg(lang === 'ar' ? "تم إنشاء الحساب بنجاح! تفضل بتسجيل الدخول." : "Compte créé avec succès ! Connectez-vous.");
           setMode('login');
         } else {
-          setErrorMsg(res.error || 'Erreur lors de l\'inscription.');
+          setErrorMsg(res.error || (lang === 'ar' ? "حدث خطأ أثناء إنشاء الحساب." : "Erreur lors de l'inscription."));
         }
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Une erreur réseau est survenue.');
+      setErrorMsg(err.message || (lang === 'ar' ? "تعذر الاتصال بالخادم، يرجى المحاولة لاحقاً." : "Une erreur réseau est survenue."));
     } finally {
       setLoading(false);
     }
@@ -78,13 +81,37 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       {/* Background Zellige Pattern Overlay */}
       <div className="search-zellige-pattern" style={{ opacity: 0.05 }} />
 
+      {/* Top Header Controls: Language Toggle */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', maxWidth: 380, marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={() => changeLanguage(lang === 'ar' ? 'fr' : 'ar')}
+          style={{
+            background: 'rgba(255, 255, 255, 0.9)',
+            border: '1px solid rgba(212, 175, 55, 0.35)',
+            borderRadius: 20,
+            padding: '6px 14px',
+            fontSize: '0.82rem',
+            fontWeight: 700,
+            color: '#1A2A3A',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+          }}
+        >
+          🌐 {lang === 'ar' ? 'Français' : 'العربية الفصحى'}
+        </button>
+      </div>
+
       {/* Brand Header */}
-      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+      <div style={{ textAlign: 'center', marginBottom: 24 }}>
         <h1 className="brand-logo" style={{ fontSize: '2.5rem', letterSpacing: '0.15em', marginBottom: 6 }}>
-          MAALEM
+          {t('auth_welcome_title')}
         </h1>
         <p className="section-subtitle" style={{ fontSize: '0.88rem', letterSpacing: '0.05em', color: '#666' }}>
-          L'Artisanat Marocain d'Exception
+          {t('auth_welcome_sub')}
         </p>
       </div>
 
@@ -130,7 +157,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               transition: 'all 0.2s ease'
             }}
           >
-            Se connecter
+            {t('auth_login_tab')}
           </button>
 
           <button
@@ -150,7 +177,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               transition: 'all 0.2s ease'
             }}
           >
-            Créer un compte
+            {t('auth_register_tab')}
           </button>
         </div>
 
@@ -202,13 +229,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
           {mode === 'signup' && (
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 6, color: '#4A5568' }}>
-                Nom complet
+                {t('auth_fullname_label')}
               </label>
               <input
                 type="text"
                 value={fullName}
                 onChange={e => setFullName(e.target.value)}
-                placeholder="Ex: Youssef Alami"
+                placeholder={lang === 'ar' ? "مثال: يوسف العلمي" : "Ex: Youssef Alami"}
                 style={{
                   width: '100%',
                   padding: '12px 14px',
@@ -225,7 +252,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 6, color: '#4A5568' }}>
-              Adresse Email *
+              {t('auth_email_label')} *
             </label>
             <input
               type="email"
@@ -248,7 +275,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
 
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: 6, color: '#4A5568' }}>
-              Mot de passe *
+              {t('auth_password_label')} *
             </label>
             <input
               type="password"
@@ -269,11 +296,12 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
             />
           </div>
 
+
           <button
             type="submit"
             disabled={loading}
             style={{
-              marginTop: 8,
+              marginTop: 4,
               width: '100%',
               padding: '14px',
               borderRadius: 16,
@@ -289,13 +317,30 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
               transition: 'all 0.2s ease'
             }}
           >
-            {loading ? 'Chargement...' : mode === 'login' ? 'Se connecter' : 'Créer mon compte'}
+            {loading ? t('loading') : mode === 'login' ? t('auth_submit_login') : t('auth_submit_register')}
           </button>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            marginTop: 6,
+            color: '#6c757d',
+            fontSize: '0.74rem'
+          }}>
+            <span>🔒</span>
+            <span>
+              {lang === 'ar' 
+                ? 'توثيق آمن مشفر JWT (Supabase Auth & Bearer Tokens)' 
+                : 'Authentification Sécurisée JWT Bearer (Supabase & RBAC)'}
+            </span>
+          </div>
         </form>
       </div>
 
       <p style={{ marginTop: 24, fontSize: '0.78rem', color: '#888', textAlign: 'center' }}>
-        MAALEM © 2026 — Plateforme d'artisanat marocain d'art
+        {lang === 'ar' ? "معلم © 2026 — منصة الصناعة التقليدية المغربية الفاخرة" : "MAALEM © 2026 — Plateforme d'artisanat marocain d'art"}
       </p>
     </motion.div>
   );

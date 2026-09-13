@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Product } from '../../types';
 import { recSession } from '../../services/recommendationSession';
+import { useClientI18n } from '../../services/i18n';
 
 interface ProductCardProps {
   product: Product;
@@ -27,10 +28,10 @@ const getFallbackImage = (category_group?: string) => {
 };
 
 const formatPrice = (priceVal: any): string => {
-  if (priceVal === null || priceVal === undefined) return 'Sur demande';
+  if (priceVal === null || priceVal === undefined) return '';
   if (typeof priceVal === 'number') return `${priceVal.toLocaleString('fr-FR')}`;
-  if (typeof priceVal === 'string') return priceVal.replace(' DH', '').replace(' MAD', '');
-  return 'Sur demande';
+  if (typeof priceVal === 'string') return priceVal.replace(' DH', '').replace(' MAD', '').replace(' د.م', '');
+  return '';
 };
 
 const extractProductTags = (p: any): string[] => {
@@ -47,6 +48,7 @@ const extractProductTags = (p: any): string[] => {
 };
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isFavorite, onToggleFavorite }) => {
+  const { t } = useClientI18n();
   const [isFav, setIsFav] = useState(isFavorite || false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const favBtnRef = useRef<HTMLButtonElement>(null);
@@ -90,14 +92,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isF
     // 3. Queue ORDER action (+8.0 pts)
     recSession.trackAction('ORDER', tags);
     console.log(`[CARD] 🛒 ORDER queued for ${product.title} on tags [${tags.join(', ')}]`);
-    alert(`Commande de "${product.title}" enregistrée avec succès ! (Action ORDER transmise à l'IA)`);
+    alert(`${t('product_order')} : "${product.title}"`);
   };
 
   const categoryGroup = pAny.category_group || pAny.identity?.category_group;
   const displayImg = pAny.image || pAny.imageUrl || pAny.image_url || getFallbackImage(categoryGroup);
-  const formattedPrice = formatPrice(product.price);
+  const formattedPrice = formatPrice(product.price) || t('product_on_demand');
   const displayRating = product.rating || 4.8;
-  const displayBadge = product.badgeLabel || product.badge || (pAny._rec?.isExplore ? 'Sélection IA' : null);
+  const rawBadge = product.badgeLabel || product.badge || (pAny._rec?.isExplore ? 'Sélection IA' : null);
+  const displayBadge = rawBadge === 'Dans votre style' ? t('product_in_your_style') : rawBadge === 'Sélection IA' ? t('product_ai_pick') : rawBadge;
 
   return (
     <div className="product-card" onClick={handleCardClick}>
@@ -112,9 +115,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isF
         />
         {/* Discreet Badge */}
         {displayBadge && (
-          <span className={`discreet-badge ${displayBadge === 'Dans votre style' ? 'badge-style' : displayBadge === 'Sélection IA' ? 'badge-ai-discreet' : 'badge-default'}`}>
-            {displayBadge === 'Dans votre style' && '✦ '}
-            {displayBadge === 'Sélection IA' && '✦ '}
+          <span className={`discreet-badge ${rawBadge === 'Dans votre style' ? 'badge-style' : rawBadge === 'Sélection IA' ? 'badge-ai-discreet' : 'badge-default'}`}>
+            {rawBadge === 'Dans votre style' && '✦ '}
+            {rawBadge === 'Sélection IA' && '✦ '}
             {displayBadge}
           </span>
         )}
@@ -123,7 +126,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isF
         <button
           ref={favBtnRef}
           className="fav-btn"
-          aria-label={isFav ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+          aria-label={isFav ? t('product_remove_favorite') : t('product_add_favorite')}
           onClick={handleFavClick}
         >
           <svg width="14" height="14" viewBox="0 0 24 24"
@@ -140,7 +143,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isF
         <p className="card-title">{product.title}</p>
         <div className="card-footer">
           <span className="card-price">
-            {formattedPrice} <span className="currency">MAD</span>
+            {formattedPrice} <span className="currency">{t('currency_mad')}</span>
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span className="card-rating">
@@ -151,7 +154,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isF
             </span>
             <button
               onClick={handleOrderClick}
-              title="Commander cet artisanat"
+              title={t('product_order')}
               style={{
                 background: 'rgba(26, 42, 58, 0.08)',
                 border: '1px solid rgba(26, 42, 58, 0.15)',
@@ -163,7 +166,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isF
                 cursor: 'pointer'
               }}
             >
-              Commander
+              {t('product_order')}
             </button>
           </div>
         </div>

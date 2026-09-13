@@ -4,6 +4,8 @@ export interface ArtisanOrder {
   artisanRef: string;
   totalPrice: number;
   productType: "standard" | "personnalise" | "sur_commande";
+  productTitle?: string;
+  productImage?: string;
   transportProvider: "sendit" | "vendeur";
   status: string;
   createdAt: string;
@@ -16,6 +18,11 @@ export interface ArtisanOrder {
   vendeurDeliverySignaturePhoto?: string | null;
   clientSignature?: string | null;
   escrowReleasedAt?: string | null;
+  withdrawalExpiresAt?: string | null;
+  clientApprovalStatus?: "pending" | "approved" | null;
+  clientApprovalRequestedAt?: string | null;
+  escrowActionChoice?: "pending" | "pending_artisan_choice" | "released_to_wallet" | "extended_by_artisan" | null;
+  estimatedTransportDays?: number | null;
   counterUnreachable?: number | null;
   nonReceptionClaimedAt?: string | null;
   j2RelanceSentAt?: string | null;
@@ -88,13 +95,40 @@ export interface ArtisanProduct {
   rating?: number;
   reviewCount?: number;
   createdAt?: string;
+  manufacturingDays?: number;
+  status?: "active" | "hidden" | "out_of_stock";
+}
+
+export interface CustomOrderQuote {
+  artisanName: string;
+  proposedPrice: number;
+  confectionDays: number;
+  note: string;
+  createdAt: string;
+}
+
+export interface CustomOrderRequest {
+  id: string;
+  clientName: string;
+  category: string;
+  title: string;
+  description: string;
+  budget: string;
+  deliveryCity: string;
+  createdAt: string;
+  image: string;
+  quotes: CustomOrderQuote[];
 }
 
 export interface ArtisanNotification {
   id: string;
-  type: "new_order" | "dispute" | "return" | "escrow_released" | "withdrawal";
+  type: "new_order" | "urgent_order" | "order_prep" | "order_shipped" | "order_delivered" | "order_confirmed" | "order_cancelled" | "dispute" | "return" | "escrow_released" | "withdrawal" | string;
   title: string;
   message: string;
+  title_fr?: string;
+  title_ar?: string;
+  message_fr?: string;
+  message_ar?: string;
   date: string;
   read: boolean;
   linkTab: string;

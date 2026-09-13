@@ -6,6 +6,7 @@ import { MAALEM_DATA } from '../../data/mockData';
 import type { View } from '../../types';
 
 import { recSession } from '../../services/recommendationSession';
+import { useClientI18n } from '../../services/i18n';
 
 interface SearchViewProps {
   onNavigate: (view: View) => void;
@@ -59,6 +60,7 @@ async function getSearchKey(): Promise<string> {
 }
 
 export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProduct }) => {
+  const { lang, t, getCategoryLabel } = useClientI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -381,7 +383,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
           <button
             className="search-back-btn"
             onClick={() => onNavigate('home')}
-            aria-label="Retour"
+            aria-label={lang === 'ar' ? "رجوع" : "Retour"}
           >
             <X size={18} strokeWidth={2} />
           </button>
@@ -393,7 +395,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
               ref={inputRef}
               type="text"
               className="search-bar-input"
-              placeholder="Rechercher une création..."
+              placeholder={lang === 'ar' ? "ابحث عن تحف، معلمين، مواد..." : "Rechercher une création..."}
               value={query}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
@@ -407,7 +409,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.7 }}
                   transition={{ duration: 0.15 }}
-                  aria-label="Effacer"
+                  aria-label={lang === 'ar' ? "مسح" : "Effacer"}
                 >
                   <X size={13} strokeWidth={2.5} />
                 </motion.button>
@@ -434,7 +436,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                 <section className="search-section">
                   <p className="search-label">
                     <span className="search-label-icon">🕘</span>
-                    Recherches récentes
+                    {t('search_recent')}
                   </p>
                   <div className="recent-pills">
                     {RECENT_SEARCHES.map(tag => (
@@ -449,7 +451,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                 <section className="search-section">
                   <p className="search-label ai-label">
                     <span className="search-label-icon">✨</span>
-                    Inspirations du moment
+                    {lang === 'ar' ? "إلهامات الساعة" : "Inspirations du moment"}
                   </p>
                   <div className="ai-cards">
                     {AI_SUGGESTIONS.map((s, i) => (
@@ -464,7 +466,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                           <span className="ai-card-title">{s.title}</span>
                           <span className="ai-card-sub">{s.subtitle}</span>
                         </div>
-                        <ArrowUpRight size={14} className="ai-card-arrow" strokeWidth={2} />
+                        <ArrowUpRight size={14} className="ai-card-arrow" strokeWidth={2} style={{ transform: lang === 'ar' ? 'rotate(-90deg)' : 'none' }} />
                       </motion.button>
                     ))}
                   </div>
@@ -474,7 +476,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                 <section className="search-section">
                   <p className="search-label">
                     <span className="search-label-icon">⬚</span>
-                    Explorer
+                    {lang === 'ar' ? "استكشاف" : "Explorer"}
                   </p>
                   <div className="explore-grid">
                     {/* Categories */}
@@ -488,14 +490,14 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                           whileTap={{ scale: 0.96 }}
                         >
                           <span className="category-icon">{c.icon}</span>
-                          <span className="category-name">{c.label}</span>
+                          <span className="category-name">{lang === 'ar' ? getCategoryLabel(c.key) : c.label}</span>
                         </motion.button>
                       ))}
                     </div>
 
                     {/* Collections */}
                     <div className="explore-col">
-                      <p className="explore-col-header">Collections</p>
+                      <p className="explore-col-header">{lang === 'ar' ? "مجموعات مميزة" : "Collections"}</p>
                       {COLLECTIONS.map(col => (
                         <motion.button
                           key={col.label}
@@ -504,7 +506,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                           whileTap={{ scale: 0.96 }}
                         >
                           <span className="collection-dot">✦</span>
-                          <span className="collection-name">{col.label}</span>
+                          <span className="collection-name">{lang === 'ar' ? (col.label === 'Héritage Fassi' ? 'التراث الفاسي' : col.label === 'Trésors Berbères' ? 'كنوز الأطلس' : 'أعراس مغربية') : col.label}</span>
                         </motion.button>
                       ))}
                     </div>
@@ -576,7 +578,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                 {isSearching ? (
                   <div className="results-loading">
                     <div className="results-spinner" />
-                    <span>Recherche en cours…</span>
+                    <span>{lang === 'ar' ? "جاري البحث..." : "Recherche en cours…"}</span>
                   </div>
                 ) : results && results.length > 0 ? (
                   <>
@@ -588,8 +590,8 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                         <>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                             <div className="results-meta" style={{ margin: 0 }}>
-                              <span className="results-count">{results.length} résultats </span>
-                              <span className="results-query">pour « {query} »</span>
+                              <span className="results-count">{results.length} {lang === 'ar' ? "نتائج" : "résultats"} </span>
+                              <span className="results-query">{lang === 'ar' ? `لبحث « ${query} »` : `pour « ${query} »`}</span>
                             </div>
                             
                             {/* Filter Button */}
@@ -614,7 +616,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                 }}
                               >
                                 <SlidersHorizontal size={14} />
-                                <span>Filtres</span>
+                                <span>{t('search_filters_btn')}</span>
                                 {totalAppliedFilters > 0 && (
                                   <span style={{
                                     display: 'flex',
@@ -660,7 +662,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                 {/* Categories Filter */}
                                 {availableCategories.length > 0 && (
                                   <div>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>Catégories</span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                                      {lang === 'ar' ? "الأصناف والحرف" : "Catégories"}
+                                    </span>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                       {availableCategories.map(cat => {
                                         const isSelected = selectedCategories.includes(cat);
@@ -686,7 +690,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                             }}
                                           >
                                             {isSelected && <Check size={10} strokeWidth={3} />}
-                                            <span>{formatCategoryName(cat)}</span>
+                                            <span>{lang === 'ar' ? getCategoryLabel(cat) : formatCategoryName(cat)}</span>
                                           </button>
                                         );
                                       })}
@@ -697,7 +701,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                 {/* Styles Filter */}
                                 {availableStyles.length > 0 && (
                                   <div>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>Styles</span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                                      {lang === 'ar' ? "الأنماط والطابع" : "Styles"}
+                                    </span>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                       {availableStyles.map(style => {
                                         const isSelected = selectedStyles.includes(style);
@@ -734,7 +740,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                 {/* Materials Filter */}
                                 {availableMaterials.length > 0 && (
                                   <div>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>Matériaux</span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                                      {lang === 'ar' ? "المواد والخامات" : "Matériaux"}
+                                    </span>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                       {availableMaterials.map(mat => {
                                         const isSelected = selectedMaterials.includes(mat);
@@ -771,7 +779,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                 {/* Color Vibes Filter */}
                                 {availableColorVibes.length > 0 && (
                                   <div>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>Ambiance & Couleurs</span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                                      {lang === 'ar' ? "الألوان والأجواء" : "Ambiance & Couleurs"}
+                                    </span>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                       {availableColorVibes.map(vibe => {
                                         const isSelected = selectedColorVibes.includes(vibe);
@@ -808,7 +818,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                 {/* Context Filter */}
                                 {availableContexts.length > 0 && (
                                   <div>
-                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>Usage & Univers</span>
+                                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                                      {lang === 'ar' ? "الاستخدام والمجال" : "Usage & Univers"}
+                                    </span>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                       {availableContexts.map(ctx => {
                                         const isSelected = selectedContexts.includes(ctx);
@@ -865,7 +877,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                       padding: '4px 8px'
                                     }}
                                   >
-                                    Réinitialiser
+                                    {t('search_filter_reset')}
                                   </button>
                                   <button
                                     onClick={() => {
@@ -891,7 +903,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                                       boxShadow: 'var(--shadow-sm)'
                                     }}
                                   >
-                                    Appliquer
+                                    {t('search_filter_apply')}
                                   </button>
                                 </div>
                               </motion.div>
@@ -906,14 +918,18 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                           key={p.id}
                           product={p}
                           onSelect={(searchProd) => {
+                            const sAny = searchProd as any;
                             const fullProd = MAALEM_DATA.products.find(item => item.id === searchProd.id) || {
                               id: searchProd.id,
                               title: searchProd.title,
-                              category: searchProd.category_group,
-                              price: searchProd.price ? `${searchProd.price} MAD` : 'Sur demande',
+                              category: searchProd.category_group || sAny.category,
+                              price: searchProd.price ? `${searchProd.price} MAD` : (lang === 'ar' ? 'عند الطلب' : 'Sur demande'),
                               rating: 4.8,
                               badge: null,
-                              image: ''
+                              image: sAny.image_url || sAny.imageUrl || sAny.image || '',
+                              artisanId: sAny.facets?.artisan_ref || sAny.artisan_ref || sAny.artisanId || "artisan_abdelkader",
+                              artisanRef: sAny.facets?.artisan_ref || sAny.artisan_ref || sAny.artisanId || "artisan_abdelkader",
+                              artisanName: sAny.artisan_name || sAny.artisanName || "Maâlem Abdelkader",
                             };
                             onSelectProduct?.(fullProd);
                           }}
@@ -924,10 +940,10 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
                 ) : (
                   <div className="zero-results">
                     <span className="zero-results-icon">◇</span>
-                    <p className="zero-results-title">Aucun résultat</p>
-                    <p className="zero-results-sub">pour « {query} »</p>
+                    <p className="zero-results-title">{lang === 'ar' ? "لم يتم العثور على أي نتيجة" : "Aucun résultat"}</p>
+                    <p className="zero-results-sub">{lang === 'ar' ? `لبحث « ${query} »` : `pour « ${query} »`}</p>
                     <button className="zero-results-btn" onClick={handleClear}>
-                      Réinitialiser
+                      {t('search_filter_reset')}
                     </button>
                   </div>
                 )}

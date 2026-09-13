@@ -1,31 +1,35 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { Landmark, X, ArrowRight, Check } from "lucide-react";
+import { Landmark, X, Check, Calendar } from "lucide-react";
+import { useI18n } from "../services/i18n";
 
 interface WithdrawalModalProps {
   availableBalance: number;
+  defaultRib?: string;
   onClose: () => void;
   onRequestWithdrawal: (amount: number, rib: string) => Promise<any>;
 }
 
 export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
   availableBalance,
+  defaultRib = "",
   onClose,
   onRequestWithdrawal,
 }) => {
+  const { t } = useI18n();
   const [amount, setAmount] = useState<string>(String(Math.floor(availableBalance)));
-  const [rib, setRib] = useState<string>("123456789012345678901234");
+  const [rib, setRib] = useState<string>(defaultRib);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const num = Number(amount);
     if (!num || num <= 0 || num > availableBalance) {
-      alert("Montant de retrait invalide ou supérieur au solde disponible.");
+      alert(t("withdrawal_error_amount"));
       return;
     }
     if (rib.length !== 24 || !/^\d+$/.test(rib)) {
-      alert("Le RIB marocain doit comporter exactement 24 chiffres.");
+      alert(t("withdrawal_error_rib"));
       return;
     }
 
@@ -34,7 +38,7 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
       await onRequestWithdrawal(num, rib);
       onClose();
     } catch (err: any) {
-      alert(err.message || "Erreur lors du retrait.");
+      alert(err.message || t("auth_error_server"));
     } finally {
       setLoading(false);
     }
@@ -59,23 +63,25 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
         className="glass-panel"
         style={{
           width: "100%",
-          maxWidth: 520,
+          maxWidth: 480,
           padding: 24,
+          background: "#FFF",
+          borderRadius: 20,
           border: "1px solid var(--border-gold)",
-          boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.2)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 10, background: "var(--primary-gold-light)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Landmark size={20} color="var(--primary-gold)" />
+            <div style={{ width: 38, height: 38, borderRadius: 10, background: "rgba(212, 175, 55, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Landmark size={20} color="var(--accent-premium)" />
             </div>
             <div>
-              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--text-main)", margin: 0 }}>
-                Demander un Virement Bancaire (Art. 15)
+              <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", margin: 0 }}>
+                {t("withdrawal_modal_title")}
               </h3>
-              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-                Solde disponible : <strong style={{ color: "var(--primary-gold)" }}>{availableBalance} MAD</strong>
+              <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
+                {t("withdrawal_available_label")} <strong style={{ color: "var(--accent-warm)" }}>{availableBalance} {t("currency_mad")}</strong>
               </p>
             </div>
           </div>
@@ -86,47 +92,62 @@ export const WithdrawalModal: React.FC<WithdrawalModalProps> = ({
 
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-              Montant à virer (MAD) *
+            <label className="form-label">
+              {t("withdrawal_amount_label")}
             </label>
             <input
               type="number"
               min={100}
               max={availableBalance}
               required
+              className="form-input"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-main)", fontSize: 14, fontWeight: 700 }}
+              style={{ fontWeight: 700, fontSize: 15 }}
             />
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, color: "var(--text-muted)", display: "block", marginBottom: 4 }}>
-              Relevé d'Identité Bancaire (RIB marocain - 24 chiffres) *
+          <div style={{ marginBottom: 14 }}>
+            <label className="form-label">
+              {t("withdrawal_rib_label")}
             </label>
             <input
               type="text"
               maxLength={24}
               required
+              className="form-input"
               value={rib}
               onChange={(e) => setRib(e.target.value.replace(/\D/g, ""))}
-              placeholder="Ex: 230780000123456789012345"
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid var(--border-color)", background: "var(--bg-primary)", color: "var(--text-main)", fontSize: 13, letterSpacing: 1 }}
+              placeholder="230780000123456789012345"
+              style={{ letterSpacing: 1 }}
             />
-            <span style={{ fontSize: 10, color: rib.length === 24 ? "#34D399" : "var(--text-muted)", marginTop: 4, display: "block" }}>
-              {rib.length} / 24 chiffres {rib.length === 24 ? "✓ Valide" : ""}
+            <span style={{ fontSize: 10, color: rib.length === 24 ? "#2D6A4F" : "var(--text-secondary)", marginTop: 4, display: "block" }}>
+              {rib.length} / 24 {t("withdrawal_digits")} {rib.length === 24 ? "✓" : ""}
             </span>
           </div>
 
-          <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: 10, padding: 10, marginBottom: 16, fontSize: 11, color: "var(--text-muted)" }}>
-            ℹ️ Virement bancaire exécuté sous <strong>3 à 5 jours ouvrés</strong> vers votre banque marocaine (Attijari, BCP, BMCE, CIH, etc.).
+          {/* Friday 10h00 Batch Notice */}
+          <div style={{
+            background: "rgba(212, 175, 55, 0.08)",
+            border: "1px solid rgba(212, 175, 55, 0.3)",
+            borderRadius: 12,
+            padding: "10px 12px",
+            marginBottom: 16,
+            fontSize: 11,
+            color: "var(--primary)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}>
+            <Calendar size={16} color="var(--accent-premium)" />
+            <span>{t("withdrawal_friday_notice")}</span>
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button type="button" onClick={onClose} className="btn-outline">Annuler</button>
-            <button type="submit" disabled={loading || availableBalance <= 0 || rib.length !== 24} className="btn-gold">
+            <button type="button" onClick={onClose} className="btn-outline">{t("cancel")}</button>
+            <button type="submit" disabled={loading || availableBalance <= 0 || rib.length !== 24} className="btn-terracotta">
               <Check size={16} />
-              <span>{loading ? "Traitement..." : "Confirmer le Virement"}</span>
+              <span>{loading ? t("loading") : t("withdrawal_submit")}</span>
             </button>
           </div>
         </form>

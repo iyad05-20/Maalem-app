@@ -14,6 +14,11 @@ yarn-error.log*
 dist/
 build/
 .cache/
+*.tsbuildinfo
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
 
 # Non-persistent tests, analysis scripts and outputs
 app/backend/test_*.js

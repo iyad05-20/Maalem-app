@@ -104,6 +104,14 @@ class AuthService {
   }
 
   /**
+   * En-têtes d'authentification Bearer JWT
+   */
+  getAuthHeaders(): Record<string, string> {
+    const token = this.getToken();
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  }
+
+  /**
    * Récupération de l'utilisateur en cache local
    */
   getStoredUser(): UserProfile | null {
@@ -139,14 +147,17 @@ class AuthService {
         localStorage.setItem(USER_KEY, JSON.stringify(userProfile));
         return userProfile;
       }
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        return null;
+      }
     } catch (err) {
-      console.warn('[AUTH-FE] Session check failed:', err);
+      console.warn('[AUTH-FE] Network error during session check, keeping cached user:', err);
+      return this.getStoredUser();
     }
 
-    // En cas de jeton périmé
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    return null;
+    return this.getStoredUser();
   }
 }
 

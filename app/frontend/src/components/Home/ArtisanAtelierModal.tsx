@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ArtisanProfile } from '../../types';
+import { useClientI18n } from '../../services/i18n';
 
 interface ArtisanAtelierModalProps {
   isOpen: boolean;
@@ -13,6 +14,8 @@ export const ArtisanAtelierModal: React.FC<ArtisanAtelierModalProps> = ({
   onClose,
   artisan,
 }) => {
+  const { lang } = useClientI18n();
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -29,11 +32,11 @@ export const ArtisanAtelierModal: React.FC<ArtisanAtelierModalProps> = ({
             <div className="modal-drag-handle" />
             <div className="modal-header">
               <div>
-                <span className="modal-kicker">Immersion Atelier</span>
+                <span className="modal-kicker">{lang === 'ar' ? "في قلب الورشة" : "Immersion Atelier"}</span>
                 <h3 className="modal-title">{artisan.name}</h3>
                 <p className="modal-subtitle">{artisan.title} — {artisan.city}</p>
               </div>
-              <button className="modal-close-btn" onClick={onClose} aria-label="Fermer">
+              <button className="modal-close-btn" onClick={onClose} aria-label={lang === 'ar' ? "إغلاق" : "Fermer"}>
                 ✕
               </button>
             </div>
@@ -54,7 +57,7 @@ export const ArtisanAtelierModal: React.FC<ArtisanAtelierModalProps> = ({
 
               {/* Bio & Philosophy */}
               <div className="atelier-section">
-                <h4 className="atelier-subhead">Le geste & la mémoire</h4>
+                <h4 className="atelier-subhead">{lang === 'ar' ? "أصالة الحرفة والذاكرة" : "Le geste & la mémoire"}</h4>
                 <p className="atelier-text">{artisan.bio}</p>
               </div>
 
@@ -66,16 +69,16 @@ export const ArtisanAtelierModal: React.FC<ArtisanAtelierModalProps> = ({
               {/* Key metrics */}
               <div className="atelier-stats-row">
                 <div className="stat-card">
-                  <span className="stat-value">{artisan.experienceYears} ans</span>
-                  <span className="stat-label">Savoir-faire transmis</span>
+                  <span className="stat-value">{artisan.experienceYears} {lang === 'ar' ? "سنوات" : "ans"}</span>
+                  <span className="stat-label">{lang === 'ar' ? "خبرة متوارثة" : "Savoir-faire transmis"}</span>
                 </div>
                 <div className="stat-card">
                   <span className="stat-value">{artisan.creationsCount}</span>
-                  <span className="stat-label">Œuvres répertoriées</span>
+                  <span className="stat-label">{lang === 'ar' ? "إبداعات مسجلة" : "Œuvres répertoriées"}</span>
                 </div>
                 <div className="stat-card">
                   <span className="stat-value">100%</span>
-                  <span className="stat-label">Fait main à la médina</span>
+                  <span className="stat-label">{lang === 'ar' ? "صنع يدوي بالمدينة العتيقة" : "Fait main à la médina"}</span>
                 </div>
               </div>
             </div>
@@ -83,7 +86,7 @@ export const ArtisanAtelierModal: React.FC<ArtisanAtelierModalProps> = ({
             {/* Footer action */}
             <div className="modal-footer">
               <button className="modal-primary-btn" onClick={onClose}>
-                Voir toute sa collection ({artisan.creationsCount})
+                {lang === 'ar' ? `مشاهدة كامل إبداعاته (${artisan.creationsCount})` : `Voir toute sa collection (${artisan.creationsCount})`}
               </button>
             </div>
           </motion.div>

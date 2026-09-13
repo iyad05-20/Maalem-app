@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Product } from '../../types';
+import { useClientI18n } from '../../services/i18n';
 
 interface DuoSpotlightProps {
   products: Product[];
@@ -12,6 +13,7 @@ export const DuoSpotlight: React.FC<DuoSpotlightProps> = ({
   onSelectProduct,
   badgeTag = 'Spotlight',
 }) => {
+  const { t } = useClientI18n();
   // Take up to 2 items
   const duoItems = products.slice(0, 2);
 
@@ -36,7 +38,7 @@ export const DuoSpotlight: React.FC<DuoSpotlightProps> = ({
             <div className="spotlight-footer">
               <span className="spotlight-price">{product.price}</span>
               <span className="spotlight-link">
-                Voir
+                {t('product_view')}
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <polyline points="9 18 15 12 9 6" />
                 </svg>

@@ -30,6 +30,7 @@ export interface ClientOrder {
   transportProvider?: "sendit" | "vendeur";
   status: OrderStatus;
   createdAt: string;
+  updatedAt?: string | null;
   acceptedAt?: string | null;
   shippedAt?: string | null;
   deliveredAt?: string | null;
@@ -55,7 +56,12 @@ export interface ClientOrder {
   escrowReleasedAt?: string | null;
   withdrawalExpiresAt?: string | null;
   receptionValidatedBy?: "client" | "vendeur" | "auto" | null;
+  clientApprovalStatus?: "pending" | "approved" | null;
+  clientApprovalRequestedAt?: string | null;
+  escrowActionChoice?: string | null;
   nonReceptionClaimedAt?: string | null;
+  refusedByArtisan?: number | null;
+  refusalReason?: string | null;
 
   // Sendit delivery integrations
   senditDeliveryCode?: string | null;
@@ -66,6 +72,9 @@ export interface ClientOrder {
   allowTry?: number | null;
   counterUnreachable?: number | null;
   proofImage?: string | null;
+  packageDimensions?: string | null;
+  shippingParcelFee?: number | null;
+  estimatedTransportDays?: number | null;
 }
 
 export interface WalletTransaction {

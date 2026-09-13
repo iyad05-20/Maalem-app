@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Product } from '../../types';
 import { ProductCard } from '../Shared/ProductCard';
+import { useClientI18n } from '../../services/i18n';
 
 interface OccasionsModuleProps {
   occasionsData: {
@@ -16,12 +17,6 @@ interface OccasionsModuleProps {
 
 type TabType = 'cadeaux' | 'maison' | 'cuisine';
 
-const TABS: { id: TabType; label: string; icon: string }[] = [
-  { id: 'cadeaux', label: 'Cadeaux', icon: '🎁' },
-  { id: 'maison', label: 'Maison', icon: '🛋️' },
-  { id: 'cuisine', label: 'Cuisine', icon: '🍲' },
-];
-
 export const OccasionsModule: React.FC<OccasionsModuleProps> = ({
   occasionsData,
   onSelectProduct,
@@ -29,6 +24,13 @@ export const OccasionsModule: React.FC<OccasionsModuleProps> = ({
   onToggleFavorite,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('cadeaux');
+  const { t } = useClientI18n();
+
+  const tabs: { id: TabType; label: string; icon: string }[] = [
+    { id: 'cadeaux', label: t('home_tab_gifts'), icon: '🎁' },
+    { id: 'maison', label: t('home_tab_home'), icon: '🛋️' },
+    { id: 'cuisine', label: t('home_tab_cuisine'), icon: '🍲' },
+  ];
 
   const currentProducts = (occasionsData[activeTab] || []).slice(0, 4);
 
@@ -36,7 +38,7 @@ export const OccasionsModule: React.FC<OccasionsModuleProps> = ({
     <div className="occasions-module">
       {/* 3 Pills Tabs */}
       <div className="occasions-tabs">
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button

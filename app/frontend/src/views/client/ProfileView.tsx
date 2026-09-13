@@ -16,6 +16,7 @@ import {
 import type { UserProfile } from '../../services/authService';
 import type { View } from '../../types';
 import { clientWalletAPI } from '../../services/clientWalletApi';
+import { useClientI18n } from '../../services/i18n';
 
 interface ProfileViewProps {
   currentUser: UserProfile;
@@ -30,6 +31,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onNavigate,
   favoritesCount = 0,
 }) => {
+  const { lang, changeLanguage, t } = useClientI18n();
   const [walletBalance, setWalletBalance] = useState<number>(600);
   const [ordersCount, setOrdersCount] = useState<number>(3);
 
@@ -134,7 +136,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   whiteSpace: 'nowrap',
                 }}
               >
-                {currentUser.fullName || 'Client Vork Privilège'}
+                {currentUser.fullName || t('profile_client_privilege')}
               </h2>
               <UserCheck size={16} color="#9CAF88" />
             </div>
@@ -151,24 +153,41 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             >
               {currentUser.email}
             </p>
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                marginTop: 6,
-                padding: '2px 8px',
-                borderRadius: 12,
-                background: 'rgba(156, 175, 136, 0.15)',
-                color: '#4A7C59',
-                fontFamily: 'var(--font-body)',
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: 0.3,
-              }}
-            >
-              <ShieldCheck size={12} /> Compte Acheteur Vérifié
-            </span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  background: 'rgba(156, 175, 136, 0.15)',
+                  color: '#4A7C59',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: 0.3,
+                }}
+              >
+                <ShieldCheck size={12} /> {t('profile_buyer_verified')}
+              </span>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  background: 'rgba(212, 175, 55, 0.12)',
+                  color: '#8A6D1C',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 10,
+                  fontWeight: 600,
+                }}
+              >
+                🔑 JWT Bearer Token
+              </span>
+            </div>
           </div>
         </div>
 
@@ -202,10 +221,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 display: 'block',
               }}
             >
-              {walletBalance} <span style={{ fontSize: 10 }}>MAD</span>
+              {walletBalance} <span style={{ fontSize: 10 }}>{t('currency_mad')}</span>
             </span>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)' }}>
-              Wallet Vork
+              {t('profile_wallet_badge')}
             </span>
           </div>
 
@@ -231,7 +250,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               {ordersCount}
             </span>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)' }}>
-              Commandes
+              {t('profile_orders_count_badge')}
             </span>
           </div>
 
@@ -257,7 +276,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               {favoritesCount}
             </span>
             <span style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)' }}>
-              Favoris
+              {t('profile_favorites_count_badge')}
             </span>
           </div>
         </div>
@@ -305,7 +324,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 margin: 0,
               }}
             >
-              Mon Wallet Client Vork
+              {t('profile_wallet_title')}
             </h4>
             <p
               style={{
@@ -315,7 +334,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 margin: '2px 0 0 0',
               }}
             >
-              Solde disponible : <strong style={{ color: '#D4AF37' }}>{walletBalance} MAD</strong>
+              {t('profile_wallet_sub')} <strong style={{ color: '#D4AF37' }}>{walletBalance} {t('currency_mad')}</strong>
             </p>
           </div>
         </div>
@@ -325,7 +344,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       {/* ── Account Sections List ──────────────────────────────────── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
         <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
-          Espace Client
+          {t('profile_title')}
         </p>
 
         {/* 1. Suivi Commandes */}
@@ -350,10 +369,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
             <div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, color: 'var(--primary)', margin: 0 }}>
-                Mes Commandes & Retours
+                {t('profile_orders')}
               </p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', margin: 0 }}>
-                Suivi CMI, annulations et réclamations (15j)
+                {t('profile_orders_sub')}
               </p>
             </div>
           </div>
@@ -382,10 +401,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
             <div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, color: 'var(--primary)', margin: 0 }}>
-                Mes Créations Favorites
+                {t('profile_favorites')}
               </p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', margin: 0 }}>
-                {favoritesCount} {favoritesCount > 1 ? 'articles artisanaux enregistrés' : 'article artisanal enregistré'}
+                {favoritesCount} {favoritesCount > 1 ? t('profile_favorites_sub_multi') : t('profile_favorites_sub_single')}
               </p>
             </div>
           </div>
@@ -411,10 +430,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
             <div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, color: 'var(--primary)', margin: 0 }}>
-                Adresses de Livraison
+                {t('profile_addresses')}
               </p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', margin: 0 }}>
-                Casablanca - Oasis · Maroc
+                {t('profile_addresses_sub')}
               </p>
             </div>
           </div>
@@ -440,10 +459,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
             <div>
               <p style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 14, color: 'var(--primary)', margin: 0 }}>
-                Paiement & Sécurité CMI
+                {t('profile_cmi')}
               </p>
               <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', margin: 0 }}>
-                Certifié 3D Secure 2.0
+                {t('profile_cmi_sub')}
               </p>
             </div>
           </div>
@@ -454,23 +473,54 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       {/* ── Preferences Section ────────────────────────────────────── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
         <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
-          Préférences
+          {t('profile_preferences_title')}
         </p>
 
-        <div style={{ background: 'var(--surface)', borderRadius: 16, padding: '14px 16px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        {/* ── Interactive Language Switcher ── */}
+        <div 
+          onClick={() => changeLanguage(lang === 'ar' ? 'fr' : 'ar')}
+          style={{ 
+            background: 'var(--surface)', 
+            borderRadius: 16, 
+            padding: '14px 16px', 
+            border: '1px solid rgba(212, 175, 55, 0.4)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(212,175,55,0.08)'
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Globe size={18} color="var(--text-secondary)" />
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--primary)', fontWeight: 500 }}>Langue</span>
+            <Globe size={18} color="#D4AF37" />
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--primary)', fontWeight: 600 }}>
+              {t('profile_language')}
+            </span>
           </div>
-          <span style={{ fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Français (MA)</span>
+          <span style={{ 
+            fontFamily: 'var(--font-body)', 
+            fontSize: 12, 
+            fontWeight: 700, 
+            color: '#1A2A3A', 
+            background: 'rgba(212, 175, 55, 0.2)', 
+            padding: '4px 10px', 
+            borderRadius: 8,
+            border: '1px solid rgba(212, 175, 55, 0.35)'
+          }}>
+            {t('profile_lang_toggle_btn')}
+          </span>
         </div>
 
         <div style={{ background: 'var(--surface)', borderRadius: 16, padding: '14px 16px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Bell size={18} color="var(--text-secondary)" />
-            <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--primary)', fontWeight: 500 }}>Notifications Push</span>
+            <span style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--primary)', fontWeight: 500 }}>
+              {t('profile_notifications')}
+            </span>
           </div>
-          <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#4A7C59', background: 'rgba(156,175,136,0.15)', padding: '2px 8px', borderRadius: 10 }}>Activées</span>
+          <span style={{ fontFamily: 'var(--font-body)', fontSize: 12, fontWeight: 700, color: '#4A7C59', background: 'rgba(156,175,136,0.15)', padding: '2px 8px', borderRadius: 10 }}>
+            {lang === 'ar' ? 'مفعلة' : 'Activées'}
+          </span>
         </div>
       </div>
 
@@ -496,7 +546,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           marginBottom: 20,
         }}
       >
-        <LogOut size={18} /> Se déconnecter
+        <LogOut size={18} /> {t('profile_logout')}
       </motion.button>
     </div>
   );

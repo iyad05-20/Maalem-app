@@ -1,13 +1,15 @@
 import express from 'express';
 import { supabase } from '../db/supabase.client.js';
+import { optionalAuthMiddleware } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
+router.use(optionalAuthMiddleware);
 
 const localFavoritesMemory = new Map(); // userId -> Set of productIds
 
 // GET /api/favorites?userId=xxx
 router.get('/', async (req, res) => {
-  const { userId } = req.query;
+  const userId = req.userId || req.query.userId;
   if (!userId) {
     return res.status(400).json({ success: false, error: 'userId est obligatoire.' });
   }
@@ -41,7 +43,8 @@ router.get('/', async (req, res) => {
 
 // POST /api/favorites (Toggle Favorite)
 router.post('/', async (req, res) => {
-  const { userId, productId } = req.body;
+  const userId = req.userId || req.body.userId;
+  const { productId } = req.body;
   if (!userId || !productId) {
     return res.status(400).json({ success: false, error: 'userId et productId sont obligatoires.' });
   }

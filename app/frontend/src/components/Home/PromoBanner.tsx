@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { PromoData } from '../../types';
+import { useClientI18n } from '../../services/i18n';
 
 interface PromoBannerProps {
   promo: PromoData;
@@ -7,6 +8,7 @@ interface PromoBannerProps {
 }
 
 export const PromoBanner: React.FC<PromoBannerProps> = ({ promo, onExplore }) => {
+  const { t } = useClientI18n();
   const [timeLeft, setTimeLeft] = useState<{ hours: string; minutes: string; seconds: string }>({
     hours: '05',
     minutes: '48',
@@ -51,7 +53,7 @@ export const PromoBanner: React.FC<PromoBannerProps> = ({ promo, onExplore }) =>
 
         <div className="promo-footer">
           <div className="promo-timer">
-            <span className="timer-label">Se termine dans</span>
+            <span className="timer-label">{t('home_promo_ends')}</span>
             <div className="timer-digits">
               <span className="timer-box">{timeLeft.hours}h</span>
               <span className="timer-sep">:</span>

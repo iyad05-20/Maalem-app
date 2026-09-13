@@ -21,6 +21,13 @@ import type { ClientOrder } from './types/clientPayment';
 import { AnimatePresence, motion } from 'framer-motion';
 import './styles/global.css';
 
+import { useClientI18n, applyClientDirection, getSavedClientLanguage } from './services/i18n';
+
+// Apply on initial script evaluation
+if (typeof window !== 'undefined') {
+  applyClientDirection(getSavedClientLanguage());
+}
+
 // ─── Resolve products by ID ──────────────────────────────────────────────────
 const productMap = Object.fromEntries(MAALEM_DATA.products.map(p => [p.id, p]));
 const resolve = (ids: string[]) => ids.map(id => productMap[id]).filter(Boolean);
@@ -56,6 +63,7 @@ const PlaceholderView = ({ title, subtitle }: { title: string; subtitle: string 
 
 // ─── App Root ────────────────────────────────────────────────────────────────
 function App() {
+  const { lang, isRTL } = useClientI18n();
   const [view, setView] = useState<View>('home');
   const [dynamicAiPicks, setDynamicAiPicks] = useState<Product[]>([]);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -80,6 +88,9 @@ function App() {
   }, [currentUser, view, showNotificationsOverlay]);
 
   const hasUnreadNotifications = clientOrdersList.some((o) => {
+    if (["en_preparation", "en_cours_de_transport", "livre", "en_reclamation"].includes(o.status)) {
+      return true;
+    }
     if (["acompte_verse", "payee_integralement"].includes(o.status)) {
       const diffHours = (Date.now() - new Date(o.createdAt).getTime()) / (1000 * 60 * 60);
       return diffHours >= 48;
@@ -149,54 +160,34 @@ function App() {
     if (!currentUser) return;
     const initRec = async () => {
       recSession.registerAutoSyncCallback((res) => {
-        if (res && res.items.length > 0) {
-          setDynamicAiPicks(res.items as Product[]);
-          setRecResponseState(res);
-        }
+        setRecResponseState(res);
       });
-
       await recSession.initSession(currentUser.id);
       const res = await recSession.fetchFeed(currentUser.id, 15);
       if (res && res.items.length > 0) {
         setDynamicAiPicks(res.items as Product[]);
         setRecResponseState(res);
       }
-
-      // Load favorites
-      try {
-        const favs = await favoritesService.fetchFavorites(currentUser.id);
-        setFavoritesList(favs);
-      } catch (err) {
-        console.error("Error loading user favorites:", err);
-      }
     };
     initRec();
   }, [currentUser]);
 
+  // Load favorites
+  useEffect(() => {
+    if (currentUser?.id) {
+      favoritesService.fetchFavorites(currentUser.id).then(setFavoritesList);
+    }
+  }, [currentUser]);
+
   const handleToggleFavorite = async (product: Product) => {
     if (!currentUser) return;
-    const isCurrentlyFav = favoritesList.includes(product.id);
     const tags = extractTags(product);
-    
-    // Optimistic UI update
-    if (isCurrentlyFav) {
-      setFavoritesList(prev => prev.filter(id => id !== product.id));
-    } else {
-      setFavoritesList(prev => [...prev, product.id]);
-      recSession.trackAction('BOOKMARK', tags);
-    }
-    
-    try {
-      const res = await favoritesService.toggleFavorite(currentUser.id, product.id);
-      if (res.success) {
-        if (res.isFavorite) {
-          setFavoritesList(prev => Array.from(new Set([...prev, product.id])));
-        } else {
-          setFavoritesList(prev => prev.filter(id => id !== product.id));
-        }
-      }
-    } catch (err) {
-      console.error("Error toggling favorite:", err);
+    recSession.trackAction('BOOKMARK', tags);
+    const result = await favoritesService.toggleFavorite(currentUser.id, product.id);
+    if (result.success) {
+      setFavoritesList(prev =>
+        result.isFavorite ? [...prev, product.id] : prev.filter(id => id !== product.id)
+      );
     }
   };
 
@@ -241,22 +232,24 @@ function App() {
 
   if (authChecking) {
     return (
-      <div className="phone-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FCFBF9' }}>
-        <div style={{ color: '#1A2A3A', fontSize: '0.95rem', fontWeight: 600 }}>Chargement de MAALEM...</div>
+      <div className="phone-shell" dir={isRTL ? "rtl" : "ltr"} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FCFBF9' }}>
+        <div style={{ color: '#1A2A3A', fontSize: '0.95rem', fontWeight: 600 }}>
+          {lang === 'ar' ? 'جاري تحميل تطبيق معلم...' : 'Chargement de MAALEM...'}
+        </div>
       </div>
     );
   }
 
   if (!currentUser) {
     return (
-      <div className="phone-shell">
+      <div className="phone-shell" dir={isRTL ? "rtl" : "ltr"}>
         <AuthView onAuthSuccess={(user) => setCurrentUser(user)} />
       </div>
     );
   }
 
   return (
-    <div className="phone-shell">
+    <div className="phone-shell" dir={isRTL ? "rtl" : "ltr"}>
       {/* E4 Signature Patterns */}
       <div className="pattern-corner pattern-top-right" />
       <div className="pattern-corner pattern-bottom-left" />

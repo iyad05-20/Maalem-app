@@ -2,11 +2,25 @@ import { supabase } from './supabase.client.js';
 
 let cachedProducts = [];
 
+function normalizeProduct(p) {
+  if (!p) return p;
+  return {
+    ...p,
+    artisanName: p.artisan_name || p.artisanName || 'Maâlem',
+    artisan_name: p.artisan_name || p.artisanName || 'Maâlem',
+    imageUrl: p.image_url || p.imageUrl,
+    image_url: p.image_url || p.imageUrl,
+  };
+}
+
 export async function getAllProducts() {
   try {
-    const { data, error } = await supabase.from('products').select('*');
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (error) throw error;
-    cachedProducts = data || [];
+    cachedProducts = (data || []).map(normalizeProduct);
     return cachedProducts;
   } catch (err) {
     console.warn(`[VORK-API] ⚠️ Failed to fetch products from Supabase (${err.message}). Using cache/fallback.`);
@@ -57,7 +71,7 @@ export async function getProductById(id) {
       .eq('id', id)
       .single();
     if (error) throw error;
-    return data;
+    return normalizeProduct(data);
   } catch (err) {
     console.warn(`[VORK-API] ⚠️ Failed to fetch product ${id} from Supabase (${err.message}). Using cache/fallback.`);
     const found = cachedProducts.find(p => p.id === id);
