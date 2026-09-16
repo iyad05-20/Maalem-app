@@ -2,7 +2,7 @@ import { Meilisearch } from 'meilisearch';
 import { supabase } from '../../db/supabase.client.js';
 import { recommendationService } from '../recommendation.service.js';
 
-const client = new Meilisearch({
+export const client = new Meilisearch({
   host: process.env.MEILISEARCH_HOST || process.env.MEILI_HOST || 'http://127.0.0.1:7700',
   apiKey: process.env.MEILI_MASTER_KEY || 'dev_only_key_change_in_prod',
 });

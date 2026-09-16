@@ -52,11 +52,65 @@ const formatCategoryName = (cat: string) => {
 let cachedSearchKey: string | null = null;
 async function getSearchKey(): Promise<string> {
   if (cachedSearchKey) return cachedSearchKey;
-  const res = await fetch(`${API_BASE}/search/key`);
-  if (!res.ok) throw new Error('Search key retrieval failed');
-  const data = await res.json();
-  cachedSearchKey = data.searchKey;
-  return cachedSearchKey!;
+  try {
+    const res = await fetch(`${API_BASE}/search/key`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.searchKey) {
+        cachedSearchKey = data.searchKey;
+        return cachedSearchKey!;
+      }
+    }
+  } catch (err) {
+    console.warn('[Search] Key retrieval error, using fallback:', err);
+  }
+  return 'dev_only_key_change_in_prod';
+}
+
+/**
+ * Executes a search query on a Meilisearch index.
+ * 1. Attempts direct Meilisearch call if VITE_MEILISEARCH_HOST is configured and succeeds.
+ * 2. If direct call fails (e.g. 403 Forbidden, CORS, network error), automatically falls back
+ *    to the backend proxy (/api/search/indexes/:index/search) which uses server-side credentials.
+ */
+async function executeSearchIndex(indexName: 'products' | 'search_intents', payload: any): Promise<any> {
+  const meiliHost = import.meta.env.VITE_MEILISEARCH_HOST;
+
+  // Attempt 1: Direct Meilisearch if host is configured
+  if (meiliHost) {
+    try {
+      const key = await getSearchKey();
+      const res = await fetch(`${meiliHost}/indexes/${indexName}/search`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`
+        },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      console.warn(`[Search] Direct Meilisearch call returned ${res.status}, falling back to backend search proxy.`);
+    } catch (err) {
+      console.warn('[Search] Direct Meilisearch call failed, falling back to backend search proxy:', err);
+    }
+  }
+
+  // Attempt 2: Backend search proxy (reliable, authenticated server-side, no CORS or key mismatch)
+  const proxyRes = await fetch(`${API_BASE}/search/indexes/${indexName}/search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!proxyRes.ok) {
+    throw new Error(`Search proxy failed with status ${proxyRes.status}`);
+  }
+
+  return await proxyRes.json();
 }
 
 export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProduct }) => {
@@ -96,22 +150,12 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
   const fetchSuggestions = useCallback(async (q: string) => {
     if (!q.trim() || q.length < 2) { setSuggestions([]); return; }
     try {
-      const key = await getSearchKey();
-      const meiliHost = import.meta.env.VITE_MEILISEARCH_HOST || 'http://localhost:7700';
-      const res = await fetch(`${meiliHost}/indexes/products/search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`
-        },
-        body: JSON.stringify({
-          q: q,
-          limit: 8,
-          attributesToHighlight: ['title'],
-          attributesToRetrieve: ['title', 'category_group']
-        })
+      const data = await executeSearchIndex('products', {
+        q: q,
+        limit: 8,
+        attributesToHighlight: ['title'],
+        attributesToRetrieve: ['title', 'category_group']
       });
-      const data = await res.json();
       if (data.hits) {
         const seen = new Set();
         const suggs = [];
@@ -152,8 +196,6 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
     recSession.trackAction('SEARCH', [queryTag]);
 
     try {
-      const key = await getSearchKey();
-      const meiliHost = import.meta.env.VITE_MEILISEARCH_HOST || 'http://localhost:7700';
       const searchOptions: any = {
         limit: 20,
         facets: ['category_group', 'rec_tags.style', 'rec_tags.material', 'rec_tags.color_vibe', 'price']
@@ -182,16 +224,8 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
         searchOptions.filter = filterParts.join(' AND ');
       }
 
-      // 1. Direct Search
-      let res = await fetch(`${meiliHost}/indexes/products/search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`
-        },
-        body: JSON.stringify({ q, ...searchOptions })
-      });
-      let data = await res.json();
+      // 1. Direct / Proxy Search
+      let data = await executeSearchIndex('products', { q, ...searchOptions });
       let foundItems = data.hits || [];
 
       // 2. Intent fallback if direct hits are empty AND no active filters
@@ -204,15 +238,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
       );
 
       if (foundItems.length === 0 && !hasActiveFilters) {
-        const intentRes = await fetch(`${meiliHost}/indexes/search_intents/search`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${key}`
-          },
-          body: JSON.stringify({ q, limit: 1 })
-        });
-        const intentData = await intentRes.json();
+        const intentData = await executeSearchIndex('search_intents', { q, limit: 1 });
         
         if (intentData.hits && intentData.hits.length > 0) {
           const intent = intentData.hits[0];
@@ -233,15 +259,7 @@ export const SearchView: React.FC<SearchViewProps> = ({ onNavigate, onSelectProd
             searchOptions.filter = intentFilterParts.join(' AND ');
           }
 
-          const refinedRes = await fetch(`${meiliHost}/indexes/products/search`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${key}`
-            },
-            body: JSON.stringify({ q: '', ...searchOptions })
-          });
-          const refinedData = await refinedRes.json();
+          const refinedData = await executeSearchIndex('products', { q: '', ...searchOptions });
           foundItems = refinedData.hits || [];
         }
       }
