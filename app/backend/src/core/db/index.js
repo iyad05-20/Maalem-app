@@ -9,10 +9,16 @@ if (!connectionString) {
   console.error("❌ DATABASE_URL is not defined in environment variables!");
 }
 
+const isRemoteOrProd =
+  process.env.NODE_ENV === "production" ||
+  connectionString?.includes("supabase.com") ||
+  connectionString?.includes("pooler.supabase.com");
+
 export const sql = postgres(connectionString, {
+  ssl: isRemoteOrProd ? { rejectUnauthorized: false } : false,
   max: 10,
   idle_timeout: 20,
-  connect_timeout: 10,
+  connect_timeout: 15,
   types: {
     numeric: {
       to: 0,

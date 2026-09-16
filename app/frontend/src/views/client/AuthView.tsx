@@ -28,8 +28,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess }) => {
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMsg(lang === 'ar' ? "يجب أن تتكون كلمة المرور من ٦ أحرف على الأقل." : "Le mot de passe doit contenir au moins 6 caractères.");
+    if (password.length < 8) {
+      setErrorMsg(lang === 'ar' ? "يجب أن تتكون كلمة المرور من ٨ أحرف على الأقل." : "Le mot de passe doit contenir au moins 8 caractères.");
       return;
     }
 

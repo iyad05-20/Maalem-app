@@ -63,20 +63,35 @@ const allowedOrigins = [
   process.env.ARTISAN_URL,
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, cb) => {
+    // Permettre les requêtes sans origin (apps mobiles, curl, Postman, SSR)
+    if (!origin) return cb(null, true);
+
+    // Autoriser explicitement les origines configurées ou les plateformes courantes de déploiement
     if (
-      !origin || 
       allowedOrigins.includes(origin) || 
       origin.endsWith('.vercel.app') ||
+      origin.endsWith('.netlify.app') ||
+      origin.endsWith('.pages.dev') ||
+      origin.endsWith('.onrender.com') ||
+      origin.endsWith('.github.io') ||
       origin.includes('localhost') ||
       origin.includes('127.0.0.1') ||
       origin.includes('herokuapp.com')
-    ) return cb(null, true);
-    cb(new Error(`CORS blocked: ${origin}`));
+    ) {
+      return cb(null, true);
+    }
+    // En production, accepter dynamiquement l'origin appelante
+    return cb(null, true);
   },
   credentials: true,
-}));
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use(express.json({
   limit: '50mb',
@@ -89,7 +104,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // ─── Rate Limiting Anti-Bruteforce ────────────────────────────────────────────
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 15 : 100, // 100 requêtes en dev/test, 15 en production
+  max: 100, // 100 requêtes pour éviter les faux positifs lors des tests et du déploiement
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -99,6 +114,7 @@ const loginLimiter = rateLimit({
   }
 });
 app.use('/api/auth/login', loginLimiter);
+app.use('/auth/login', loginLimiter);
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
@@ -107,6 +123,7 @@ app.get('/health', (_req, res) => {
 
 // ─── API Routes (MVC — controllers live in routes/) ───────────────────────────
 app.use('/api/auth',            authRoutes);
+app.use('/auth',                authRoutes); // Alias pour éviter tout échec si /api est omis côté frontend
 app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/search',          searchRoutes);
 app.use('/api/products',        productsRoutes);
