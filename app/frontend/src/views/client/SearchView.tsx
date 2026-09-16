@@ -13,7 +13,7 @@ interface SearchViewProps {
   onSelectProduct?: (product: any) => void;
 }
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api';
+import { API_BASE } from '../../services/apiConfig';
 
 // ── Static data (will be dynamic later) ──────────────────────────────────────
 const RECENT_SEARCHES = ['Siniya cuivre', 'Tajine fassi', 'Tapis boucherouite'];

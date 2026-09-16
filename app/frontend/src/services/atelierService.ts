@@ -5,7 +5,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api';
+import { API_BASE } from './apiConfig';
 
 export type AtelierMode =
   | 'searching'

@@ -1,7 +1,7 @@
 import type { ClientOrder, ClientWallet, WalletTransaction } from "../types/clientPayment";
 import { authService } from "./authService";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api';
+import { API_BASE } from "./apiConfig";
 const BACKEND_ROOT = API_BASE.replace(/\/api\/?$/, '');
 
 function getHeaders(extra: Record<string, string> = {}): Record<string, string> {

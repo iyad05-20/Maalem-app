@@ -1,5 +1,4 @@
-const rawBase = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api';
-const API_BASE = rawBase.endsWith('/api') ? rawBase : `${rawBase.replace(/\/$/, '')}/api`;
+import { API_BASE } from './apiConfig';
 
 export interface UserProfile {
   id: string;

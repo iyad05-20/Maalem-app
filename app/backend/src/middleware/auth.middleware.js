@@ -1,4 +1,34 @@
 import { getUserFromToken } from '../services/auth.service.js';
+import { verifyToken } from '../services/localAuth.service.js';
+
+async function resolveUserData(token) {
+  if (!token) return null;
+  
+  // 1. Tenter la vérification locale autonome (Local Auth Service)
+  const decoded = verifyToken(token);
+  if (decoded && decoded.id) {
+    return {
+      user: {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        fullName: decoded.fullName || (decoded.email ? decoded.email.split('@')[0] : 'User'),
+      },
+      profile: {
+        id: decoded.id,
+        full_name: decoded.fullName || (decoded.email ? decoded.email.split('@')[0] : 'User'),
+        role: decoded.role,
+      }
+    };
+  }
+
+  // 2. Fallback vers Supabase Auth si le jeton a été émis directement par Supabase
+  try {
+    return await getUserFromToken(token);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Middleware d'authentification obligatoire (JWT Bearer Token)
@@ -16,7 +46,7 @@ export async function authMiddleware(req, res, next) {
 
   const token = authHeader.split(' ')[1];
   try {
-    const userData = await getUserFromToken(token);
+    const userData = await resolveUserData(token);
     if (!userData || !userData.user) {
       return res.status(401).json({
         success: false,
@@ -50,7 +80,7 @@ export async function optionalAuthMiddleware(req, res, next) {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     try {
-      const userData = await getUserFromToken(token);
+      const userData = await resolveUserData(token);
       if (userData && userData.user) {
         req.user = userData.user;
         req.userProfile = userData.profile;

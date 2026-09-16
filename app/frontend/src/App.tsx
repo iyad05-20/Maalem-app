@@ -22,6 +22,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import './styles/global.css';
 
 import { useClientI18n, applyClientDirection, getSavedClientLanguage } from './services/i18n';
+import { API_BASE } from './services/apiConfig';
 
 // Apply on initial script evaluation
 if (typeof window !== 'undefined') {
@@ -133,7 +134,6 @@ function App() {
   useEffect(() => {
     const loadDbProducts = async () => {
       try {
-        const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001/api';
         const res = await fetch(`${API_BASE}/products?limit=100`);
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {

@@ -122,19 +122,26 @@ app.get('/health', (_req, res) => {
 });
 
 // ─── API Routes (MVC — controllers live in routes/) ───────────────────────────
-app.use('/api/auth',            authRoutes);
-app.use('/auth',                authRoutes); // Alias pour éviter tout échec si /api est omis côté frontend
-app.use('/api/recommendations', recommendationRoutes);
-app.use('/api/search',          searchRoutes);
-app.use('/api/products',        productsRoutes);
-app.use('/api/favorites',       favoritesRoutes);
-app.use('/api/reviews',         reviewsRoutes);
-app.use('/api/client',          clientRoutes);
-app.use('/api/atelier',         atelierRoutes);
-app.use('/api/artisan',         artisanRouter);
-app.use('/api/cron',            cronRouter);
-app.use('/api/admin',           adminRouter);
-app.use('/mock-cmi',            mockCmiRouter);
+const apiRoutes = [
+  ['/auth',            authRoutes],
+  ['/recommendations', recommendationRoutes],
+  ['/search',          searchRoutes],
+  ['/products',        productsRoutes],
+  ['/favorites',       favoritesRoutes],
+  ['/reviews',         reviewsRoutes],
+  ['/client',          clientRoutes],
+  ['/atelier',         atelierRoutes],
+  ['/artisan',         artisanRouter],
+  ['/cron',            cronRouter],
+  ['/admin',           adminRouter],
+];
+
+for (const [routePath, router] of apiRoutes) {
+  app.use(`/api${routePath}`, router);
+  app.use(routePath, router); // Supporte universellement les requêtes avec ou sans préfixe /api
+}
+
+app.use('/mock-cmi', mockCmiRouter);
 
 // Start Cron Scheduler (every 60 minutes)
 startCronScheduler(60);
