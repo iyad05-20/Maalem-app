@@ -118,6 +118,32 @@ export const clientWalletAPI = {
     return getStoredOrders();
   },
 
+  async acceptCustomQuote(requestId: string, quoteIndex = 0, artisanRef?: string): Promise<{ success: boolean; message: string; orderId: string; order: ClientOrder }> {
+    const res = await fetch(`${API_BASE}/client/custom-requests/${requestId}/accept-quote`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ quoteIndex, artisanRef }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Échec de l'acceptation du devis.");
+    }
+    return data;
+  },
+
+  async fetchCustomRequests(_clientRef = "client-me"): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/client/custom-requests?clientRef=${_clientRef}`, {
+        headers: getHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.customRequests || [];
+      }
+    } catch {}
+    return [];
+  },
+
   async createOrder(
     clientRef: string,
     artisanRef: string,

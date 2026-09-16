@@ -7,7 +7,7 @@ services:
       - ./app/backend/.env
     environment:
       - MEILI_HOST=http://meilisearch:7700
-      - PORT=3000
+      - PORT=3001
     ports:
       - "3001:3001"
     restart: unless-stopped

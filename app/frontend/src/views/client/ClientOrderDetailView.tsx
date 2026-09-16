@@ -12,6 +12,7 @@ import {
   ChevronRight,
   X,
   Bell,
+  Clock,
 } from "lucide-react";
 import type { ClientOrder } from "../../types/clientPayment";
 import { clientWalletAPI } from "../../services/clientWalletApi";
@@ -25,10 +26,9 @@ interface ClientOrderDetailViewProps {
   onDetailToggle?: (isOpen: boolean) => void;
 }
 
-
-
-
 const STATUS_COLORS: Record<string, string> = {
+  en_attente_artisan: "#D4AF37",
+  devis_recu: "#2D6A4F",
   en_attente_paiement: "#CC7755",
   paiement_echoue: "#DC3545",
   acompte_verse: "#4A7C59",
@@ -45,6 +45,15 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const getStatusSteps = (status: string, lang = "fr") => {
+  if (status === "en_attente_artisan" || status === "devis_recu") {
+    return [
+      { label: lang === "ar" ? "المشروع" : "Projet", active: status === "en_attente_artisan", done: status === "devis_recu" },
+      { label: lang === "ar" ? "العروض" : "Devis", active: status === "devis_recu", done: false },
+      { label: lang === "ar" ? "الورشة" : "Atelier", active: false, done: false },
+      { label: lang === "ar" ? "التسليم" : "Remis", active: false, done: false },
+    ];
+  }
+
   const steps = [
     { label: lang === "ar" ? "الدفع" : "Paiement", active: false, done: false },
     { label: lang === "ar" ? "الورشة" : "Atelier", active: false, done: false },
@@ -432,6 +441,25 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
     } finally { setLoading(false); }
   };
 
+  // Acceptation Devis Atelier Sur-Mesure
+  const handleAcceptCustomQuote = async (requestId: string, quoteIndex = 0, artisanRef?: string) => {
+    setLoading(true); setMessage(null);
+    try {
+      const res = await clientWalletAPI.acceptCustomQuote(requestId, quoteIndex, artisanRef);
+      setMessage({ type: "success", text: res.message || "Devis accepté avec succès ! La commande est en préparation." });
+      await loadData();
+      const updated = await clientWalletAPI.fetchOrders(userId || "client-me");
+      const converted = updated.find(o => o.id === res.orderId || o.id.includes(requestId.replace(/^req_/, '')));
+      if (converted) {
+        setSelectedOrder(converted);
+      }
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Erreur lors de l'acceptation du devis." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   const visibleOrders = activeTab === "active"
     ? orders.filter(o => !["complete", "annulee"].includes(o.status))
@@ -534,6 +562,10 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
           visibleOrders.map((o) => {
             const getSimpleStatus = (status: string) => {
               switch (status) {
+                case "en_attente_artisan":
+                  return { dotColor: "#D4AF37", label: lang === "ar" ? "قيد الدراسة" : "En attente devis" };
+                case "devis_recu":
+                  return { dotColor: "#2D6A4F", label: lang === "ar" ? "تم استلام عرض" : "Devis disponible" };
                 case "en_attente_paiement":
                 case "paiement_initie":
                 case "paiement_echoue":
@@ -599,7 +631,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                 {/* Right side: price and clickable arrow */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
                   <p style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '0.95rem', color: 'var(--primary)', margin: 0 }}>
-                    {o.totalPrice} {lang === "ar" ? "د.م" : "MAD"}
+                    {o.totalPrice > 0 ? `${o.totalPrice} ${lang === "ar" ? "د.م" : "MAD"}` : (lang === "ar" ? "على العرض" : "Sur devis")}
                   </p>
                   <ChevronRight size={16} color="var(--text-secondary)" style={{ opacity: 0.6, transform: lang === "ar" ? "rotate(180deg)" : "none" }} />
                 </div>
@@ -850,6 +882,88 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                   <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--primary)", marginBottom: 10 }}>
                     {lang === "ar" ? "الإجراءات المتاحة" : "Actions disponibles"}
                   </p>
+
+                  {/* ── Section Devis Reçus (Projets Atelier Sur-Mesure) ── */}
+                  {(selectedOrder as any).quotes && (selectedOrder as any).quotes.length > 0 && !selectedOrder.acceptedAt && (
+                    <div style={{ background: "rgba(45,106,79,0.06)", border: "1.5px solid rgba(45,106,79,0.25)", borderRadius: 16, padding: "16px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <CheckCircle size={18} color="#2D6A4F" />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "#2D6A4F" }}>
+                          {lang === "ar" ? "عروض الأسعار المستلمة من الحرفيين" : "Offres & Devis Reçus des Maâlems"}
+                        </span>
+                      </div>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--text-secondary)", margin: "0 0 12px" }}>
+                        {lang === "ar" 
+                          ? "قام المعلم بدراسة مواصفاتك وقدّم هذا العرض المفصل. يمكنك قبوله لبدء الصنع فوراً."
+                          : "Un Maâlem a étudié vos spécifications Atelier et vous propose le chiffrage ci-dessous. Acceptez le devis pour lancer la confection."}
+                      </p>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {(selectedOrder as any).quotes.map((q: any, qIdx: number) => (
+                          <div key={qIdx} style={{ background: "#FFFFFF", borderRadius: 12, border: "1px solid rgba(45,106,79,0.2)", padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--primary)" }}>
+                                {q.artisanName || "Maâlem Abdelkader"}
+                              </span>
+                              <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 15, color: "#2D6A4F" }}>
+                                {q.proposedPrice} {lang === "ar" ? "د.م" : "MAD"}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+                              <Clock size={13} color="var(--text-secondary)" />
+                              <span>{lang === "ar" ? `مدة الإنجاز : ${q.confectionDays} يوماً` : `Délai de confection : ${q.confectionDays} jours`}</span>
+                            </div>
+                            {q.note && (
+                              <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, fontStyle: "italic", background: "#F9F8F6", padding: "6px 8px", borderRadius: 6 }}>
+                                "{q.note}"
+                              </p>
+                            )}
+                            <button
+                              onClick={() => handleAcceptCustomQuote(selectedOrder.id, qIdx, q.artisanRef)}
+                              disabled={loading}
+                              style={{
+                                marginTop: 4,
+                                padding: "10px",
+                                borderRadius: 10,
+                                border: "none",
+                                background: "#2D6A4F",
+                                color: "#FFFFFF",
+                                fontFamily: "var(--font-display)",
+                                fontWeight: 700,
+                                fontSize: 12,
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 6,
+                                boxShadow: "0 2px 6px rgba(45,106,79,0.25)"
+                              }}
+                            >
+                              <CheckCircle size={15} />
+                              {lang === "ar" ? "قبول هذا العرض وبدء التصنيع" : "Accepter ce devis & Lancer la fabrication"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Section En attente de devis (Projet sur le Marché Public) ── */}
+                  {(selectedOrder as any).status === "en_attente_artisan" && !(selectedOrder as any).quotes?.length && (
+                    <div style={{ background: "rgba(212,175,55,0.08)", border: "1.5px solid rgba(212,175,55,0.3)", borderRadius: 16, padding: "16px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <Clock size={18} color="#8B6914" />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "#8B6914" }}>
+                          {lang === "ar" ? "مشروعك معروض على الحرفيين" : "Projet diffusé sur le Marché des Artisans"}
+                        </span>
+                      </div>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                        {lang === "ar"
+                          ? "تمت مشاركة مواصفات مشروعك وصورته مع أمهر الحرفيين المغاربة. ستتلقى عروض الأسعار مع المهل الزمنية هنا بمجرد تقديمها."
+                          : "Votre projet et la simulation visuelle sont actuellement examinés par les Maâlems. Dès qu'un artisan formule une proposition (prix et délai), elle apparaîtra ici et vous recevrez une notification."}
+                      </p>
+                    </div>
+                  )}
 
                   {/* ── Tâche 2 : Relance Maâlem J+2 (10h00 → Minuit - Art. 5.1 & 5.2) ── */}
                   {showJ2Relance && (

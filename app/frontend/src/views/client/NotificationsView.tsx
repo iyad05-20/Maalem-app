@@ -35,6 +35,44 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
     const isCustom = ["personnalise", "sur_commande"].includes(o.productType);
     const itemTitle = o.productTitle || (lang === "ar" ? "تحفة تقليدية" : "Produit Artisanal");
 
+    // 0. SUCCESS : Devis reçu pour un projet Atelier sur-mesure
+    if ((o as any).status === "devis_recu" || (Array.isArray((o as any).quotes) && (o as any).quotes.length > 0 && o.status !== "complete" && o.status !== "annulee" && !(o as any).acceptedAt)) {
+      const quotesCount = (o as any).quotes?.length || 1;
+      const latestQuote = (o as any).quotes?.[(o as any).quotes.length - 1];
+      const artisanName = latestQuote?.artisanName || o.artisanName || "Un Maâlem";
+      const price = latestQuote?.proposedPrice || o.totalPrice;
+      const days = latestQuote?.confectionDays || 14;
+
+      notifications.push({
+        id: `notif-devis-${o.id}`,
+        orderId: o.id,
+        title: lang === "ar" ? `عرض سعر متاح (${quotesCount})` : `Devis reçu — ${artisanName}`,
+        message: lang === "ar"
+          ? `قدّم ${artisanName} عرضاً لصناعة "${itemTitle}" بسعر ${price} درهم في غضون ${days} يوماً. انقر لمعاينة العرض وتأكيد الطلب.`
+          : `${artisanName} vous propose de confectionner "${itemTitle}" pour ${price} MAD sous ${days} jours. Cliquez pour examiner et valider.`,
+        type: "success",
+        isRead: false,
+        badgeText: lang === "ar" ? "عرض متاح" : "DEVIS REÇU",
+        createdAt: latestQuote?.createdAt || o.updatedAt || o.createdAt,
+      });
+    }
+
+    // 0 bis. INFO : Projet sur-mesure diffusé sur le marché public des artisans
+    if ((o as any).status === "en_attente_artisan") {
+      notifications.push({
+        id: `notif-waiting-devis-${o.id}`,
+        orderId: o.id,
+        title: lang === "ar" ? "مشروعك معروض في سوق الحرفيين" : "Projet en ligne sur le Marché",
+        message: lang === "ar"
+          ? `مشروعك "${itemTitle}" معروض الآن على أمهر الحرفيين في المنصة. ستتلقى عروض الأسعار قريباً.`
+          : `Votre création "${itemTitle}" est consultable par les Maâlems. Vous recevrez leurs propositions tarifaires sous peu.`,
+        type: "info",
+        isRead: false,
+        badgeText: lang === "ar" ? "قيد الدراسة" : "EN ATTENTE",
+        createdAt: o.createdAt,
+      });
+    }
+
     // 1. URGENT : Litige ou Réclamation de non-réception en cours
     if (o.status === "en_reclamation" || o.nonReceptionClaimedAt) {
       notifications.push({

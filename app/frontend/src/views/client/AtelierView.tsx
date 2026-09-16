@@ -377,18 +377,69 @@ export const AtelierView: React.FC<{
   // ──────────────────────────────────────────────────────────────────────────
   // Gate 4 — Submit made-to-order to artisan
   // ──────────────────────────────────────────────────────────────────────────
+  const handleDirectBuy = async (product: any) => {
+    setPreviewModalProduct(null);
+    const activeUser = currentUser || authService.getStoredUser();
+    const userId = activeUser?.id || 'client-me';
+
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `user_direct_${Date.now()}`,
+        sender: 'user',
+        text: `Je souhaite commander directement : "${product.title}"`,
+      },
+    ]);
+    setIsTyping(true);
+
+    try {
+      await atelierApi.createDirectOrder({
+        productId: product.id,
+        userId,
+      });
+      setIsTyping(false);
+
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `vork_direct_${Date.now()}`,
+          sender: 'vork',
+          text: `Excellente décision ! Votre commande standard pour "${product.title}" a été enregistrée directement auprès de ${product.artisanName || "l'artisan"}. Redirection vers vos commandes...`,
+        },
+      ]);
+
+      if (onNavigate) {
+        setTimeout(() => {
+          onNavigate('cart');
+        }, 1200);
+      }
+    } catch (err: any) {
+      setIsTyping(false);
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `vork_direct_err_${Date.now()}`,
+          sender: 'vork',
+          variant: 'recovery',
+          text: `Impossible d'initier la commande directe (${err.message || 'erreur réseau'}). Vous pouvez réessayer.`,
+        },
+      ]);
+    }
+  };
+
   const handleSubmitToArtisan = async () => {
     try {
       const activeUser = currentUser || authService.getStoredUser();
       const userId = activeUser?.id || 'client-me';
       const simItem = messages.find(m => m.isSimulation && m.simulationUrl);
+      const isScratch = !activeProduct;
 
       await atelierApi.submitCustomRequest({
         sessionId,
         userId,
-        requestType: activeProduct ? 'customize' : 'scratch',
+        requestType: isScratch ? 'scratch' : 'customize',
         generatedImageUrl: simItem?.simulationUrl || undefined,
-        targetArtisanId: activeProduct?.artisanId || activeProduct?.identity?.artisan_id || 'artisan-1',
+        targetArtisanId: isScratch ? 'artisan-open' : (activeProduct?.artisanId || activeProduct?.identity?.artisan_id || 'artisan-1'),
       });
 
       setIsSubmitted(true);
@@ -399,8 +450,9 @@ export const AtelierView: React.FC<{
         {
           id: `submit_done_${Date.now()}`,
           sender: 'vork',
-          text:
-            "Ta demande de co-création est transmise avec succès ! L'artisan va examiner tes spécifications et te recontacter sous 24h. Tu peux retrouver le suivi dans tes commandes.",
+          text: isScratch
+            ? "Votre création sur-mesure a été publiée avec succès sur le Marché Public des Artisans ! Les ateliers qualifiés vont examiner vos spécifications et vous soumettre leurs propositions sous 24h à 48h."
+            : `Votre demande personnalisée a été transmise en exclusivité à ${activeProduct?.artisanName || "l'artisan créateur"} ! Il étudiera vos spécifications et vous recontactera sous 24h.`,
         },
       ]);
     } catch (err: any) {
@@ -852,10 +904,7 @@ export const AtelierView: React.FC<{
               {/* Actions */}
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button
-                  onClick={() => {
-                    setPreviewModalProduct(null);
-                    if (onNavigate) onNavigate('cart');
-                  }}
+                  onClick={() => handleDirectBuy(previewModalProduct)}
                   style={{
                     flex: 1,
                     padding: '13px',

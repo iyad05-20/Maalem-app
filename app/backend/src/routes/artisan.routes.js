@@ -8,7 +8,8 @@ import {
   vendorWarnings, 
   withdrawalRequests, 
   ledgerEntries, 
-  returnRequests 
+  returnRequests,
+  customRequests 
 } from "../core/db/schema.js";
 import { getAllProducts } from "../db/products.repository.js";
 import { supabase } from "../db/supabase.client.js";
@@ -39,6 +40,13 @@ export const getArtisanRef = (req) => {
   return req.userId || (req.user && req.user.id);
 };
 
+export const getArtisanOrderCondition = (artisanRef) => {
+  const isAbdelkader = artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1";
+  return isAbdelkader
+    ? or(eq(orders.artisanRef, "artisan_abdelkader"), eq(orders.artisanRef, "artisan-1"), eq(orders.artisanRef, artisanRef))
+    : eq(orders.artisanRef, artisanRef);
+};
+
 /**
  * GET /api/artisan/orders
  * Récupère les commandes assignées à l'artisan.
@@ -50,15 +58,22 @@ artisanRouter.get("/orders", async (req, res) => {
       return res.status(401).json({ success: false, error: "Identité artisan introuvable. Reconnectez-vous." });
     }
 
-    // Isolation stricte : uniquement les commandes de l'artisan connecté
+    const condition = getArtisanOrderCondition(artisanRef);
+
     const list = await db.select().from(orders)
-      .where(eq(orders.artisanRef, artisanRef))
+      .where(condition)
       .orderBy(desc(orders.createdAt));
 
-    const enriched = list.map(o => ({
-      ...o,
-      prepPhotos: o.prepPhotos ? JSON.parse(o.prepPhotos) : [],
-    }));
+    const enriched = list.map(o => {
+      let prepPhotos = [];
+      try {
+        prepPhotos = typeof o.prepPhotos === 'string' ? JSON.parse(o.prepPhotos) : (Array.isArray(o.prepPhotos) ? o.prepPhotos : []);
+      } catch {}
+      return {
+        ...o,
+        prepPhotos,
+      };
+    });
 
     return res.json({ success: true, count: enriched.length, orders: enriched });
   } catch (err) {
@@ -398,7 +413,8 @@ artisanRouter.post("/disputes/:id/respond", async (req, res) => {
 artisanRouter.get("/wallet", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
-    const allOrders = await db.select().from(orders).where(eq(orders.artisanRef, artisanRef));
+    const condition = getArtisanOrderCondition(artisanRef);
+    const allOrders = await db.select().from(orders).where(condition);
     const allWithdrawals = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
 
     let availableBalance = 0;
@@ -788,7 +804,8 @@ artisanRouter.get("/notifications", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   const lang = req.query.lang === "ar" || req.headers["accept-language"]?.includes("ar") ? "ar" : "fr";
   try {
-    const allOrders = await db.select().from(orders).where(eq(orders.artisanRef, artisanRef));
+    const condition = getArtisanOrderCondition(artisanRef);
+    const allOrders = await db.select().from(orders).where(condition);
     const allDisputes = await db.select().from(disputes);
     const allReturns = await db.select().from(returnRequests);
     const allWithdrawals = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
@@ -1117,7 +1134,8 @@ artisanRouter.put("/profile/details", async (req, res) => {
 artisanRouter.get("/stats", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
-    const allOrders = await db.select().from(orders).where(eq(orders.artisanRef, artisanRef));
+    const condition = getArtisanOrderCondition(artisanRef);
+    const allOrders = await db.select().from(orders).where(condition);
 
     const totalOrders = allOrders.length;
     const acceptedOrders = allOrders.filter(o => o.status !== "annulee").length;
@@ -1193,12 +1211,49 @@ let memoryCustomRequests = [
 ];
 
 artisanRouter.get("/custom-requests", async (req, res) => {
-  const { category } = req.query;
-  let list = memoryCustomRequests;
-  if (category && category !== "Toutes") {
-    list = list.filter(r => r.category.toLowerCase().includes(String(category).toLowerCase()));
+  try {
+    const { category } = req.query;
+    let list = [...memoryCustomRequests];
+
+    // Interroger la table custom_requests pour les projets créés depuis l'Atelier
+    try {
+      const dbRequests = await db.select().from(customRequests)
+        .where(or(eq(customRequests.artisanRef, "artisan-open"), eq(customRequests.productType, "sur_commande")))
+        .orderBy(desc(customRequests.createdAt));
+
+      const formatted = dbRequests.map(r => {
+        let tags = {};
+        try { tags = typeof r.customizationTags === 'string' ? JSON.parse(r.customizationTags) : (r.customizationTags || {}); } catch(e) {}
+        const mods = tags.modifications || [];
+        const catMod = mods.find(m => (m.feature || '').toLowerCase().includes('mat') || (m.feature || '').toLowerCase().includes('cat'));
+        const autoCat = catMod?.value || tags.category || 'Sur-mesure';
+
+        return {
+          id: r.id,
+          clientName: r.clientRef || "Client Vork",
+          category: autoCat,
+          title: tags.summary ? tags.summary.split('\n')[0].replace(/^[•\s*]+/, '') : "Création sur mesure",
+          description: tags.summary || "Demande de création artisanale personnalisée.",
+          budget: r.totalPrice ? `${r.totalPrice} DH` : "Sur devis",
+          deliveryCity: "Maroc",
+          createdAt: r.createdAt,
+          image: r.proofImage || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
+          quotes: Array.isArray(tags.quotes) ? tags.quotes : []
+        };
+      });
+
+      list = [...formatted, ...list];
+    } catch (e) {
+      console.warn("[ARTISAN-ROUTES] ⚠️ Could not fetch custom requests from DB:", e.message);
+    }
+
+    if (category && category !== "Toutes" && category !== "all") {
+      list = list.filter(r => r.category.toLowerCase().includes(String(category).toLowerCase()));
+    }
+    return res.json({ success: true, count: list.length, requests: list });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
   }
-  return res.json({ success: true, count: list.length, requests: list });
 });
 
 artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
@@ -1209,9 +1264,6 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
     return res.status(400).json({ success: false, error: "Le prix et le délai de confection sont obligatoires." });
   }
 
-  const reqItem = memoryCustomRequests.find(r => r.id === id);
-  if (!reqItem) return res.status(404).json({ success: false, error: "Annonce sur-mesure introuvable." });
-
   const newQuote = {
     artisanName: req.user?.fullName || req.userId || "Maâlem",
     artisanRef: getArtisanRef(req),
@@ -1221,7 +1273,33 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
     createdAt: new Date().toISOString(),
   };
 
-  reqItem.quotes.push(newQuote);
+  const reqItem = memoryCustomRequests.find(r => r.id === id);
+  if (reqItem) {
+    reqItem.quotes.push(newQuote);
+  }
+
+  // Persister également dans la base PostgreSQL si la demande provient de l'Atelier
+  try {
+    const [dbReq] = await db.select().from(customRequests).where(eq(customRequests.id, id));
+    if (dbReq) {
+      let tags = {};
+      try {
+        tags = typeof dbReq.customizationTags === 'string' ? JSON.parse(dbReq.customizationTags) : (dbReq.customizationTags || {});
+      } catch (e) {}
+      if (!Array.isArray(tags.quotes)) {
+        tags.quotes = [];
+      }
+      tags.quotes.push(newQuote);
+      await db.update(customRequests)
+        .set({
+          customizationTags: JSON.stringify(tags),
+          updatedAt: new Date().toISOString()
+        })
+        .where(eq(customRequests.id, id));
+    }
+  } catch (err) {
+    console.warn("[ARTISAN-ROUTES] ⚠️ Could not persist quote to DB custom_request:", err.message);
+  }
 
   return res.json({ success: true, message: "Devis / Offre transmis au client avec succès !", quote: newQuote });
 });

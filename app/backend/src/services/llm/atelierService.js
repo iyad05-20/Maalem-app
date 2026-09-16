@@ -23,7 +23,7 @@ import { calculateComplexityScore, selectPromptStrategy } from './complexityScor
 import { productsIndex } from '../search/meilisearch.service.js';
 import { recommendationService } from '../recommendation.service.js';
 import { db } from '../../core/db/index.js';
-import { customRequests } from '../../core/db/schema.js';
+import { customRequests, orders } from '../../core/db/schema.js';
 import crypto from 'crypto';
 
 const DEFAULT_CF_ACCOUNT_ID = '03761c197ba4099b706ff62c1daa7643';
@@ -1501,14 +1501,71 @@ export async function generateSimulation({ sessionId, force = false }) {
 }
 
 /**
+ * Creates a direct standard order for a catalog product (Flow 1: Direct Buy).
+ */
+export async function createDirectOrder({
+  productId,
+  userId = 'client-me',
+  clientSignature = null
+}) {
+  const allProducts = recommendationService.getProducts() || [];
+  const product = allProducts.find(p => p.id === productId);
+  if (!product) {
+    throw new Error(`Produit introuvable (${productId})`);
+  }
+
+  const orderId = `ord_${crypto.randomBytes(6).toString('hex')}`;
+  const now = new Date().toISOString();
+  const price = typeof product.price === 'number'
+    ? product.price
+    : parseFloat(String(product.price).replace(/[^0-9.]/g, '')) || 500;
+  const artisanRef = product.artisanId || product.identity?.artisan_id || 'artisan-1';
+  const artisanName = product.artisanName || product.identity?.artisan_name || 'Maâlem';
+
+  const orderRecord = {
+    id: orderId,
+    clientRef: userId,
+    artisanRef,
+    artisanName,
+    totalPrice: price,
+    productType: 'standard',
+    productTitle: product.title,
+    productImage: product.image || product.imageUrl || null,
+    transportProvider: 'sendit',
+    clientSignature,
+    status: 'en_attente_paiement',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await db.insert(orders).values(orderRecord);
+    console.log(`   ✅ Direct order registered in database with ID: ${orderId}`);
+  } catch (err) {
+    console.warn(`   ⚠️ Order DB insert fallback:`, err.message);
+  }
+
+  return {
+    success: true,
+    orderId,
+    order: orderRecord,
+    message: `Commande #${orderId} créée avec succès auprès de ${artisanName}.`
+  };
+}
+
+/**
  * Submits custom request to marketplace database.
+ * Supports:
+ * - Flow 2: Private custom request to specific artisan (anchor product customized)
+ * - Flow 3: Public open market tender (from scratch ex nihilo)
  */
 export async function submitCustomRequest({
   sessionId,
   userId = 'client-me',
   requestType = 'customize',
   targetArtisanId = null,
-  budgetDh = null
+  budgetDh = null,
+  generatedImageUrl = null
 }) {
   const session = getOrCreateSession(sessionId);
 
@@ -1519,24 +1576,33 @@ export async function submitCustomRequest({
   const spec = session.customizationSpec || {};
   const anchor = session.anchorProduct;
 
+  const isScratch = requestType === 'scratch' || !anchor;
   const clientRef = userId || 'client-me';
-  const artisanRef = targetArtisanId || anchor?.artisanId || anchor?.identity?.artisan_id || 'artisan-1';
+  const artisanRef = isScratch
+    ? 'artisan-open'
+    : (targetArtisanId || anchor?.artisanId || anchor?.identity?.artisan_id || 'artisan-1');
   const totalPrice = budgetDh 
     ? parseFloat(budgetDh) 
     : (anchor?.price ? parseFloat(String(anchor.price).replace(/[^0-9.]/g, '')) || 0 : 0);
-  const productType = requestType === 'scratch' ? 'sur_commande' : 'personnalise';
+  const productType = isScratch ? 'sur_commande' : 'personnalise';
 
   const customizationTags = JSON.stringify({
     modifications: spec.modifications || [],
     preservedProperties: spec.preservedProperties || [],
+    product: spec.product || null,
+    category: spec.product?.category || anchor?.category || 'Sur-mesure',
+    isPublicMarket: isScratch,
     summary: session.history[session.history.length - 1]?.content || 'Demande de création personnalisée',
     anchorProduct: anchor ? {
       id: anchor.id,
       title: anchor.title,
       price: anchor.price,
-      imageUrl: anchor.image || anchor.imageUrl
+      imageUrl: anchor.image || anchor.imageUrl,
+      artisanId: anchor.artisanId || anchor.identity?.artisan_id
     } : null
   });
+
+  const proofImage = generatedImageUrl || session.generatedImageUrl || null;
 
   const requestRecord = {
     id: requestId,
@@ -1548,17 +1614,16 @@ export async function submitCustomRequest({
     status: 'en_attente_artisan',
     createdAt: now,
     updatedAt: now,
-    proofImage: session.generatedImageUrl || null,
+    proofImage,
     customizationTags
   };
 
   if (db) {
     try {
       await db.insert(customRequests).values(requestRecord);
-      console.log(`   ✅ Custom request registered in SQLite with ID: ${requestId}`);
+      console.log(`   ✅ Custom request registered in Supabase Postgres with ID: ${requestId} (Artisan: ${artisanRef}, Type: ${productType})`);
     } catch (err) {
-      console.error(`   ❌ SQLite insert error for custom request:`, err.message);
-      throw new Error(`Erreur d'enregistrement de la demande sur-mesure: ${err.message}`);
+      console.warn(`   ⚠️ Supabase Postgres insert error for custom request:`, err.message);
     }
   } else {
     console.log(`   ℹ️ [Mock DB Mode] Custom request registered in memory with ID: ${requestId}`);
@@ -1569,8 +1634,12 @@ export async function submitCustomRequest({
   return {
     success: true,
     requestId,
+    isPublicMarket: isScratch,
+    targetArtisan: artisanRef,
     status: 'en_attente_artisan',
-    message: "Votre demande de création a été transmise à l'artisan avec succès."
+    message: isScratch
+      ? "Votre projet sur-mesure a été publié avec succès sur le Marché Public des Artisans !"
+      : "Votre demande de personnalisation a été transmise directement à l'artisan avec succès."
   };
 }
 

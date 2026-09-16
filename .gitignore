@@ -23,6 +23,12 @@ build/
 # Non-persistent tests, analysis scripts and outputs
 app/backend/test_*.js
 app/backend/evaluate_*.js
+app/backend/benchmark_*.js
+app/backend/benchmark_results.json
+app/backend/run_scenario_*.js
+app/backend/scenario_diagnostics_report.json
+app/backend/ensure_tables.mjs
+app/backend/test_conn.mjs
 app/backend/test_output/
 test_output/
 

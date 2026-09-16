@@ -346,6 +346,8 @@ export const clientTranslations = {
 };
 
 export const STATUS_TRANSLATIONS: Record<string, { fr: string; ar: string }> = {
+  en_attente_artisan: { fr: "En attente de devis (Marché)", ar: "معروض بالسوق (في انتظار عروض)" },
+  devis_recu: { fr: "Devis artisan disponible", ar: "تم استلام عرض من الحرفي" },
   en_attente_paiement: { fr: "En attente de paiement", ar: "في انتظار الأداء" },
   paiement_initie: { fr: "Paiement initié", ar: "جاري إتمام الأداء" },
   paiement_echoue: { fr: "Paiement échoué", ar: "تعذر إتمام الأداء" },

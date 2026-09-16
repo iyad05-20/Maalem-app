@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, desc, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../core/db/index.js";
-import { orders, paymentIntents, withdrawalRequests, ledgerEntries, disputes } from "../../core/db/schema.js";
+import { orders, paymentIntents, withdrawalRequests, ledgerEntries, disputes, customRequests } from "../../core/db/schema.js";
 import { MockCmiProvider } from "../../core/paymentProviders/MockCmiProvider.js";
 import { cancelOrder, deliverOrder } from "../services/clientPaymentService.js";
 import { requestReturn } from "../services/clientReturnService.js";
@@ -35,14 +35,163 @@ const withdrawSchema = z.object({
 });
 
 /**
- * [CLIENT API] Récupérer la liste des commandes du client.
+ * [CLIENT API] Récupérer la liste des commandes du client (incluant les demandes sur-mesure de l'Atelier).
  */
 router.get("/orders", async (req, res) => {
   const clientRef = req.userId || (req.query.clientRef ? String(req.query.clientRef) : "client-me");
   console.log(`\n[VORK-API] 📥 GET /orders - Fetching for client: ${clientRef}`);
-  const list = await db.select().from(orders).where(eq(orders.clientRef, clientRef));
-  console.log(`[VORK-API] ✅ Found ${list.length} orders`);
-  res.json(list);
+
+  try {
+    // 1. Récupérer les commandes fermes
+    const orderCondition = clientRef === "client-me"
+      ? or(eq(orders.clientRef, "client-me"), eq(orders.clientRef, clientRef))
+      : eq(orders.clientRef, clientRef);
+
+    const list = await db.select().from(orders).where(orderCondition).orderBy(desc(orders.createdAt));
+
+    // 2. Récupérer les demandes sur-mesure de l'Atelier
+    const customCondition = clientRef === "client-me"
+      ? or(eq(customRequests.clientRef, "client-me"), eq(customRequests.clientRef, clientRef))
+      : eq(customRequests.clientRef, clientRef);
+
+    const rawCustoms = await db.select().from(customRequests)
+      .where(customCondition)
+      .orderBy(desc(customRequests.createdAt));
+
+    const pendingCustoms = rawCustoms
+      .filter(cr => cr.status !== "annulee")
+      .map(cr => {
+        let tags = {};
+        try {
+          tags = typeof cr.customizationTags === "string" ? JSON.parse(cr.customizationTags) : (cr.customizationTags || {});
+        } catch (e) {}
+        const quotes = Array.isArray(tags.quotes) ? tags.quotes : [];
+        const hasQuotes = quotes.length > 0;
+        const title = tags.summary ? tags.summary.split("\n")[0].replace(/^[•\s*]+/, "") : (tags.title || "Création sur-mesure");
+
+        // Si la demande a déjà été acceptée et convertie en commande, ne pas faire de doublon
+        const alreadyConverted = list.some(o => o.id.includes(cr.id.replace(/^req_/, '')) || o.id === cr.id);
+        if (alreadyConverted) return null;
+
+        return {
+          id: cr.id,
+          clientRef: cr.clientRef,
+          artisanRef: quotes[0]?.artisanRef || cr.artisanRef,
+          artisanName: quotes[0]?.artisanName || (cr.artisanRef === "artisan-open" ? "Marché Public (En attente)" : "Maâlem Assigné"),
+          totalPrice: quotes[0]?.proposedPrice || Number(cr.totalPrice) || 0,
+          productType: cr.productType || "sur_commande",
+          productTitle: title,
+          productImage: cr.proofImage || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
+          transportProvider: cr.transportProvider || "vendeur",
+          status: hasQuotes ? "devis_recu" : (cr.status || "en_attente_artisan"),
+          quotes: quotes,
+          customizationTags: tags,
+          isCustomRequest: true,
+          createdAt: cr.createdAt,
+          updatedAt: cr.updatedAt,
+        };
+      })
+      .filter(Boolean);
+
+    const combined = [...pendingCustoms, ...list];
+    console.log(`[VORK-API] ✅ Found ${list.length} orders + ${pendingCustoms.length} active custom requests (Total: ${combined.length})`);
+    return res.json(combined);
+  } catch (err) {
+    console.warn("[VORK-API] ⚠️ Error in /orders:", err.message);
+    const fallbackList = await db.select().from(orders).where(eq(orders.clientRef, clientRef));
+    return res.json(fallbackList);
+  }
+});
+
+/**
+ * [CLIENT API] Accepter un devis d'artisan pour une création sur-mesure de l'Atelier.
+ * Transforme le projet en commande ferme dans 'orders' et notifie l'artisan.
+ */
+router.post("/custom-requests/:id/accept-quote", async (req, res) => {
+  const { id } = req.params;
+  const { quoteIndex = 0, artisanRef } = req.body;
+  console.log(`\n[VORK-API] 📥 POST /custom-requests/${id}/accept-quote - QuoteIndex: ${quoteIndex}, ArtisanRef: ${artisanRef}`);
+
+  try {
+    const [request] = await db.select().from(customRequests).where(eq(customRequests.id, id));
+    if (!request) {
+      return res.status(404).json({ success: false, error: "Demande sur-mesure introuvable." });
+    }
+
+    let tags = {};
+    try {
+      tags = typeof request.customizationTags === "string" ? JSON.parse(request.customizationTags) : (request.customizationTags || {});
+    } catch (e) {}
+
+    const quotes = Array.isArray(tags.quotes) ? tags.quotes : [];
+    if (quotes.length === 0) {
+      return res.status(400).json({ success: false, error: "Aucun devis disponible pour cette demande." });
+    }
+
+    const targetQuote = artisanRef 
+      ? quotes.find(q => q.artisanRef === artisanRef) || quotes[quoteIndex] || quotes[0]
+      : (quotes[quoteIndex] || quotes[0]);
+
+    const now = new Date().toISOString();
+    const orderId = `ord_${request.id.replace(/^req_/, '')}_${Date.now().toString(36).slice(-4)}`;
+    const title = tags.summary ? tags.summary.split("\n")[0].replace(/^[•\s*]+/, "") : (tags.title || "Création sur-mesure");
+
+    const newOrder = {
+      id: orderId,
+      clientRef: req.userId || request.clientRef || "client-me",
+      artisanRef: targetQuote.artisanRef,
+      artisanName: targetQuote.artisanName || "Maâlem",
+      totalPrice: Number(targetQuote.proposedPrice),
+      productType: request.productType || "sur_commande",
+      productTitle: title,
+      productImage: request.proofImage || tags.anchorProduct?.imageUrl || null,
+      transportProvider: "vendeur",
+      status: "acompte_verse", // Commande validée par le client -> entre directement en fabrication
+      acceptedAt: now,
+      estimatedTransportDays: Number(targetQuote.confectionDays) || 14,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await db.insert(orders).values(newOrder);
+
+    // Mettre à jour la custom_request
+    await db.update(customRequests)
+      .set({
+        status: "accepte",
+        artisanRef: targetQuote.artisanRef,
+        totalPrice: Number(targetQuote.proposedPrice),
+        updatedAt: now,
+      })
+      .where(eq(customRequests.id, id));
+
+    console.log(`[VORK-API] ✅ Quote accepted! Order ${orderId} created for artisan ${targetQuote.artisanRef}`);
+
+    return res.json({
+      success: true,
+      message: `Devis de ${targetQuote.artisanName} (${targetQuote.proposedPrice} MAD) accepté avec succès ! La commande est entrée en fabrication.`,
+      orderId,
+      order: newOrder,
+    });
+  } catch (err) {
+    console.error("[VORK-API] ❌ Error accepting quote:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * [CLIENT API] Récupérer toutes les demandes sur-mesure du client.
+ */
+router.get("/custom-requests", async (req, res) => {
+  const clientRef = req.userId || (req.query.clientRef ? String(req.query.clientRef) : "client-me");
+  try {
+    const list = await db.select().from(customRequests)
+      .where(or(eq(customRequests.clientRef, clientRef), eq(customRequests.clientRef, "client-me")))
+      .orderBy(desc(customRequests.createdAt));
+    return res.json({ success: true, count: list.length, customRequests: list });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /**

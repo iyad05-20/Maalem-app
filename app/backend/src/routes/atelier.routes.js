@@ -10,7 +10,8 @@ import {
   processAtelierMessage,
   selectAnchorProduct,
   generateSimulation,
-  submitCustomRequest
+  submitCustomRequest,
+  createDirectOrder
 } from '../services/llm/atelierService.js';
 import { resetSession } from '../services/llm/atelierSessionManager.js';
 
@@ -82,6 +83,30 @@ router.post('/generate', async (req, res) => {
       error: 'Generation failed',
       details: error.message
     });
+  }
+});
+
+/**
+ * POST /api/atelier/direct-order
+ * Directly buys / orders a catalog product from the preview sheet to its private artisan.
+ */
+router.post('/direct-order', async (req, res) => {
+  try {
+    const { productId, userId, clientSignature } = req.body;
+    if (!productId) {
+      return res.status(400).json({ error: 'productId is required.' });
+    }
+
+    const result = await createDirectOrder({
+      productId,
+      userId: userId || 'client-me',
+      clientSignature
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Error in /api/atelier/direct-order:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

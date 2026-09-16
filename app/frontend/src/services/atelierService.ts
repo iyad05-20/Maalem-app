@@ -110,6 +110,28 @@ export const atelierApi = {
   },
 
   /**
+   * Direct standard order creation from search preview bottom-sheet (Flow 1: Direct Buy).
+   */
+  async createDirectOrder(params: {
+    productId: string;
+    userId?: string;
+    clientSignature?: string;
+  }): Promise<{ success: boolean; orderId: string; order: any; message: string }> {
+    const res = await fetch(`${API_BASE}/atelier/direct-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Direct order failed (${res.status})`);
+    }
+
+    return res.json();
+  },
+
+  /**
    * Triggers adaptive simulation generation on Cloudflare FLUX.
    */
   async generateSimulation(sessionId: string): Promise<SimulationResponse> {

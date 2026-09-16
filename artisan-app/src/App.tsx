@@ -70,7 +70,7 @@ export const App: React.FC = () => {
     setLoading(true);
     try {
       const [o, r, d, w, h, p, cr, n, prof, st] = await Promise.all([
-        artisanAPI.getOrders(),
+        artisanAPI.getOrders().catch(() => []),
         artisanAPI.getReturns().catch(() => []),
         artisanAPI.getDisputes().catch(() => []),
         artisanAPI.getWallet().catch(() => null),
