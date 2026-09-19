@@ -1,0 +1,4 @@
+release:
+  image: web
+  command:
+    - "node src/scripts/seed-meili-on-deploy.js"

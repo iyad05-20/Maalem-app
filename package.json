@@ -1,29 +1,33 @@
 {
-  "name": "maalem-app-monorepo",
-  "version": "2.0.0",
-  "description": "Scalable marketplace platform with independent frontend and backend",
-  "private": true,
-  "workspaces": [
-    "apps/frontend",
-    "apps/backend",
-    "shared"
-  ],
+  "name": "maalem-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
   "scripts": {
-    "dev": "npm run dev --workspace=apps/frontend & npm run dev --workspace=apps/backend",
-    "dev:frontend": "npm run dev --workspace=apps/frontend",
-    "dev:backend": "npm run dev --workspace=apps/backend",
-    "build": "npm run build --workspace=apps/frontend && npm run build --workspace=apps/backend",
-    "build:frontend": "npm run build --workspace=apps/frontend",
-    "build:backend": "npm run build --workspace=apps/backend",
-    "type-check": "npm run type-check --workspace=apps/frontend && npm run type-check --workspace=apps/backend",
-    "lint": "npm run lint --workspace=apps/frontend && npm run lint --workspace=apps/backend",
-    "test": "npm run test --workspace=apps/frontend && npm run test --workspace=apps/backend"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iyad05-20/Maalem-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/iyad05-20/Maalem-app/issues"
+  },
+  "homepage": "https://github.com/iyad05-20/Maalem-app#readme",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "form-data": "^4.0.5"
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "express": "^5.2.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "typescript": "~5.8.2"
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
   }
 }

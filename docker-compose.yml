@@ -1,0 +1,78 @@
+services:
+  backend:
+    build:
+      context: ./app/backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./app/backend/.env
+    environment:
+      - MEILI_HOST=http://meilisearch:7700
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    # volumes:
+    #   - ../real_db2.json:/real_db2.json:ro
+    depends_on:
+      - meilisearch
+    networks:
+      - vork-network
+
+  frontend:
+    build:
+      context: ./app/frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_BACKEND_URL=http://localhost:3001/api
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - vork-network
+
+  admin-dashboard:
+    build:
+      context: ./admin-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3002:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - vork-network
+
+  artisan-app:
+    build:
+      context: ./artisan-app
+      dockerfile: Dockerfile
+    ports:
+      - "3003:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - vork-network
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.10
+    container_name: vork-meilisearch
+    restart: unless-stopped
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev_only_key_change_in_prod}
+      - MEILI_ENV=development
+    volumes:
+      - meili_data:/meili_data
+    networks:
+      - vork-network
+
+volumes:
+  meili_data:
+
+networks:
+  vork-network:
+    driver: bridge

@@ -1,50 +1,75 @@
-# Dependencies
+# Node dependencies
 node_modules/
 **/node_modules/
-dist/
-**/dist/
-dist-ssr/
-*.local
-
-# Environment
-.env
-.env.*
-**/.env
-**/.env.*
-!.env.example
-
-# Logs
-logs
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
+logs/
 
-# Editor
+# Build & cache output
+dist/
+**/dist/
+dist-ssr/
+build/
+.cache/
+*.tsbuildinfo
+.vercel
+
+# Environment files
+.env
+.env.*
+.env.local
+.env.*.local
+**/.env
+**/.env.*
+!.env.example
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Non-persistent tests, analysis scripts and outputs
+app/backend/test_*.js
+app/backend/evaluate_*.js
+app/backend/benchmark_*.js
+app/backend/benchmark_results.json
+app/backend/run_scenario_*.js
+app/backend/scenario_diagnostics_report.json
+app/backend/ensure_tables.mjs
+app/backend/test_conn.mjs
+app/backend/test_output/
+test_output/
+
+# Test output images & media artifacts
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.bmp
+
+# Editor & OS files
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 *.txt
+CVS/
 
-# Project specific
+# Project & IDE metadata
 .gemini/
+.agents/
 metadata.json
-
 walkthrough.md
 task.md
 implementation_plan.md
 separation_plan.md
-backend/node_modules/
-frontend/node_modules/
-
-# Ignore legacy and tests
-vork_app_v1/
-*.mjs
-output.png
-.vercel

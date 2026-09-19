@@ -1,0 +1,25 @@
+{
+  "name": "@maalem/backend",
+  "version": "1.0.0",
+  "description": "Maalem backend — Recommendation + Search API",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --no-warnings src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "drizzle-orm": "^0.33.0",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "meilisearch": "^0.59.0",
+    "postgres": "^3.4.9",
+    "zod": "^3.23.8"
+  }
+}
