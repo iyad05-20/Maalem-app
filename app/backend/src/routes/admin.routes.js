@@ -14,6 +14,7 @@ import {
 } from "../core/db/schema.js";
 import { recordVendorWarning } from "../client/services/artisanOrderService.js";
 import { requireAdmin, logAdminAction } from "../middleware/localAuth.middleware.js";
+import { runAllCronJobs } from "../services/cronService.js";
 
 export const adminRouter = express.Router();
 adminRouter.use(requireAdmin);
@@ -530,3 +531,23 @@ adminRouter.post("/formal-requests/:id/observation", async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
+/**
+ * POST /api/admin/cron/trigger-now
+ * Déclenchement manuel immédiat de la vérification des retards logistiques et alertes C01/C08.
+ */
+adminRouter.post("/cron/trigger-now", async (req, res) => {
+  try {
+    const results = await runAllCronJobs();
+    const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+    await logAdminAction(operatorId, "trigger_cron_manual", "system_cron", { job: "run-all" }, req.ip);
+    return res.json({ 
+      success: true, 
+      message: "Vérification des retards logistiques et alertes C01/C08 exécutée avec succès.", 
+      results 
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+

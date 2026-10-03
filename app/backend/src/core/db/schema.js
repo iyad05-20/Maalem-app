@@ -65,6 +65,12 @@ export const orders = pgTable("orders", {
   packageDimensions: text("package_dimensions"), // JSON string: { length, width, height }
   clientApprovalStatus: text("client_approval_status").default("pending"), // 'pending' | 'approved'
   clientApprovalRequestedAt: text("client_approval_requested_at"),
+  
+  // Direct Shipping & Carrier Tracking (Décision C05 & C08)
+  carrierName: text("carrier_name"),
+  carrierTrackingNumber: text("carrier_tracking_number"),
+  shippingProofPhoto: text("shipping_proof_photo"),
+  notReceivedReportedAt: text("not_received_reported_at"),
 });
 
 export const formalRequests = pgTable("formal_requests", {

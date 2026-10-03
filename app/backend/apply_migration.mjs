@@ -35,6 +35,10 @@ async function run() {
   await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS reception_validated_by TEXT;`;
   await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS non_reception_claimed_at TEXT;`;
   await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS non_reception_reason TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS carrier_name TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS carrier_tracking_number TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS shipping_proof_photo TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS not_received_reported_at TEXT;`;
 
   // 2. Vendor profiles columns
   console.log('2. Adding missing columns to vendor_profiles...');

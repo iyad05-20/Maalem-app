@@ -24,12 +24,12 @@ const createOrderSchema = z.object({
   productImage: z.string().optional(),
   productId: z.string().optional(),
   quantity: z.number().int().positive().optional(),
-  transportProvider: z.enum(["sendit", "vendeur"]).optional(),
+  transportProvider: z.enum(["sendit", "vendeur", "direct", "transporteur"]).optional(),
   clientSignature: z.string().optional(),
 });
 
 const returnSchema = z.object({
-  mode: z.enum(["sendit", "propres_moyens"]),
+  mode: z.enum(["sendit", "propres_moyens", "vendeur", "direct", "transporteur"]),
   returnShippingFee: z.number().nonnegative().optional(),
 });
 

@@ -33,7 +33,33 @@ import {
 import { creditClientWallet } from "../client/services/clientWalletService.js";
 
 export const artisanRouter = express.Router();
-// Authentification obligatoire pour toutes les routes artisan (Anti-IDOR)
+
+/**
+ * GET /api/artisan/vendor/:vendorRef/profile
+ * Profil public de boutique artisanale & historique des avertissements (Accessible à tous / public)
+ */
+artisanRouter.get("/vendor/:vendorRef/profile", async (req, res) => {
+  const vendorRef = req.params.vendorRef;
+  const [profileFound] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef));
+  const profile = profileFound || {
+    id: vendorRef,
+    warningCountCurrentMonth: 0,
+    suspensionStatus: "active",
+    suspendedUntil: null,
+  };
+  const warnings = await db.select().from(vendorWarnings).where(eq(vendorWarnings.vendorRef, vendorRef));
+  res.json({ success: true, profile, warnings });
+});
+
+/**
+ * GET /api/artisan/orders/:id/label
+ * Récupération du Bon de Livraison / Justificatif d'expédition (Accessible pour consultation/téléchargement)
+ */
+artisanRouter.get("/orders/:id/label", async (req, res) => {
+  res.json({ success: true, labelUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf" });
+});
+
+// Authentification obligatoire pour toutes les routes de gestion d'atelier (Anti-IDOR)
 artisanRouter.use(requireAuth(["artisan", "admin"]));
 
 export const getArtisanRef = (req) => {
@@ -1544,43 +1570,5 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
   }
 
   return res.json({ success: true, message: "Devis / Offre transmis au client avec succès !", quote: newQuote });
-});
-
-/**
- * POST /api/artisan/orders/:id/ship
- * Route d'expédition (Legacy / Wrapper Étape 1 Sendit)
- */
-artisanRouter.post("/orders/:id/ship", async (req, res) => {
-  try {
-    const result = await shipOrder(req.params.id, req.body);
-    res.json({ success: true, status: "en_preparation", ...result });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
-/**
- * GET /api/artisan/vendor/:vendorRef/profile
- * Profil public de boutique artisanale & historique des avertissements
- */
-artisanRouter.get("/vendor/:vendorRef/profile", async (req, res) => {
-  const vendorRef = req.params.vendorRef;
-  const [profileFound] = await db.select().from(vendorProfiles).where(eq(vendorProfiles.id, vendorRef));
-  const profile = profileFound || {
-    id: vendorRef,
-    warningCountCurrentMonth: 0,
-    suspensionStatus: "active",
-    suspendedUntil: null,
-  };
-  const warnings = await db.select().from(vendorWarnings).where(eq(vendorWarnings.vendorRef, vendorRef));
-  res.json({ success: true, profile, warnings });
-});
-
-/**
- * GET /api/artisan/orders/:id/label
- * Récupération du Bon de Livraison / Justificatif d'expédition
- */
-artisanRouter.get("/orders/:id/label", async (req, res) => {
-  res.json({ success: true, labelUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf" });
 });
 

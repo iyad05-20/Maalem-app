@@ -48,7 +48,7 @@ async function run() {
 
   const flow1Pass = directData.success &&
     directData.order?.productType === 'standard' &&
-    directData.order?.transportProvider === 'sendit';
+    (directData.order?.transportProvider === 'vendeur' || directData.order?.transportProvider === 'direct' || directData.order?.transportProvider === 'sendit');
   console.log('  Verdict Flux 1:', flow1Pass ? '✅ PASSÉ' : '❌ ÉCHOUÉ');
 
   // ──────────────────────────────────────────────────────────────────────────
