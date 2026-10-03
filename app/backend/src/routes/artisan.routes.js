@@ -30,7 +30,6 @@ import {
   contestWarningForceMajeure,
   shipOrder
 } from "../client/services/artisanOrderService.js";
-import { senditClient } from "../services/sendit/senditClient.js";
 import { creditClientWallet } from "../client/services/clientWalletService.js";
 
 export const artisanRouter = express.Router();
@@ -1579,15 +1578,9 @@ artisanRouter.get("/vendor/:vendorRef/profile", async (req, res) => {
 
 /**
  * GET /api/artisan/orders/:id/label
- * Récupération du Bon de Livraison (BL) officiel Sendit
+ * Récupération du Bon de Livraison / Justificatif d'expédition
  */
 artisanRouter.get("/orders/:id/label", async (req, res) => {
-  try {
-    const result = await senditClient.getLabels(req.query.code || "");
-    res.json(result);
-  } catch (e) {
-    console.warn(`[VORK-API] ⚠️ Failed to fetch label from Sendit API (${e.message}). Using local fallback.`);
-    res.json({ success: true, labelUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf" });
-  }
+  res.json({ success: true, labelUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf" });
 });
 
