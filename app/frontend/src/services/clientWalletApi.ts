@@ -131,6 +131,18 @@ export const clientWalletAPI = {
     return data;
   },
 
+  async cancelQuoteSelection(requestId: string): Promise<{ success: boolean; message: string; refundAmount: number }> {
+    const res = await fetch(`${API_BASE}/client/custom-requests/${requestId}/cancel-quote-selection`, {
+      method: "POST",
+      headers: getHeaders(),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Échec de l'annulation de la sélection.");
+    }
+    return data;
+  },
+
   async fetchCustomRequests(_clientRef = "client-me"): Promise<any[]> {
     try {
       const res = await fetch(`${API_BASE}/client/custom-requests?clientRef=${_clientRef}`, {
@@ -151,13 +163,15 @@ export const clientWalletAPI = {
     productType: "standard" | "personnalise" = "standard",
     productTitle?: string,
     productImage?: string,
-    artisanName?: string
+    artisanName?: string,
+    productId?: string,
+    quantity?: number
   ): Promise<ClientOrder> {
     try {
       const res = await fetch(`${API_BASE}/client/orders`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({ clientRef, artisanRef, artisanName, totalPrice, productType, productTitle, productImage }),
+        body: JSON.stringify({ clientRef, artisanRef, artisanName, totalPrice, productType, productTitle, productImage, productId, quantity }),
       });
       if (res.ok) {
         const backendOrder = await res.json() as ClientOrder;
@@ -170,8 +184,16 @@ export const clientWalletAPI = {
         current.unshift(backendOrder);
         saveOrders(current);
         return backendOrder;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.error) {
+          throw new Error(errData.error);
+        }
       }
-    } catch {
+    } catch (e: any) {
+      if (e.message && (e.message.includes("Le vendeur a déclaré son refus") || e.message.includes("hors stock"))) {
+        throw e;
+      }
       // Fallback local dev
     }
 
@@ -268,12 +290,12 @@ export const clientWalletAPI = {
     return { success: true, refundAmount };
   },
 
-  async requestReturn(orderId: string, mode: "sendit" | "propres_moyens", returnShippingFee = 35): Promise<{ success: boolean; returnId: string }> {
+  async requestReturn(orderId: string, reason: string = ""): Promise<{ success: boolean; returnId: string }> {
     try {
       const res = await fetch(`${API_BASE}/client/orders/${orderId}/return`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({ mode, returnShippingFee })
+        body: JSON.stringify({ reason })
       });
       if (res.ok) return await res.json() as { success: boolean; returnId: string };
     } catch {
@@ -282,12 +304,9 @@ export const clientWalletAPI = {
     const orders = getStoredOrders();
     const order = orders.find((o) => o.id === orderId);
     if (!order) throw new Error("Commande introuvable");
-    if (order.productType !== "standard") throw new Error("Le droit de rétractation de 7 jours ne s'applique qu'aux produits standards.");
     if (order.status !== "livre") throw new Error("Le retour n'est possible qu'après la livraison.");
 
     order.status = "retour_initie";
-    order.carrierChoice = mode;
-    order.returnShippingFee = mode === "sendit" ? returnShippingFee : 0;
     order.returnStatus = "initie";
     saveOrders(orders);
 
@@ -534,7 +553,7 @@ export const clientWalletAPI = {
     return { success: true, data };
   },
 
-  async shipOrder(orderId: string, deliveryData: any): Promise<{ success: boolean; status: string; senditDeliveryCode: string }> {
+  async shipOrder(orderId: string, deliveryData: any): Promise<{ success: boolean; status: string; carrierTrackingNumber?: string; senditDeliveryCode?: string }> {
     try {
       const res = await fetch(`${API_BASE}/artisan/orders/${orderId}/ship`, {
         method: "POST",
@@ -549,9 +568,12 @@ export const clientWalletAPI = {
     const order = orders.find((o) => o.id === orderId);
     if (order) {
       order.status = "en_cours_de_transport";
-      order.senditDeliveryCode = `SND-${Date.now()}`;
+      order.carrierName = deliveryData?.carrierName || "Expédition directe Maâlem";
+      order.carrierTrackingNumber = deliveryData?.trackingNumber || `EXP-${Date.now()}`;
+      order.shippedAt = new Date().toISOString();
+      order.estimatedDeliveryDays = Number(deliveryData?.days || 3);
       saveOrders(orders);
-      return { success: true, status: "en_cours_de_transport", senditDeliveryCode: order.senditDeliveryCode };
+      return { success: true, status: "en_cours_de_transport", carrierTrackingNumber: order.carrierTrackingNumber || undefined };
     }
     throw new Error("Commande introuvable");
   },
@@ -587,50 +609,6 @@ export const clientWalletAPI = {
     return { success: true, labelUrl: "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf" };
   },
 
-  async shipSenditStep1(orderId: string, deliveryData: any): Promise<{ success: boolean; senditDeliveryCode: string; waybillUrl: string; message?: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/artisan/orders/${orderId}/ship-sendit-step1`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(deliveryData),
-      });
-      if (res.ok) return await res.json();
-    } catch {
-      // Fallback
-    }
-    const orders = getStoredOrders();
-    const order = orders.find((o) => o.id === orderId);
-    if (order) {
-      order.senditDeliveryCode = `SND-MOCK-${Date.now()}`;
-      order.senditWaybillUrl = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
-      saveOrders(orders);
-      return { success: true, senditDeliveryCode: order.senditDeliveryCode, waybillUrl: order.senditWaybillUrl };
-    }
-    throw new Error("Commande introuvable");
-  },
-
-  async shipSenditStep2(orderId: string, blAttachedPhoto: string): Promise<{ success: boolean; status: string; senditDeliveryCode: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/artisan/orders/${orderId}/ship-sendit-step2`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ blAttachedPhoto }),
-      });
-      if (res.ok) return await res.json();
-    } catch {
-      // Fallback
-    }
-    const orders = getStoredOrders();
-    const order = orders.find((o) => o.id === orderId);
-    if (order) {
-      order.status = "en_cours_de_transport";
-      order.senditWaybillPhoto = blAttachedPhoto;
-      order.shippedAt = new Date().toISOString();
-      saveOrders(orders);
-      return { success: true, status: "en_cours_de_transport", senditDeliveryCode: order.senditDeliveryCode || `SND-${Date.now()}` };
-    }
-    throw new Error("Commande introuvable");
-  },
 
   async shipVendeurSelf(orderId: string, { transportDurationDays = 7 }: { transportDurationDays?: number }): Promise<{ success: boolean; status: string; transportProvider: string }> {
     try {
@@ -734,17 +712,6 @@ export const clientWalletAPI = {
     };
   },
 
-  async simulateWebhook(payload: any): Promise<any> {
-    const res = await fetch(`${BACKEND_ROOT}/api/webhooks/sendit`, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "x-sendit-signature": "dummy_signature"
-      },
-      body: JSON.stringify(payload),
-    });
-    return res.json();
-  },
 
   // ⏰ Déclencheur et monitoring des Cron Jobs
   async triggerCronJob(jobName: string = "run-all"): Promise<any> {

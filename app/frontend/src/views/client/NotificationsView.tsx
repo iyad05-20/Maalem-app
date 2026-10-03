@@ -181,27 +181,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
       }
     }
 
-    // 5. INFO : Bon de Livraison (BL) généré pour Sendit
-    if (o.senditDeliveryCode && o.status === "en_preparation") {
-      notifications.push({
-        id: `notif-bl-${o.id}`,
-        orderId: o.id,
-        title: lang === "ar" ? "إصدار بوليصة الشحن" : "Bordereau d'Expédition Prêt",
-        message: lang === "ar"
-          ? `تم تجهيز بوليصة التوصيل (${o.senditDeliveryCode}) لطلب "${itemTitle}". جاري تجهيز الطرد للتسليم.`
-          : `L'étiquette d'expédition (${o.senditDeliveryCode}) a été émise pour "${itemTitle}". Le colis est en cours de préparation.`,
-        type: "info",
-        isRead: true,
-        badgeText: lang === "ar" ? "الشحن" : "EXPÉDITION",
-        createdAt: o.createdAt,
-      });
-    }
-
     // 6. INFO : Colis en cours de transport
     if (o.status === "en_cours_de_transport") {
-      const providerLabel = o.transportProvider === "vendeur" 
-        ? (lang === "ar" ? "عبر المعلم مباشرة" : "directement par l'artisan") 
-        : (lang === "ar" ? "عبر شريكنا اللوجستي" : "par notre transporteur partenaire");
+      const providerLabel = o.carrierName || (lang === "ar" ? "عبر المعلم / الشحن المعتمد" : "par l'artisan / son transporteur");
       notifications.push({
         id: `notif-ship-${o.id}`,
         orderId: o.id,

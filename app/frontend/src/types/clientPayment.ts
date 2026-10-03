@@ -27,7 +27,12 @@ export interface ClientOrder {
   productImage?: string;
   totalPrice: number;
   productType: ProductType;
-  transportProvider?: "sendit" | "vendeur";
+  transportProvider?: "vendeur";
+  carrierName?: string | null;
+  carrierTrackingNumber?: string | null;
+  shippingProofPhoto?: string | null;
+  estimatedTransportDays?: number | null;
+  estimatedDeliveryDays?: number | null;
   status: OrderStatus;
   createdAt: string;
   updatedAt?: string | null;
@@ -38,7 +43,6 @@ export interface ClientOrder {
   returnInitiatedAt?: string | null;
   depositAmount?: number;
   tranche?: "total_100" | "acompte_50";
-  carrierChoice?: "sendit" | "propres_moyens" | null;
   trackingNumber?: string | null;
   returnShippingFee?: number;
   returnStatus?: "initie" | "valide" | "refuse" | null;
@@ -48,8 +52,6 @@ export interface ClientOrder {
   // E-Signature and photos
   clientSignature?: string | null;
   prepPhotos?: string | null;
-  senditWaybillUrl?: string | null;
-  senditWaybillPhoto?: string | null;
   vendeurDeliverySignaturePhoto?: string | null;
 
   // Escrow & validation lifecycle
@@ -60,21 +62,11 @@ export interface ClientOrder {
   clientApprovalRequestedAt?: string | null;
   escrowActionChoice?: string | null;
   nonReceptionClaimedAt?: string | null;
+  notReceivedReportedAt?: string | null;
   refusedByArtisan?: number | null;
   refusalReason?: string | null;
 
-  // Sendit delivery integrations
   senditDeliveryCode?: string | null;
-  senditPickupCode?: string | null;
-  pickupDistrictId?: number | null;
-  deliveryDistrictId?: number | null;
-  allowOpen?: number | null;
-  allowTry?: number | null;
-  counterUnreachable?: number | null;
-  proofImage?: string | null;
-  packageDimensions?: string | null;
-  shippingParcelFee?: number | null;
-  estimatedTransportDays?: number | null;
 }
 
 export interface WalletTransaction {

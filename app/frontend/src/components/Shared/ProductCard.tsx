@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { Product } from '../../types';
 import { recSession } from '../../services/recommendationSession';
 import { useClientI18n } from '../../services/i18n';
+import { LuxuryStockBadge } from './LuxuryStockBadge';
 
 interface ProductCardProps {
   product: Product;
@@ -121,6 +122,17 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, isF
             {displayBadge}
           </span>
         )}
+
+        {/* Badge Stock Limité / Rupture Luxe */}
+        <div style={{ position: 'absolute', bottom: 8, left: 8, zIndex: 2, pointerEvents: 'none' }}>
+          <LuxuryStockBadge
+            stock={pAny.stock}
+            initialStock={pAny.initialStock || pAny.initial_stock}
+            isOutOfStock={pAny.isOutOfStock || pAny.is_out_of_stock}
+            stockPolicy={pAny.stockPolicy || pAny.stock_policy}
+            variant="compact"
+          />
+        </div>
 
         {/* Fav button (BOOKMARK) */}
         <button

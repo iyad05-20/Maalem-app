@@ -5,6 +5,7 @@ import type { Product, View } from '../../types';
 import { recSession } from '../../services/recommendationSession';
 import { reviewsService, type Review } from '../../services/reviewsService';
 import { clientWalletAPI } from '../../services/clientWalletApi';
+import { LuxuryStockBadge } from '../../components/Shared/LuxuryStockBadge';
 
 interface ProductDetailViewProps {
   product: Product;
@@ -67,6 +68,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     ? parseFloat(product.price.replace(/[^\d]/g, '')) || 450
     : (product.price as any || 450);
 
+  const pAny = product as any;
+  const currentStock = typeof pAny.stock === 'number' ? pAny.stock : undefined;
+  const initialStock = typeof pAny.initialStock === 'number' ? pAny.initialStock : (typeof pAny.initial_stock === 'number' ? pAny.initial_stock : currentStock);
+  const isOutOfStock = Boolean(pAny.isOutOfStock || pAny.is_out_of_stock || (typeof currentStock === 'number' && currentStock <= 0));
+  const stockPolicy = pAny.stockPolicy || pAny.stock_policy || {};
+  const allowOrderExceedingStock = Boolean(stockPolicy.allowOrderExceedingStock ?? stockPolicy.allow_order_exceeding_stock ?? true);
+  const isStrictOutOfStock = isOutOfStock && !allowOrderExceedingStock;
+  const isOnDemandOrder = isOutOfStock && allowOrderExceedingStock;
+
   // Sync bookmark state with parent prop
   useEffect(() => {
     setIsFav(isFavorite || false);
@@ -113,15 +123,20 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         "standard",
         product.title,
         productImage,
-        artisanName
+        artisanName,
+        product.id,
+        1
       );
 
       console.log(`[DETAIL] Order initialized for ${product.title} (ID: ${newOrder.id})`);
       setActiveOrderId(newOrder.id);
       onNavigate('client-order-detail');
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error("[DETAIL] Error ordering:", err);
+      if (err?.message) {
+        alert(err.message);
+      }
     } finally {
       setIsOrdering(false);
     }
@@ -223,12 +238,22 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
               alt={product.title}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
-            {product.badge && (
+            {/* Sceau / Badge de stock de luxe Vork */}
+            <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 2 }}>
+              <LuxuryStockBadge
+                stock={currentStock}
+                initialStock={initialStock}
+                isOutOfStock={isOutOfStock}
+                stockPolicy={stockPolicy}
+                variant="card"
+              />
+            </div>
+            {product.badge && !isOutOfStock && (
               <span
                 style={{
                   position: 'absolute',
                   top: 16,
-                  left: 16,
+                  right: 16,
                   background: 'rgba(255, 255, 255, 0.95)',
                   color: 'var(--accent-warm)',
                   fontWeight: 700,
@@ -248,6 +273,19 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.45rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1.25, marginBottom: 8, textAlign: 'left' }}>
               {product.title}
             </h1>
+
+            {/* Badge Stock étendu si applicable */}
+            {(currentStock !== undefined || isOutOfStock) && (
+              <div style={{ marginBottom: 12 }}>
+                <LuxuryStockBadge
+                  stock={currentStock}
+                  initialStock={initialStock}
+                  isOutOfStock={isOutOfStock}
+                  stockPolicy={stockPolicy}
+                  variant="detail"
+                />
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
               <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'rgba(233, 230, 225, 0.6)', padding: '3px 8px', borderRadius: 8 }}>
                 {product.category ? product.category.toUpperCase() : 'ARTISANAT'}
@@ -421,27 +459,37 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         >
           <button
             onClick={handleOrder}
-            disabled={isOrdering}
+            disabled={isOrdering || isStrictOutOfStock}
             style={{
               width: '100%',
               padding: '16px',
               borderRadius: 20,
-              background: 'linear-gradient(135deg, var(--primary), #2D4356)',
+              background: isStrictOutOfStock 
+                ? 'rgba(26, 42, 58, 0.2)' 
+                : isOnDemandOrder 
+                  ? 'linear-gradient(135deg, #B8623F, #D4AF37)' 
+                  : 'linear-gradient(135deg, var(--primary), #2D4356)',
               color: '#FFFFFF',
               border: 'none',
               fontFamily: 'var(--font-display)',
               fontWeight: 700,
               fontSize: '0.92rem',
-              cursor: isOrdering ? 'wait' : 'pointer',
+              cursor: isOrdering ? 'wait' : isStrictOutOfStock ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
-              boxShadow: '0 8px 24px rgba(26, 42, 58, 0.16)'
+              boxShadow: isStrictOutOfStock ? 'none' : '0 8px 24px rgba(26, 42, 58, 0.16)'
             }}
           >
-            {isOrdering ? 'Traitement...' : 'Acheter maintenant'}
-            {!isOrdering && <ArrowRight size={16} />}
+            {isOrdering 
+              ? 'Traitement...' 
+              : isStrictOutOfStock 
+                ? 'Édition épuisée · Victime de son succès' 
+                : isOnDemandOrder 
+                  ? 'Commander la confection (sur commande)' 
+                  : 'Acheter maintenant'}
+            {!isOrdering && !isStrictOutOfStock && <ArrowRight size={16} />}
           </button>
         </div>
       </motion.div>

@@ -13,10 +13,14 @@ import {
   X,
   Bell,
   Clock,
+  Truck,
+  Scale,
 } from "lucide-react";
 import type { ClientOrder } from "../../types/clientPayment";
 import { clientWalletAPI } from "../../services/clientWalletApi";
 import { useClientI18n, getStatusLabel } from "../../services/i18n";
+import { ValidationConfirmModal } from "./components/ValidationConfirmModal";
+import { ClientFormalRequestModal } from "./components/ClientFormalRequestModal";
 
 interface ClientOrderDetailViewProps {
   orderId?: string;
@@ -109,9 +113,12 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [cgvAccepted, setCgvAccepted] = useState(false);
   const [showCgvTextModal, setShowCgvTextModal] = useState(false);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [validationType, setValidationType] = useState<"delivery" | "receipt">("delivery");
+  const [showFormalRequestModal, setShowFormalRequestModal] = useState(false);
 
   // Formulaires & Sécurité
-  const returnMode: "sendit" | "propres_moyens" = "propres_moyens";
+  const returnMode: "propres_moyens" = "propres_moyens";
   const [trackingNumber, setTrackingNumber] = useState("");
   const [extendHours, setExtendHours] = useState<24 | 48 | 72>(24);
   const [disputeReasonCategory, setDisputeReasonCategory] = useState("Défaut de structure / assemblage (fissure interne, collage défaillant)");
@@ -279,24 +286,32 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
     && hoursSinceCreation >= 34
     && hoursSinceCreation < 48;
 
-  // Tâche 3 : Bannière validation réception 24h (Art. 4.3 C)
-  const showValidateDeliveryBanner = selectedOrder?.status === "livre" && hoursSinceDelivery < 24;
-  const showValidateReminder18h = showValidateDeliveryBanner && hoursSinceDelivery >= 18;
-  const hoursLeftToValidate = Math.max(0, 24 - hoursSinceDelivery);
+  // C08: Tolérance de 48h après la date estimée de livraison déclarée par le vendeur
+  const shippedAtMs = selectedOrder?.shippedAt ? new Date(selectedOrder.shippedAt).getTime() : 0;
+  const estDays = selectedOrder?.estimatedDeliveryDays || 3;
+  const estimatedArrivalMs = shippedAtMs > 0 ? (shippedAtMs + estDays * 24 * 3600 * 1000) : 0;
+  const toleranceEndMs = estimatedArrivalMs > 0 ? (estimatedArrivalMs + 48 * 3600 * 1000) : 0;
+  const nowMs = Date.now();
+  const isToleranceActive = selectedOrder?.status === "en_cours_de_transport" && toleranceEndMs > 0 && nowMs < toleranceEndMs;
+  const toleranceHoursRemaining = Math.max(0, Math.ceil((toleranceEndMs - nowMs) / (3600 * 1000)));
 
-  // Tâche 4 : Déclaration non-réception 24h après validation automatique (Art. 4.3 D)
-  let hoursAfterAutoValidation = 0;
-  if (selectedOrder?.autoValidatedAt) {
-    hoursAfterAutoValidation = (Date.now() - new Date(selectedOrder.autoValidatedAt).getTime()) / (1000 * 60 * 60);
-  }
-  const canDeclareNotReceived = selectedOrder?.status === "auto_valide" && hoursAfterAutoValidation < 24;
+  // C08: Déclaration non-réception débloquée après tolérance 48h
+  const canDeclareNotReceived = (
+    (selectedOrder?.status === "en_cours_de_transport" && (!isToleranceActive || toleranceEndMs === 0)) ||
+    selectedOrder?.status === "auto_valide"
+  ) && !selectedOrder?.notReceivedReportedAt;
 
-  const canReturn7d = selectedOrder ? (!isCustom && ["livre", "auto_valide"].includes(selectedOrder.status) && daysSinceDelivery <= 7) : false;
+  // C01: Alerte retard de réponse client (≥ 5 jours après expédition sans confirmation)
+  const isClientDelayAlert = (selectedOrder?.status === "en_cours_de_transport" || (selectedOrder?.status === "livre" && selectedOrder?.clientApprovalStatus !== "approved"))
+    && shippedAtMs > 0
+    && (nowMs - shippedAtMs) >= 5 * 24 * 3600 * 1000;
+
+  const canReturn7d = selectedOrder ? (!isCustom && ["livre", "complete", "auto_valide"].includes(selectedOrder.status) && daysSinceDelivery <= 7) : false;
   const canDispute90d = selectedOrder ? (
-    ["livre", "auto_valide", "complete"].includes(selectedOrder.status) && daysSinceDelivery <= 90
+    ["livre", "complete", "auto_valide"].includes(selectedOrder.status) && daysSinceDelivery <= 90
   ) : false;
   const isDisputePostEscrow = selectedOrder ? (canDispute90d && daysSinceDelivery > 15) : false;
-  const canCancel = selectedOrder ? (!["en_cours_de_transport", "livre", "auto_valide", "complete", "annulee"].includes(selectedOrder.status)) : false;
+  const canCancel = selectedOrder ? (!["en_cours_de_transport", "livre", "complete", "auto_valide", "annulee"].includes(selectedOrder.status)) : false;
 
   // Actions sécurisées
   const handlePay = async () => {
@@ -337,7 +352,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
     if (!selectedOrder || loading) return;
     setLoading(true); setMessage(null);
     try {
-      await clientWalletAPI.requestReturn(selectedOrder.id, returnMode, 35);
+      await clientWalletAPI.requestReturn(selectedOrder.id, returnMode);
       setShowReturnModal(false);
       setMessage({ type: "success", text: "Demande de retour initiée. L'artisan dispose de 48h à réception." });
       await loadData();
@@ -395,38 +410,6 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
     } finally { setLoading(false); }
   };
 
-  // Tâche 3 : Validation manuelle de la réception (Art. 4.3 C & 13.3)
-  const handleValidateDelivery = async () => {
-    if (!selectedOrder || loading) return;
-    if (!window.confirm("Confirmez-vous la bonne réception de votre commande ?")) return;
-    setLoading(true); setMessage(null);
-    try {
-      await clientWalletAPI.validateDelivery(selectedOrder.id);
-      setMessage({ type: "success", text: "Réception confirmée avec succès." });
-      await loadData();
-    } catch (e: unknown) {
-      setMessage({ type: "error", text: (e as Error).message });
-    } finally { setLoading(false); }
-  };
-
-  // Approbation client de la réception en mains propres (Livraison Vendeur - Priorité 11/09/2026 & Art. 13/18 CGV)
-  const handleApproveReceipt = async () => {
-    if (!selectedOrder || loading) return;
-    if (!window.confirm("Confirmez-vous avoir bien reçu votre commande remise en mains propres par le Maâlem ?")) return;
-    setLoading(true); setMessage(null);
-    try {
-      await clientWalletAPI.approveReceipt(selectedOrder.id);
-      const isCustomProd = ["personnalise", "sur_commande"].includes(selectedOrder.productType);
-      const successText = isCustomProd
-        ? "Réception validée avec succès. S'agissant d'un produit sur-mesure confectionné pour vous, les fonds ont été libérés au Maâlem."
-        : "Réception validée avec succès. Votre délai légal de rétractation de 7 jours est désormais ouvert (Art. 18 & 19 CGV).";
-      setMessage({ type: "success", text: successText });
-      await loadData();
-    } catch (e: unknown) {
-      setMessage({ type: "error", text: (e as Error).message });
-    } finally { setLoading(false); }
-  };
-
   // Tâche 4 : Déclaration de non-réception (Art. 13.3)
   const handleDeclareNotReceived = async () => {
     if (!selectedOrder || loading) return;
@@ -455,6 +438,46 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
       }
     } catch (err: any) {
       setMessage({ type: "error", text: err.message || "Erreur lors de l'acceptation du devis." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelCustomQuoteSelection = async (requestId: string) => {
+    if (!window.confirm("Voulez-vous annuler votre sélection de devis ? La totalité des fonds sera immédiatement recréditée sur votre portefeuille Vork.")) return;
+    setLoading(true); setMessage(null);
+    try {
+      const res = await clientWalletAPI.cancelQuoteSelection(requestId);
+      setMessage({ type: "success", text: res.message || "Sélection annulée avec succès. Votre portefeuille a été recrédité." });
+      await loadData();
+    } catch (err: any) {
+      setMessage({ type: "error", text: err.message || "Erreur lors de l'annulation du devis." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmValidationModal = async () => {
+    if (!selectedOrder || loading) return;
+    setLoading(true); setMessage(null);
+    try {
+      if (validationType === "receipt") {
+        await clientWalletAPI.approveReceipt(selectedOrder.id);
+        const isCustomProd = ["personnalise", "sur_commande"].includes(selectedOrder.productType);
+        setMessage({
+          type: "success",
+          text: isCustomProd
+            ? "Réception validée avec succès. S'agissant d'un produit sur-mesure confectionné pour vous, les fonds ont été libérés au Maâlem."
+            : "Réception validée avec succès. Votre délai légal de rétractation de 7 jours est désormais ouvert (Art. 18 & 19 CGV)."
+        });
+      } else {
+        await clientWalletAPI.validateDelivery(selectedOrder.id);
+        setMessage({ type: "success", text: "Réception confirmée avec succès. Merci pour votre confiance !" });
+      }
+      setShowValidationModal(false);
+      await loadData();
+    } catch (e: unknown) {
+      setMessage({ type: "error", text: (e as Error).message });
     } finally {
       setLoading(false);
     }
@@ -948,6 +971,40 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                     </div>
                   )}
 
+                  {/* Option Annulation Sélection Devis (Décision 38) */}
+                  {isCustom && !selectedOrder.acceptedAt && ["acompte_verse", "payee_integralement"].includes(selectedOrder.status) && (
+                    <div style={{ background: "rgba(184, 98, 63, 0.08)", border: "1.5px solid rgba(184, 98, 63, 0.3)", borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <Clock size={16} color="var(--accent-warm, #B8623F)" />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--accent-warm, #B8623F)" }}>
+                          {lang === "ar" ? "في انتظار تأكيد الصانع" : "Devis sélectionné · En attente de confirmation du Maâlem"}
+                        </span>
+                      </div>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--text-secondary)", margin: "0 0 10px 0" }}>
+                        {lang === "ar"
+                          ? "طالما لم يقم الصانع بتأكيد الطلب بعد، يمكنك إلغاء اختيارك واسترجاع كامل المبلغ فورياً على محفظتك لاختيار عرض آخر."
+                          : "Tant que le Maâlem n'a pas validé la commande, vous êtes libre d'annuler votre sélection. Votre paiement sera 100% remboursé sur votre portefeuille Vork pour vous permettre de retenir un autre devis."}
+                      </p>
+                      <button
+                        onClick={() => handleCancelCustomQuoteSelection(selectedOrder.id)}
+                        disabled={loading}
+                        style={{
+                          padding: "9px 14px",
+                          borderRadius: 12,
+                          border: "1px solid var(--accent-warm, #B8623F)",
+                          background: "#FFFFFF",
+                          color: "var(--accent-warm, #B8623F)",
+                          fontFamily: "var(--font-display)",
+                          fontWeight: 700,
+                          fontSize: 12,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {lang === "ar" ? "إلغاء اختيار هذا العرض واسترجاع الرصيد" : "Annuler le choix de ce devis (Remboursement Portefeuille)"}
+                      </button>
+                    </div>
+                  )}
+
                   {/* ── Section En attente de devis (Projet sur le Marché Public) ── */}
                   {(selectedOrder as any).status === "en_attente_artisan" && !(selectedOrder as any).quotes?.length && (
                     <div style={{ background: "rgba(212,175,55,0.08)", border: "1.5px solid rgba(212,175,55,0.3)", borderRadius: 16, padding: "16px", marginBottom: 14 }}>
@@ -990,31 +1047,86 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                     </div>
                   )}
 
-                  {/* ── Tâche 3 : Bannière Validation Réception 24h (Art. 4.3 C) ── */}
-                  {showValidateDeliveryBanner && (
-                    <div style={{ background: showValidateReminder18h ? "rgba(220,53,69,0.08)" : "rgba(45,106,79,0.08)", border: `1px solid ${showValidateReminder18h ? "rgba(220,53,69,0.3)" : "rgba(45,106,79,0.3)"}`, borderRadius: 16, padding: "14px 16px", marginBottom: 14 }}>
+                  {/* ── Validation Réception & Suivi d'expédition directe ── */}
+                  {selectedOrder.status === "en_cours_de_transport" && (
+                    <div style={{ background: "rgba(45,106,79,0.08)", border: "1.5px solid rgba(45,106,79,0.3)", borderRadius: 16, padding: "16px", marginBottom: 14 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                        <CheckCircle size={16} color={showValidateReminder18h ? "#DC3545" : "#2D6A4F"} />
-                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: showValidateReminder18h ? "#DC3545" : "#2D6A4F" }}>
-                          {showValidateReminder18h 
-                            ? (lang === "ar" ? "⚠️ اقتراب مهلة التأكيد التلقائي" : "⚠️ Validation automatique imminente") 
-                            : (lang === "ar" ? "✅ تأكيد استلام الشحنة" : "✅ Confirmez la réception")}
+                        <Truck size={18} color="#2D6A4F" />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "#2D6A4F" }}>
+                          {lang === "ar" ? "📦 شحنة في الطريق إليكم" : "📦 Commande en cours d'acheminement"}
                         </span>
                       </div>
-                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: "0 0 10px" }}>
-                        {showValidateReminder18h
-                          ? (lang === "ar" ? `متبقي حوالي ${Math.ceil(hoursLeftToValidate)} ساعة للتأكيد قبل التثبيت التلقائي.` : `Il vous reste environ ${Math.ceil(hoursLeftToValidate)}h pour valider. Sans action, la réception sera validée automatiquement à minuit (Art. 4.3 C).`)
-                          : (lang === "ar" ? `تم تسليم الشحنة. لديكم ٢٤ ساعة لتأكيد الاستلام أو الإبلاغ عن أي ملاحظة. (متبقي ~${Math.ceil(hoursLeftToValidate)} س)` : `Votre colis a été livré. Vous disposez de 24h pour confirmer la réception ou signaler un défaut apparent. (Encore ~${Math.ceil(hoursLeftToValidate)}h)`)
-                        }
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--text-secondary)", margin: "0 0 12px", lineHeight: 1.45 }}>
+                        {lang === "ar"
+                          ? "قام المعلم بشحن طلبكم. بمجرد استلام القطعة وفحصها، يرجى تأكيد الاستلام لتحرير المستحقات في محفظة الصانع."
+                          : "Le Maâlem a expédié votre commande. Dès réception et vérification de votre pièce, confirmez la réception pour libérer les fonds sur le portefeuille du Maâlem (C02)."}
                       </p>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => setShowDisputeModal(true)} disabled={loading} style={{ flex: 1, padding: "9px", borderRadius: 10, border: "1px solid rgba(212,175,55,0.4)", background: "rgba(212,175,55,0.08)", color: "#8B6914", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
-                          {lang === "ar" ? "الإبلاغ عن ملاحظة" : "Signaler un défaut"}
+                        <button 
+                          onClick={() => setShowFormalRequestModal(true)} 
+                          disabled={loading} 
+                          style={{ 
+                            flex: 1, 
+                            padding: "10px", 
+                            borderRadius: 12, 
+                            border: "1px solid var(--accent-warm, #B8623F)", 
+                            background: "rgba(184,98,63,0.08)", 
+                            color: "var(--accent-warm, #B8623F)", 
+                            fontFamily: "var(--font-display)", 
+                            fontWeight: 700, 
+                            fontSize: 11.5, 
+                            cursor: "pointer", 
+                            display: "flex", 
+                            alignItems: "center", 
+                            justifyContent: "center", 
+                            gap: 4 
+                          }}
+                        >
+                          <Scale size={13} />
+                          {lang === "ar" ? "طلب رسمي" : "Demande formelle"}
                         </button>
-                        <button onClick={handleValidateDelivery} disabled={loading} style={{ flex: 1, padding: "9px", borderRadius: 10, border: "none", background: "#2D6A4F", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
-                          {loading ? "…" : (lang === "ar" ? "تأكيد الاستلام والتوقيع" : "Confirmer la réception")}
+                        <button 
+                          onClick={() => { setValidationType("delivery"); setShowValidationModal(true); }} 
+                          disabled={loading} 
+                          style={{ flex: 1.5, padding: "10px", borderRadius: 12, border: "none", background: "#2D6A4F", color: "#fff", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, cursor: "pointer", boxShadow: "0 2px 8px rgba(45,106,79,0.25)" }}
+                        >
+                          {loading ? "…" : (lang === "ar" ? "تأكيد الاستلام" : "Confirmer la réception")}
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {/* C08: Encart pédagogique Tolérance 48h & Séquestre Garanti */}
+                  {selectedOrder.status === "en_cours_de_transport" && isToleranceActive && (
+                    <div style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.3)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <Clock size={15} color="#8B6914" />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, color: "#8B6914" }}>
+                          {lang === "ar" ? "حماية الضمان المالي · مهلة إضافية 48 ساعة" : "Séquestre Garanti · Tolérance 48h (C08)"}
+                        </span>
+                      </div>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                        {lang === "ar"
+                          ? `أموالكم مؤمنة 100% في حساب الضمان ولن تحول للصانع إلا بموافقتكم. في حال التأخر، تبدأ مهلة التسامح لمدة 48 ساعة بعد موعد التوصيل المقدر (متبقي ~${toleranceHoursRemaining} ساعة) قبل إتاحة زر الإبلاغ عن عدم الاستلام.`
+                          : `Vos fonds restent cantonnés à 100% sous séquestre sécurisé. En vertu des règles Vork, une période de tolérance de 48h après la date estimée de livraison s'applique (encore ~${toleranceHoursRemaining}h). Si le colis n'est toujours pas arrivé à l'issue de ce délai, vous pourrez le déclarer non reçu.`}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* C01: Alerte retard de réponse client (≥ 5 jours) */}
+                  {isClientDelayAlert && (
+                    <div style={{ background: "rgba(184,98,63,0.08)", border: "1px solid rgba(184,98,63,0.3)", borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <AlertTriangle size={15} color="var(--accent-warm, #B8623F)" />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 12, color: "var(--accent-warm, #B8623F)" }}>
+                          {lang === "ar" ? "تذكير : التحقق من استلام الطلب (C01)" : "Vérification de réception requise (C01)"}
+                        </span>
+                      </div>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
+                        {lang === "ar"
+                          ? "مرت أكثر من 5 أيام على الشحن دون تأكيد من طرفكم. تم إخطار فريق الدعم والبائع للمتابعة والتأكد من وصول طردكم بسلام."
+                          : "Plus de 5 jours se sont écoulés sans validation de réception. Une demande de vérification est transmise à l'administrateur Vork et au Maâlem afin de s'assurer de la bonne remise du colis."}
+                      </p>
                     </div>
                   )}
 
@@ -1039,7 +1151,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                               : "Le Maâlem a indiqué vous avoir livré votre commande en mains propres. Votre validation permet de débloquer le versement ou d'ouvrir votre délai de rétractation de 7 jours.")}
                       </p>
                       <button 
-                        onClick={handleApproveReceipt} 
+                        onClick={() => { setValidationType("receipt"); setShowValidationModal(true); }} 
                         disabled={loading} 
                         style={{ 
                           width: "100%", 
@@ -1065,24 +1177,14 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                     </div>
                   )}
 
-                  {/* Badge Réception validée (Livraison Vendeur) */}
-                  {selectedOrder.transportProvider === "vendeur" && selectedOrder.clientApprovalStatus === "approved" && (
+                  {/* Badge Réception validée */}
+                  {selectedOrder.clientApprovalStatus === "approved" && (
                     <div style={{ background: "rgba(45,106,79,0.06)", border: "1px solid rgba(45,106,79,0.2)", borderRadius: 14, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
                       <CheckCircle size={15} color="#2D6A4F" />
                       <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "#2D6A4F", fontWeight: 600 }}>
                         {isCustom 
                           ? (lang === "ar" ? "تم تأكيد الاستلام · تم صرف مستحقات الصانع (تفصيل خاص)" : "Réception validée · Fonds libérés au Maâlem (Sur-mesure)") 
-                          : (lang === "ar" ? "تم تأكيد الاستلام · مهلة الـ 7 أيام للرجوع جارية" : `Réception validée · Délai de rétractation 7j en cours${selectedOrder.withdrawalExpiresAt ? ` (jusqu'au ${new Date(selectedOrder.withdrawalExpiresAt).toLocaleDateString()})` : ""}`)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Badge Preuve de livraison automatique (Sendit POD) */}
-                  {selectedOrder.transportProvider === "sendit" && selectedOrder.status === "livre" && !isCustom && (
-                    <div style={{ background: "rgba(45,106,79,0.06)", border: "1px solid rgba(45,106,79,0.2)", borderRadius: 14, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
-                      <CheckCircle size={15} color="#2D6A4F" />
-                      <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "#2D6A4F", fontWeight: 600 }}>
-                        {lang === "ar" ? "تم تسليم الطرد عبر سينديت · مهلة الـ 7 أيام للرجوع جارية" : `Livraison validée par POD Sendit Express · Rétractation légale 7 jours en cours${selectedOrder.withdrawalExpiresAt ? ` (jusqu'au ${new Date(selectedOrder.withdrawalExpiresAt).toLocaleDateString()})` : ""}`}
+                          : (lang === "ar" ? "تم تأكيد الاستلام · تم تحرير المستحقات لمحفظة المعلم" : `Réception validée · Fonds libérés au Maâlem${selectedOrder.withdrawalExpiresAt ? ` · Rétractation légale 7j (jusqu'au ${new Date(selectedOrder.withdrawalExpiresAt).toLocaleDateString()})` : ""}`)}
                       </span>
                     </div>
                   )}
@@ -1134,7 +1236,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                               {lang === "ar" ? "طلب إرجاع (مهلة ٧ أيام)" : "Demander un Retour (7j)"}
                             </p>
                             <p style={{ fontFamily: "var(--font-body)", fontSize: 11, opacity: 0.6, margin: 0 }}>
-                              {lang === "ar" ? "عبر سينديت أو بالوسائل الذاتية" : "Sendit ou propres moyens"}
+                              {lang === "ar" ? "عبر التنسيق المباشر بالوسائل الخاصة" : "Expédition directe par vos propres moyens"}
                             </p>
                           </div>
                         </div>
@@ -1180,22 +1282,32 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                       </motion.button>
                     )}
 
-                    {/* Déclaration non-réception après auto-validation (Art. 4.3 D) */}
+                    {/* Déclaration non-réception après tolérance 48h (C08) */}
                     {canDeclareNotReceived && (
                       <motion.button whileTap={{ scale: 0.98 }} onClick={handleDeclareNotReceived} disabled={loading} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderRadius: 14, background: "rgba(220,53,69,0.08)", color: "#C0392B", border: "1px solid rgba(220,53,69,0.25)", cursor: "pointer", width: "100%" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <AlertTriangle size={18} />
                           <div style={{ textAlign: "left" }}>
                             <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 13, margin: 0 }}>
-                              {lang === "ar" ? "إبلاغ عن عدم الاستلام بعد التثبيت التلقائي" : "Signaler non-réception (Fenêtre 24h)"}
+                              {lang === "ar" ? "إبلاغ عن عدم استلام الشحنة (بعد مهلة 48 ساعة)" : "Déclarer colis non reçu (Tolérance 48h révolue)"}
                             </p>
                             <p style={{ fontFamily: "var(--font-body)", fontSize: 11, opacity: 0.7, margin: 0 }}>
-                              {lang === "ar" ? "فتح تحقيق فوري مع شركة التوصيل سينديت" : "Ouverture d'enquête logistique Vork & Sendit"}
+                              {lang === "ar" ? "تجميد الصرف وفتح تحقيق مباشر لدى إدارة ڤورك" : "Maintien du séquestre et ouverture d'enquête Vork"}
                             </p>
                           </div>
                         </div>
                         <ChevronRight size={16} opacity={0.6} style={{ transform: lang === "ar" ? "rotate(180deg)" : "none" }} />
                       </motion.button>
+                    )}
+
+                    {/* Information si déclaration de non-réception déjà transmise */}
+                    {selectedOrder.notReceivedReportedAt && (
+                      <div style={{ background: "rgba(220,53,69,0.08)", border: "1px solid rgba(220,53,69,0.25)", borderRadius: 14, padding: "12px 14px", display: "flex", alignItems: "center", gap: 8 }}>
+                        <AlertTriangle size={16} color="#DC3545" />
+                        <span style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "#DC3545", fontWeight: 600 }}>
+                          {lang === "ar" ? "تم تسجيل إبلاغكم عن عدم الاستلام. المعلم وإدارة المنصة بصدد التحقق." : "Signalement de non-réception enregistré. L'escrow reste verrouillé pendant l'enquête."}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1317,22 +1429,25 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                         {lang === "ar" ? "الطلب في طريق التوصيل إليكم" : "Colis en cours d'acheminement"}
                       </p>
                       <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: "0 0 8px", lineHeight: 1.45 }}>
-                        {selectedOrder.transportProvider === "sendit" 
-                          ? (lang === "ar" ? "تم تسليم طردكم إلى شريك التوصيل سينديت إكسبريس." : "Votre colis a été confié au transporteur partenaire Sendit Express.")
-                          : (lang === "ar" ? "يتم شحن وتوصيل الطلب مباشرة بوسائل المعلم الخاصة." : "Votre commande est expédiée directement par les moyens propres du Maâlem.")}
+                        {selectedOrder.carrierName 
+                          ? (lang === "ar" ? `يتم التوصيل بواسطة: ${selectedOrder.carrierName}` : `Expédié via le transporteur : ${selectedOrder.carrierName}`)
+                          : (lang === "ar" ? "يتم شحن وتوصيل الطلب مباشرة بوسائل المعلم الخاصة." : "Votre commande est expédiée directement par les soins du Maâlem.")}
                       </p>
 
-                      {selectedOrder.senditDeliveryCode && (
+                      {selectedOrder.estimatedDeliveryDays && (
+                        <p style={{ fontFamily: "var(--font-body)", fontSize: 10.5, color: "#8B6914", margin: "0 0 8px", fontWeight: 600 }}>
+                          {lang === "ar" ? `المدة المقدرة للتوصيل: ${selectedOrder.estimatedDeliveryDays} أيام` : `Délai estimé : ${selectedOrder.estimatedDeliveryDays} jours ouvrés`}
+                        </p>
+                      )}
+
+                      {(selectedOrder.carrierTrackingNumber || selectedOrder.senditDeliveryCode) && (
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.7)", padding: "8px 12px", borderRadius: 10, border: "1px solid rgba(45,106,79,0.15)" }}>
                           <div>
-                            <span style={{ fontSize: 9.5, color: "var(--text-secondary)", display: "block" }}>Numéro de suivi Sendit</span>
-                            <code style={{ fontSize: 12, fontWeight: 700, color: "#2D6A4F" }}>{selectedOrder.senditDeliveryCode}</code>
+                            <span style={{ fontSize: 9.5, color: "var(--text-secondary)", display: "block" }}>
+                              {lang === "ar" ? "رقم التتبع" : "Numéro de suivi"}
+                            </span>
+                            <code style={{ fontSize: 12, fontWeight: 700, color: "#2D6A4F" }}>{selectedOrder.carrierTrackingNumber || selectedOrder.senditDeliveryCode}</code>
                           </div>
-                          {selectedOrder.senditWaybillUrl && (
-                            <a href={selectedOrder.senditWaybillUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "var(--primary)", fontWeight: 600, textDecoration: "underline" }}>
-                              Voir BL
-                            </a>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1345,7 +1460,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                         {lang === "ar" ? "تم تسليم الطرد للمستلم" : "Colis remis au destinataire"}
                       </p>
                       <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
-                        La livraison a été enregistrée. Utilisez les boutons ci-dessus pour confirmer la réception sous 24h ou signaler un incident.
+                        {lang === "ar" ? "تم تسجيل الاستلام. يرجى تأكيد الاستلام لتحرير المستحقات في محفظة المعلم أو فتح طلب رسمي في حال الملاحظات." : "La livraison a été déclarée. Utilisez les boutons ci-dessus pour confirmer la bonne réception et libérer les fonds au Maâlem."}
                       </p>
                     </div>
                   )}
@@ -1516,11 +1631,11 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
             <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }} style={{ background: "var(--surface)", borderRadius: 24, padding: 20, width: "100%", maxHeight: "80%", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-lg)", border: "1px solid var(--border)" }}>
               <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", marginBottom: 12, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}>Conditions Générales Vork</h3>
               <div style={{ flex: 1, overflowY: "auto", fontFamily: "var(--font-body)", fontSize: "0.75rem", color: "var(--text-secondary)", lineHeight: "1.5", display: "flex", flexDirection: "column", gap: 10, paddingRight: 6, scrollbarWidth: "none" }}>
-                <p><strong>1. Séquestre & Libération des fonds (Art. 15 & 18 CGV) :</strong> 100% des fonds sont cantonnés sous séquestre sécurisé. Pour les produits standards, le délai légal de rétractation de 7 jours débute dès la validation de réception (POD transporteur Sendit ou approbation par clic client en livraison vendeur). À l'issue des 7 jours sans litige, les fonds sont débloqués pour la commande concernée.</p>
+                <p><strong>1. Séquestre & Libération des fonds (Art. 15 & 18 CGV) :</strong> 100% des fonds sont cantonnés sous séquestre sécurisé. Dès la confirmation explicite de la bonne réception par le client, les fonds sont immédiatement libérés et transférés sur le portefeuille du Maâlem (C02). Pour les produits standards, le délai légal de rétractation de 7 jours débute dès cette confirmation.</p>
                 <p><strong>2. Produits Sur-Mesure / Personnalisés (Art. 17 & 19 CGV - Art. 36 Loi 31-08) :</strong> Conformément à la loi marocaine de protection du consommateur, aucun droit de rétractation ne s'applique aux commandes confectionnées sur mesure selon les spécifications de l'acheteur. Une heure de grâce (60 minutes) post-acceptation atelier permet une annulation sans frais. Dès confirmation de réception, les fonds sont immédiatement libérés à l'artisan.</p>
                 <p><strong>3. Retours Produits Standards (Art. 19.3 & 19.4 CGV) :</strong> Réservé exclusivement aux produits standards non personnalisés sous 7 jours. L'organisation du retour incombe intégralement au client, par ses propres moyens et à ses frais exclusifs, avec transmission obligatoire de la preuve d'expédition.</p>
                 <p><strong>4. Garantie Légale des Vices Cachés (3 mois / 90 jours - Art. 16.9 CGV) :</strong> Tout défaut de matière première ou vice structurel grave peut être signalé pendant 3 mois complets suivant la réception pour arbitrage et expertise Vork.</p>
-                <p><strong>5. Transport Sendit vs Vendeur (Art. 13 & 14 CGV) :</strong> Sendit Express est réservé aux produits standards de dimensions ≤ 40×40 cm. Les pièces hors gabarit et sur-mesure sont acheminées par le Maâlem.</p>
+                <p><strong>5. Modalités de Livraison Directe (Art. 13 & 14 CGV) :</strong> L'expédition et l'acheminement des commandes sont assurés directement par le Maâlem, par ses propres moyens ou le transporteur de son choix (C05). En cas de retard excédant la date estimée plus 48h de tolérance (C08), le client dispose de la faculté de signaler la non-réception pour intervention de Vork.</p>
               </div>
               <button 
                 onClick={() => setShowCgvTextModal(false)} 
@@ -1682,6 +1797,37 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── ValidationConfirmModal (Confirmation avant validation client - Q1) ── */}
+      {selectedOrder && (
+        <ValidationConfirmModal
+          isOpen={showValidationModal}
+          orderId={selectedOrder.id}
+          artisanName={selectedOrder.artisanName}
+          onClose={() => setShowValidationModal(false)}
+          onConfirm={handleConfirmValidationModal}
+          loading={loading}
+        />
+      )}
+
+      {/* ── ClientFormalRequestModal (Demande formelle d'intervention - Q3) ── */}
+      {selectedOrder && (
+        <ClientFormalRequestModal
+          isOpen={showFormalRequestModal}
+          orderId={selectedOrder.id}
+          artisanName={selectedOrder.artisanName}
+          onClose={() => setShowFormalRequestModal(false)}
+          onSuccess={() => {
+            setMessage({
+              type: "success",
+              text: lang === "ar"
+                ? "تم إرسال طلب التدخل الرسمي بنجاح. مهلة ٤٨ ساعة مفتوحة للرد."
+                : "Demande formelle enregistrée. L'artisan dispose de 48h pour répondre.",
+            });
+            loadData();
+          }}
+        />
+      )}
 
     </div>
   );

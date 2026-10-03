@@ -1,10 +1,18 @@
 import React, { useState } from 'react';
+import { LuxuryStockBadge } from './LuxuryStockBadge';
 
 interface SearchProduct {
   id: string;
   title: string;
   category_group: string;
   price?: number;
+  stock?: number;
+  initialStock?: number;
+  initial_stock?: number;
+  isOutOfStock?: boolean;
+  is_out_of_stock?: boolean;
+  stockPolicy?: any;
+  stock_policy?: any;
 }
 
 interface SearchProductCardProps {
@@ -49,6 +57,17 @@ export const SearchProductCard: React.FC<SearchProductCardProps> = ({ product, o
         <span className="badge-premium" style={{ color: '#CC7755', background: 'rgba(255, 255, 255, 0.9)' }}>
           {product.category_group || 'Divers'}
         </span>
+
+        {/* Badge Stock Limité / Rupture Luxe */}
+        <div style={{ position: 'absolute', bottom: 8, left: 8, zIndex: 2, pointerEvents: 'none' }}>
+          <LuxuryStockBadge
+            stock={product.stock}
+            initialStock={product.initialStock || product.initial_stock}
+            isOutOfStock={product.isOutOfStock || product.is_out_of_stock}
+            stockPolicy={product.stockPolicy || product.stock_policy}
+            variant="compact"
+          />
+        </div>
       </div>
 
       {/* Info */}
