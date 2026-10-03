@@ -7,7 +7,7 @@ import { useI18n } from "../services/i18n";
 interface DirectDeliveryModalProps {
   order: ArtisanOrder;
   onClose: () => void;
-  onShipDirect: (orderId: string, days: number) => Promise<any>;
+  onShipDirect: (orderId: string, payload: { carrierName: string; trackingNumber: string; days: number }) => Promise<any>;
   onCompleteDelivery: (orderId: string, signaturePhoto: string) => Promise<any>;
 }
 
@@ -17,8 +17,10 @@ export const DirectDeliveryModal: React.FC<DirectDeliveryModalProps> = ({
   onShipDirect,
   onCompleteDelivery,
 }) => {
-  const { lang, t } = useI18n();
+  const { lang, isRTL, t } = useI18n();
   const isInTransport = order.status === "en_cours_de_transport";
+  const [carrierName, setCarrierName] = useState<string>("Transport personnel / Propres moyens");
+  const [trackingNumber, setTrackingNumber] = useState<string>("");
   const [days, setDays] = useState<number>(7);
   const [signaturePhoto, setSignaturePhoto] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -27,7 +29,7 @@ export const DirectDeliveryModal: React.FC<DirectDeliveryModalProps> = ({
     e.preventDefault();
     setLoading(true);
     try {
-      await onShipDirect(order.id, days);
+      await onShipDirect(order.id, { carrierName, trackingNumber, days });
       onClose();
     } catch (err: any) {
       alert(err.message || "Erreur expédition directe.");
@@ -115,6 +117,33 @@ export const DirectDeliveryModal: React.FC<DirectDeliveryModalProps> = ({
               <p style={{ fontSize: 11, color: "var(--primary)", margin: 0, lineHeight: 1.4 }}>
                 ℹ️ <strong>{t("direct_rule_9_3")}</strong> {t("direct_rule_9_3_text")}
               </p>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label className="form-label">
+                {isRTL ? "وسيلة النقل / اسم شركة الشحن *" : "Mode de transport / Transporteur *"}
+              </label>
+              <input
+                type="text"
+                required
+                className="form-input"
+                placeholder={isRTL ? "مثال: أمانة، ستيام، وسائل ذاتية، موزع محلي..." : "Ex: Amana, CTM Messagerie, Remise directe, Livreur local..."}
+                value={carrierName}
+                onChange={(e) => setCarrierName(e.target.value)}
+              />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label className="form-label">
+                {isRTL ? "رقم التتبع أو الوصل (اختياري)" : "Numéro de suivi / Référence (Optionnel)"}
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder={isRTL ? "مثال: AMN-849202" : "Ex: TRK-98342"}
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+              />
             </div>
 
             <div style={{ marginBottom: 16 }}>

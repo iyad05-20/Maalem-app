@@ -33,6 +33,13 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
   const [length, setLength] = useState("25");
   const [width, setWidth] = useState("25");
   const [height, setHeight] = useState("15");
+  const [shippingFee, setShippingFee] = useState("");
+  const [shippingThreshold, setShippingThreshold] = useState("3");
+  const [hasStockTracking, setHasStockTracking] = useState(false);
+  const [stockQty, setStockQty] = useState("10");
+  const [showStockToClient, setShowStockToClient] = useState(true);
+  const [allowExceedingStock, setAllowExceedingStock] = useState(false);
+  const [autoAcceptExceedingStock, setAutoAcceptExceedingStock] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Pricing formula: artisan saisit son prix NET
@@ -42,8 +49,6 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
   const tvaVal      = Math.round(commissionHt * 0.20); // 20% TVA sur commission seulement
   const clientPrice = numNet > 0 ? numNet + commissionHt + tvaVal : 0;
 
-  // Contrôle de volume Sendit (Règle Ziad 11/09/2026 : Max 40x40 cm)
-  const isSenditExceeded = Number(length) > 40 || Number(width) > 40 || Number(height) > 40;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +56,12 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
     setLoading(true);
     try {
       const selectedCat = CATEGORIES.find(c => c.key === categoryKey);
+      if (Number(shippingFee) > 0 && (!shippingThreshold || Number(shippingThreshold) < 1)) {
+        alert(isRTL ? "يرجى تحديد عتبة كمية الشحن (1 على الأقل لكل طرد)" : "Le seuil de quantité pour le transport est obligatoire (minimum 1 article).");
+        setLoading(false);
+        return;
+      }
+
       await onCreateProduct({
         title: title.trim(),
         description: description.trim(),
@@ -61,7 +72,14 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
         image,
         manufacturingDays: Number(manufacturingDays),
         dimensions: { length: Number(length), width: Number(width), height: Number(height) },
-        senditEligible: !isSenditExceeded && productType === "standard",
+        shippingFee: Number(shippingFee) || 0,
+        shippingThreshold: Number(shippingThreshold) || 1,
+        stock: hasStockTracking ? Number(stockQty) : null,
+        stockPolicy: hasStockTracking ? {
+          show_stock_to_client: showStockToClient,
+          allow_order_exceeding_stock: allowExceedingStock,
+          auto_accept_exceeding_stock: allowExceedingStock && autoAcceptExceedingStock,
+        } : {},
       });
       onClose();
     } catch (err: any) {
@@ -315,23 +333,150 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
                   </span>
                 </div>
               </div>
+            </div>
 
-              {/* Badge d'éligibilité Sendit */}
-              <div style={{
-                marginTop: 6,
-                padding: "6px 10px",
-                borderRadius: 8,
-                fontSize: 10,
-                lineHeight: 1.3,
-                background: isSenditExceeded ? "rgba(230, 81, 0, 0.08)" : "rgba(45, 106, 79, 0.08)",
-                border: isSenditExceeded ? "1px solid rgba(230, 81, 0, 0.3)" : "1px solid rgba(45, 106, 79, 0.25)",
-                color: isSenditExceeded ? "#E65100" : "#2D6A4F",
-                fontWeight: 600,
-              }}>
-                {isSenditExceeded
-                  ? (isRTL ? "⚠️ الحجم يتجاوز 40×40 سم: غير مؤهل لخدمة سنديت. سيتم الشحن حصراً بوسائلك الخاصة." : "⚠️ Dimensions > 40×40 cm : Hors gabarit Sendit. Transport Vendeur obligatoire.")
-                  : (isRTL ? "✓ متوافق مع الحجم الأقصى لشركة سنديت (أقل من 40×40 سم)." : "✓ Compatible avec le gabarit Sendit (≤ 40×40 cm).")}
+            {/* ─── FRAIS DE TRANSPORT & SEUIL OBLIGATOIRE (DÉCISION 33 & NOTE P3 / C14) ─── */}
+            <div style={{
+              background: "var(--bg-primary, #FAFAF8)",
+              border: "1px solid var(--border, #E9E6E1)",
+              borderRadius: 16,
+              padding: "12px 14px",
+            }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--primary, #1A2A3A)", display: "block", marginBottom: 8 }}>
+                {isRTL ? "مصاريف التوصيل وعتبة الكمية (إلزامية)" : "Frais de livraison & Seuil de quantité (Obligatoire)"}
+              </label>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+                <div>
+                  <label style={{ fontSize: 10, color: "var(--text-secondary, #5C6B78)", display: "block", marginBottom: 4 }}>
+                    {isRTL ? "تكلفة الشحن (درهم)" : "Frais par colis (MAD)"}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Ex: 30"
+                    value={shippingFee}
+                    onChange={e => setShippingFee(e.target.value)}
+                    className="form-input"
+                    style={{ fontSize: 12, padding: "8px 10px" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, color: "var(--text-secondary, #5C6B78)", display: "block", marginBottom: 4 }}>
+                    {isRTL ? "العتبة (عدد القطع) *" : "Seuil (Nb d'articles) *"}
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required={Number(shippingFee) > 0}
+                    placeholder="Ex: 3"
+                    value={shippingThreshold}
+                    onChange={e => setShippingThreshold(e.target.value)}
+                    className="form-input"
+                    style={{ fontSize: 12, padding: "8px 10px" }}
+                  />
+                </div>
               </div>
+
+              {/* Commentaire explicatif détaillé au-dessous (C14) */}
+              <div style={{
+                background: "rgba(26, 42, 58, 0.04)",
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontSize: 10.5,
+                lineHeight: 1.45,
+                color: "var(--text-secondary, #5C6B78)",
+                border: "1px solid var(--border, #E9E6E1)",
+              }}>
+                <strong style={{ color: "var(--primary, #1A2A3A)", display: "block", marginBottom: 3 }}>
+                  {isRTL ? "💡 كيف تعمل عتبة الشحن في متجرك؟" : "💡 Comment fonctionne le seuil de transport ?"}
+                </strong>
+                {isRTL
+                  ? "تحدد العتبة أقصى عدد من القطع التي يشملها نفس مبلغ الشحن في طرد واحد. عند تجاوز هذا العدد، تُحتسب حصة شحن إضافية لكل حزمة جديدة. مثال: إذا حددت 30 درهم وعتبة 3 قطع، فطلب 1 إلى 3 قطع = 30 درهم، بينما 4 إلى 6 قطع = 60 درهم."
+                  : "Le seuil définit le nombre maximal d'articles regroupés dans un même colis pour ce montant de livraison. Au-delà, un colis supplémentaire est facturé proportionnellement. Exemple : 30 MAD pour un seuil de 3 articles signifie que 1 à 3 articles = 30 MAD, 4 à 6 articles = 60 MAD."}
+              </div>
+            </div>
+
+            {/* ─── GESTION DE STOCK & POLITIQUES DE BOUTIQUE (DÉCISION 36) ─── */}
+            <div style={{
+              background: "var(--bg-primary, #FAFAF8)",
+              border: "1px solid var(--border, #E9E6E1)",
+              borderRadius: 16,
+              padding: "12px 14px",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: hasStockTracking ? 10 : 0 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "var(--primary, #1A2A3A)", margin: 0 }}>
+                    {isRTL ? "تتبع المخزون والسياسات (المادة ٣٦)" : "Suivi de stock & Politiques boutique (Décision 36)"}
+                  </label>
+                  <p style={{ fontSize: 10, color: "var(--text-secondary, #5C6B78)", margin: "2px 0 0 0" }}>
+                    {isRTL ? "اختياري — حماية ورشتك من الطلبات الزائدة" : "Optionnel — Protège votre atelier des ruptures"}
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={hasStockTracking}
+                  onChange={e => setHasStockTracking(e.target.checked)}
+                  style={{ width: 18, height: 18, accentColor: "var(--accent-warm, #B8623F)", cursor: "pointer" }}
+                />
+              </div>
+
+              {hasStockTracking && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border, #E9E6E1)" }}>
+                  <div>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: "var(--primary, #1A2A3A)", display: "block", marginBottom: 4 }}>
+                      {isRTL ? "الكمية الابتدائية المتوفرة (100% مرجعية) *" : "Quantité disponible initiale (100% de référence) *"}
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      required={hasStockTracking}
+                      value={stockQty}
+                      onChange={e => setStockQty(e.target.value)}
+                      className="form-input"
+                      style={{ fontSize: 12, padding: "8px 10px" }}
+                    />
+                  </div>
+
+                  {/* 3 Politiques de boutique */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--primary, #1A2A3A)", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={showStockToClient}
+                        onChange={e => setShowStockToClient(e.target.checked)}
+                        style={{ accentColor: "var(--accent-warm, #B8623F)" }}
+                      />
+                      <span>{isRTL ? "إظهار كمية المخزون للزبون بالصفحة" : "Afficher la quantité en stock au client"}</span>
+                    </label>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--primary, #1A2A3A)", cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={allowExceedingStock}
+                        onChange={e => {
+                          setAllowExceedingStock(e.target.checked);
+                          if (!e.target.checked) setAutoAcceptExceedingStock(false);
+                        }}
+                        style={{ accentColor: "var(--accent-warm, #B8623F)" }}
+                      />
+                      <span>{isRTL ? "السماح بالطلب إذا تجاوزت الكمية المخزون" : "Autoriser la commande si quantité > stock"}</span>
+                    </label>
+
+                    {allowExceedingStock && (
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-secondary, #5C6B78)", paddingInlineStart: 18, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={autoAcceptExceedingStock}
+                          onChange={e => setAutoAcceptExceedingStock(e.target.checked)}
+                          style={{ accentColor: "var(--accent-warm, #B8623F)" }}
+                        />
+                        <span>{isRTL ? "القبول التلقائي حتى مع تجاوز المخزون" : "Acceptation auto même en cas de dépassement"}</span>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Image URL */}

@@ -6,15 +6,16 @@ export interface ArtisanOrder {
   productType: "standard" | "personnalise" | "sur_commande";
   productTitle?: string;
   productImage?: string;
-  transportProvider: "sendit" | "vendeur";
+  transportProvider: "vendeur";
   status: string;
   createdAt: string;
   acceptedAt?: string | null;
   deliveredAt?: string | null;
   prepPhotos?: string[];
+  carrierName?: string | null;
+  carrierTrackingNumber?: string | null;
+  shippingProofPhoto?: string | null;
   senditDeliveryCode?: string | null;
-  senditWaybillUrl?: string | null;
-  senditWaybillPhoto?: string | null;
   vendeurDeliverySignaturePhoto?: string | null;
   clientSignature?: string | null;
   escrowReleasedAt?: string | null;
@@ -31,7 +32,7 @@ export interface ArtisanOrder {
 export interface ArtisanReturn {
   id: string;
   orderId: string;
-  mode: "sendit" | "propres_moyens";
+  mode: "direct" | "propres_moyens";
   returnShippingFee: number;
   status: "initie" | "resolu_conforme" | "rejete_non_conforme";
   createdAt: string;

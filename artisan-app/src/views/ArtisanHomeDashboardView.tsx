@@ -14,7 +14,6 @@ interface Props {
   onAccept: (orderId: string) => Promise<void>;
   onOpenRefuseModal: (orderId: string) => void;
   onOpenPrepPhotosModal: (orderId: string) => void;
-  onOpenSenditModal: (order: ArtisanOrder) => void;
   onOpenDirectDeliveryModal: (order: ArtisanOrder) => void;
   onEscrowChoice?: (orderId: string, action: "claim" | "extend", extendDays?: number) => Promise<void>;
   onNudgeClient?: (orderId: string) => Promise<void>;
@@ -24,7 +23,7 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
   wallet, orders,
   onOpenWithdrawalModal, onAccept,
   onOpenRefuseModal, onOpenPrepPhotosModal,
-  onOpenSenditModal, onOpenDirectDeliveryModal,
+  onOpenDirectDeliveryModal,
   onEscrowChoice, onNudgeClient,
 }) => {
   const { isRTL, t } = useI18n();
@@ -284,36 +283,19 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
                   )}
 
                   {inPrep && (
-                    order.productType === "standard" ? (
-                      <button className="btn-primary" onClick={() => onOpenSenditModal(order)} disabled={!hasPhotos} style={{ opacity: hasPhotos ? 1 : 0.45 }}>
-                        <Truck size={16} /> {t("order_generate_sendit")}
-                      </button>
-                    ) : (
-                      <button className="btn-primary" onClick={() => onOpenDirectDeliveryModal(order)} disabled={!hasPhotos} style={{ opacity: hasPhotos ? 1 : 0.45 }}>
-                        <FileSignature size={16} /> {t("order_declare_direct")}
-                      </button>
-                    )
-                  )}
-
-                  {inTransit && order.productType !== "standard" && (
-                    <button className="btn-primary" style={{ background: "var(--accent-emerald)" }} onClick={() => onOpenDirectDeliveryModal(order)}>
-                      <FileSignature size={16} /> {t("order_validate_signed")}
+                    <button className="btn-primary" onClick={() => onOpenDirectDeliveryModal(order)} disabled={!hasPhotos} style={{ opacity: hasPhotos ? 1 : 0.45 }}>
+                      <Truck size={16} /> {isRTL ? "إرسال / تسليم الطلب" : "Déclarer l'expédition / Livraison"}
                     </button>
                   )}
 
-                  {order.senditDeliveryCode && (
-                    <a
-                      className="btn-outline"
-                      href={`${getBackendUrl()}/artisan/orders/${order.id}/label?code=${order.senditDeliveryCode}`}
-                      target="_blank" rel="noopener noreferrer"
-                      style={{ textDecoration: "none", justifyContent: "center", fontSize: 12 }}
-                    >
-                      <Printer size={14} /> {t("order_download_label")}
-                    </a>
+                  {inTransit && (
+                    <button className="btn-primary" style={{ background: "var(--accent-emerald)" }} onClick={() => onOpenDirectDeliveryModal(order)}>
+                      <FileSignature size={16} /> {isRTL ? "تأكيد التسليم (مرفق بتوقيع الزبون)" : "Confirmer livraison effectuée"}
+                    </button>
                   )}
 
                   {/* ─── CARTE RELANCE CLIENT POUR APPROBATION RÉCEPTION (RÈGLE ZIAD 11/09/2026) ─── */}
-                  {order.status === "livre" && order.transportProvider === "vendeur" && order.clientApprovalStatus !== "approved" && order.productType === "standard" && (
+                  {order.status === "livre" && order.clientApprovalStatus !== "approved" && (
                     <div style={{ background: "rgba(196, 169, 106, 0.1)", border: "1px solid rgba(196, 169, 106, 0.3)", borderRadius: 12, padding: "10px 12px", marginTop: 4 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--primary)", marginBottom: 3 }}>
                         {isRTL ? "في انتظار تأكيد الزبون للاستلام" : "En attente d'approbation client"}

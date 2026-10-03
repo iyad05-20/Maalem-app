@@ -65,7 +65,7 @@ export const ReturnsWorkshopView: React.FC<ReturnsWorkshopViewProps> = ({
                       </span>
                     </div>
                   <p style={{ fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
-                    {t("returns_order_ref")} {ret.orderId} · {ret.mode === "sendit" ? t("returns_mode_sendit") : t("returns_mode_own")}
+                    {t("returns_order_ref")} {ret.orderId} · {ret.mode === "propres_moyens" ? t("returns_mode_own") : (isRTL ? "إرجاع مباشر متفق عليه" : "Retour / Échange direct")}
                   </p>
                   </div>
 

@@ -13,9 +13,9 @@ import { DisputesWorkshopView } from "./views/DisputesWorkshopView";
 
 import { CreatePostModalSheet } from "./components/CreatePostModalSheet";
 import { PrepPhotosModal } from "./components/PrepPhotosModal";
-import { SenditShippingModal } from "./components/SenditShippingModal";
 import { DirectDeliveryModal } from "./components/DirectDeliveryModal";
 import { RefuseOrderModal } from "./components/RefuseOrderModal";
+import { OutOfStockActionModal } from "./components/OutOfStockActionModal";
 import { DisputeReplyModal } from "./components/DisputeReplyModal";
 import { WithdrawalModal } from "./components/WithdrawalModal";
 import { CGVModalSheet } from "./components/CGVModalSheet";
@@ -59,12 +59,12 @@ export const App: React.FC = () => {
   const [showReturnsDrawer, setShowReturnsDrawer] = useState<boolean>(false);
   const [showDisputesDrawer, setShowDisputesDrawer] = useState<boolean>(false);
   const [prepPhotosOrderId, setPrepPhotosOrderId] = useState<string | null>(null);
-  const [senditModalOrder, setSenditModalOrder] = useState<ArtisanOrder | null>(null);
   const [directDeliveryOrder, setDirectDeliveryOrder] = useState<ArtisanOrder | null>(null);
   const [refuseOrderId, setRefuseOrderId] = useState<string | null>(null);
   const [replyDispute, setReplyDispute] = useState<ArtisanDispute | null>(null);
   const [showWithdrawalModal, setShowWithdrawalModal] = useState<boolean>(false);
   const [showCGVModal, setShowCGVModal] = useState<boolean>(false);
+  const [outOfStockProduct, setOutOfStockProduct] = useState<{ id: string; title: string; imageUrl?: string } | null>(null);
 
   const loadAllData = async () => {
     setLoading(true);
@@ -139,7 +139,34 @@ export const App: React.FC = () => {
   };
 
   const handleAcceptOrder = async (orderId: string) => {
-    await artisanAPI.acceptOrder(orderId);
+    try {
+      const res = await artisanAPI.acceptOrder(orderId);
+      await loadAllData();
+      if (res && res.stockAlert) {
+        const order = orders.find(o => o.id === orderId);
+        if (res.stockAlert.type === "stock_epuise") {
+          setOutOfStockProduct({
+            id: res.stockNotification?.productId || (order as any)?.productId || orderId,
+            title: (order as any)?.productTitle || "Création Artisanale",
+          });
+        }
+      }
+    } catch (err: any) {
+      if (err.stockCheck || err.actionRequired === "increment_stock" || err.message?.includes("stock") || err.message?.includes("المخزون")) {
+        const order = orders.find(o => o.id === orderId);
+        setOutOfStockProduct({
+          id: err.stockCheck?.productId || (order as any)?.productId || orderId,
+          title: (order as any)?.productTitle || "Création Artisanale",
+        });
+      } else {
+        alert(err.message || "Erreur lors de l'acceptation.");
+      }
+    }
+  };
+
+  const handleApplyStockAction = async (productId: string, action: string, payload?: any) => {
+    await artisanAPI.updateStock(productId, action, payload);
+    setOutOfStockProduct(null);
     await loadAllData();
   };
 
@@ -151,18 +178,6 @@ export const App: React.FC = () => {
   const handleUploadPrepPhotos = async (orderId: string, photos: string[]) => {
     await artisanAPI.uploadPrepPhotos(orderId, photos);
     await loadAllData();
-  };
-
-  const handleSenditStep1 = async (orderId: string, deliveryData: any) => {
-    const res = await artisanAPI.shipSenditStep1(orderId, deliveryData);
-    await loadAllData();
-    return res;
-  };
-
-  const handleSenditStep2 = async (orderId: string, blPhoto: string, estimatedTransportDays: number = 7) => {
-    const res = await artisanAPI.shipSenditStep2(orderId, blPhoto, estimatedTransportDays);
-    await loadAllData();
-    return res;
   };
 
   const handleEscrowChoice = async (orderId: string, action: "claim" | "extend", extendDays: number = 7) => {
@@ -177,8 +192,12 @@ export const App: React.FC = () => {
     return res;
   };
 
-  const handleShipDirect = async (orderId: string, days: number) => {
-    const res = await artisanAPI.shipVendeur(orderId, days);
+  const handleShipDirect = async (orderId: string, payload: { carrierName: string; trackingNumber: string; days: number }) => {
+    const res = await artisanAPI.shipOrder(orderId, {
+      carrierName: payload.carrierName,
+      trackingNumber: payload.trackingNumber,
+      transportDurationDays: payload.days,
+    });
     await loadAllData();
     return res;
   };
@@ -291,7 +310,6 @@ export const App: React.FC = () => {
             onAccept={handleAcceptOrder}
             onOpenRefuseModal={setRefuseOrderId}
             onOpenPrepPhotosModal={setPrepPhotosOrderId}
-            onOpenSenditModal={setSenditModalOrder}
             onOpenDirectDeliveryModal={setDirectDeliveryOrder}
             onEscrowChoice={handleEscrowChoice}
             onNudgeClient={handleNudgeClient}
@@ -413,15 +431,6 @@ export const App: React.FC = () => {
         />
       )}
 
-      {senditModalOrder && (
-        <SenditShippingModal
-          order={senditModalOrder}
-          defaultAddress={profileDetails?.pickupAddress}
-          onClose={() => setSenditModalOrder(null)}
-          onStep1={handleSenditStep1}
-          onStep2={handleSenditStep2}
-        />
-      )}
 
       {directDeliveryOrder && (
         <DirectDeliveryModal
@@ -437,6 +446,14 @@ export const App: React.FC = () => {
           orderId={refuseOrderId}
           onClose={() => setRefuseOrderId(null)}
           onRefuse={handleRefuseOrder}
+        />
+      )}
+
+      {outOfStockProduct && (
+        <OutOfStockActionModal
+          product={outOfStockProduct}
+          onClose={() => setOutOfStockProduct(null)}
+          onApplyAction={handleApplyStockAction}
         />
       )}
 

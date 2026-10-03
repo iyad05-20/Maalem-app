@@ -62,7 +62,23 @@ export const artisanAPI = {
       headers: getHeaders(),
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.error || "Erreur lors de l'acceptation.");
+    if (!data.success) {
+      const err: any = new Error(data.error || "Erreur lors de l'acceptation.");
+      err.stockCheck = data.stockCheck;
+      err.actionRequired = data.actionRequired;
+      throw err;
+    }
+    return data;
+  },
+
+  async updateStock(productId: string, action: string, payload?: any): Promise<any> {
+    const res = await fetch(`${getApiBase()}/products/${productId}/stock`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify({ action, ...payload }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur mise à jour stock.");
     return data;
   },
 
@@ -88,25 +104,14 @@ export const artisanAPI = {
     return data;
   },
 
-  async shipSenditStep1(orderId: string, deliveryData: any): Promise<any> {
-    const res = await fetch(`${getApiBase()}/orders/${orderId}/ship-sendit-step1`, {
+  async shipOrder(orderId: string, payload: { carrierName?: string; trackingNumber?: string; transportDurationDays?: number; notes?: string }): Promise<any> {
+    const res = await fetch(`${getApiBase()}/orders/${orderId}/ship`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify(deliveryData),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.error || "Erreur étape 1 Sendit.");
-    return data;
-  },
-
-  async shipSenditStep2(orderId: string, blAttachedPhoto: string, estimatedTransportDays: number = 7): Promise<any> {
-    const res = await fetch(`${getApiBase()}/orders/${orderId}/ship-sendit-step2`, {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify({ blAttachedPhoto, estimatedTransportDays }),
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error || "Erreur étape 2 Sendit.");
+    if (!data.success) throw new Error(data.error || "Erreur expédition de la commande.");
     return data;
   },
 
