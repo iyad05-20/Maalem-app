@@ -3,6 +3,7 @@ import { Sidebar, type AdminTab } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { OverviewView } from "./views/OverviewView";
 import { DisputesView } from "./views/DisputesView";
+import { FormalRequestsView } from "./views/FormalRequestsView";
 import { VendorsView } from "./views/VendorsView";
 import { EscrowLedgerView } from "./views/EscrowLedgerView";
 import { LogisticsView } from "./views/LogisticsView";
@@ -32,6 +33,7 @@ export const App: React.FC = () => {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [logisticsOrders, setLogisticsOrders] = useState<any[]>([]);
   const [cronExecutions, setCronExecutions] = useState<CronExecution[]>([]);
+  const [formalRequests, setFormalRequests] = useState<any[]>([]);
 
   // Selected Dispute for Workbench Modal
   const [activeDisputeModal, setActiveDisputeModal] = useState<DisputeDossier | null>(null);
@@ -46,7 +48,8 @@ export const App: React.FC = () => {
         withdrawalsRes,
         ledgerRes,
         logisticsRes,
-        cronRes
+        cronRes,
+        formalReqsRes
       ] = await Promise.all([
         adminAPI.getStats().catch(() => null),
         adminAPI.getDisputes().catch(() => []),
@@ -54,7 +57,8 @@ export const App: React.FC = () => {
         adminAPI.getWithdrawals().catch(() => []),
         adminAPI.getLedger().catch(() => []),
         adminAPI.getLogistics().catch(() => []),
-        adminAPI.getCronStatus().catch(() => [])
+        adminAPI.getCronStatus().catch(() => []),
+        adminAPI.getFormalRequests().catch(() => [])
       ]);
 
       if (statsRes) setStats(statsRes);
@@ -65,6 +69,7 @@ export const App: React.FC = () => {
       setLedger(ledgerRes);
       setLogisticsOrders(logisticsRes);
       setCronExecutions(cronRes);
+      setFormalRequests(formalReqsRes);
     } catch (err: any) {
       console.error("[ADMIN] Erreur lors du chargement des données:", err);
     } finally {
@@ -108,6 +113,7 @@ export const App: React.FC = () => {
 
   const openDisputesCount = disputes.filter(d => ["en_arbitrage_admin", "en_attente_artisan"].includes(d.status)).length;
   const warnedVendorsCount = vendorProfiles.filter(v => v.warningCountCurrentMonth >= 2).length;
+  const escalatedFormalRequestsCount = formalRequests.filter(r => r.status === "escaladee_admin").length;
 
   const getHeaderInfo = () => {
     switch (currentTab) {
@@ -115,12 +121,14 @@ export const App: React.FC = () => {
         return { title: "Vue d'Ensemble & KPIs Globaux", subtitle: "Supervision globale du réseau, du séquestre et des alertes d'arbitrage." };
       case "disputes":
         return { title: "⚖️ Médiation & Arbitrage des Litiges (Art. 20)", subtitle: "Instruction contradictoire et rendu de décision d'arbitrage motivé sous 48h." };
+      case "formal-requests":
+        return { title: "📜 Supervision des Demandes Formelles", subtitle: "Médiation et observations Vork sur les différends directs (Délai 48h)." };
       case "vendors":
         return { title: "🛡️ Santé des Boutiques Maâlems (Art. 6.4 & 22)", subtitle: "Gestion des compteurs d'avertissements mensuels et des suspensions." };
       case "escrow":
         return { title: "💰 Séquestre Financier & Retraits (Art. 14 bis)", subtitle: "Grand livre comptable et validation des virements bancaires sur RIB." };
       case "logistics":
-        return { title: "🚚 Supervision Logistique Sendit & Directe", subtitle: "Suivi des colis, gestion des clients injoignables et preuves d'émargement." };
+        return { title: "🚚 Supervision Logistique & Délais d'Acheminement", subtitle: "Suivi des expéditions directes, alertes de retard (C01) et réclamations de non-réception (C08)." };
       case "cron":
         return { title: "⏰ Monitoring du Moteur de Cron Jobs CGV", subtitle: "Supervision en direct et déclenchement manuel des automatisations réglementaires." };
     }
@@ -136,6 +144,7 @@ export const App: React.FC = () => {
         onTabChange={setCurrentTab}
         openDisputesCount={openDisputesCount}
         warningsCount={warnedVendorsCount}
+        formalRequestsCount={escalatedFormalRequestsCount}
       />
 
       {/* Main Area */}
@@ -164,6 +173,13 @@ export const App: React.FC = () => {
             <DisputesView
               disputes={disputes}
               onOpenWorkbench={setActiveDisputeModal}
+            />
+          )}
+
+          {currentTab === "formal-requests" && (
+            <FormalRequestsView
+              requests={formalRequests}
+              onRefresh={loadAllData}
             />
           )}
 

@@ -243,19 +243,29 @@ export const adminAPI = {
     return data.logs;
   },
 
-  async simulateSenditWebhook(payload: any): Promise<any> {
-    const root = getBackendUrl().replace(/\/admin\/?$/, "").replace(/\/api\/?$/, "");
-    const res = await fetch(`${root}/api/webhooks/sendit`, {
+  async triggerDeliveryDelayCheck(): Promise<any> {
+    const res = await adminFetch(`${getApiBase()}/cron/trigger-now`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-sendit-signature": "dummy_signature",
-      },
-      body: JSON.stringify({
-        event: "delivery.status.update",
-        ...payload,
-      }),
     });
     return res.json();
+  },
+
+  async getFormalRequests(status?: string): Promise<any[]> {
+    const query = status ? `?status=${status}` : "";
+    const res = await adminFetch(`${getApiBase()}/formal-requests${query}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur récupération demandes formelles.");
+    return data.requests;
+  },
+
+  async submitFormalRequestObservation(id: string, observationNotes: string): Promise<any> {
+    const res = await adminFetch(`${getApiBase()}/formal-requests/${id}/observation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ observationNotes }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur enregistrement observation Vork.");
+    return data;
   }
 };

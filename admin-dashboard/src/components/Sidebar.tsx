@@ -7,27 +7,31 @@ import {
   Truck, 
   Clock, 
   Award,
-  ChevronRight
+  ChevronRight,
+  FileText
 } from "lucide-react";
 
-export type AdminTab = "overview" | "disputes" | "vendors" | "escrow" | "logistics" | "cron";
+export type AdminTab = "overview" | "disputes" | "formal-requests" | "vendors" | "escrow" | "logistics" | "cron";
 
 interface SidebarProps {
   currentTab: AdminTab;
   onTabChange: (tab: AdminTab) => void;
   openDisputesCount: number;
   warningsCount: number;
+  formalRequestsCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
   currentTab, 
   onTabChange, 
   openDisputesCount, 
-  warningsCount 
+  warningsCount,
+  formalRequestsCount = 0
 }) => {
   const navItems = [
     { id: "overview", label: "Vue d'Ensemble", icon: LayoutDashboard },
     { id: "disputes", label: "Médiation & Litiges", icon: Scale, badge: openDisputesCount, badgeColor: "#DC3545" },
+    { id: "formal-requests", label: "Demandes Formelles", icon: FileText, badge: formalRequestsCount > 0 ? formalRequestsCount : undefined, badgeColor: "#B8623F" },
     { id: "vendors", label: "Santé des Maâlems", icon: ShieldAlert, badge: warningsCount > 0 ? warningsCount : undefined, badgeColor: "#8B6914" },
     { id: "escrow", label: "Séquestre & Retraits", icon: Wallet },
     { id: "logistics", label: "Suivi Logistique", icon: Truck },
