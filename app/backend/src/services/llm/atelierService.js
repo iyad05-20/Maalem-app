@@ -1531,7 +1531,7 @@ export async function createDirectOrder({
     productType: 'standard',
     productTitle: product.title,
     productImage: product.image || product.imageUrl || null,
-    transportProvider: 'sendit',
+    transportProvider: 'vendeur',
     clientSignature,
     status: 'en_attente_paiement',
     createdAt: now,

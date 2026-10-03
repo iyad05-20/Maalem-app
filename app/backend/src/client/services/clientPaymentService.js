@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { orders, paymentIntents, ledgerEntries, paymentsReceived } from "../../core/db/schema.js";
 import { calculateCancellationRefund } from "./cancellationService.js";
+import { creditClientWallet } from "./clientWalletService.js";
 
 export class CallbackError extends Error {}
 
@@ -131,8 +132,18 @@ export async function cancelOrder(db, orderId, cancelTimeStr) {
     const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
 
     const refundCash = Math.max(0, Math.round((totalPaid - result.totalRetained) * 100) / 100);
+    const isPreAcceptance = !order.acceptedAt;
 
     if (refundCash > 0) {
+      // Crédit effectif dans la table client_wallets (Décision 28)
+      await creditClientWallet(
+        order.clientRef, 
+        refundCash, 
+        orderId, 
+        isPreAcceptance ? "refund_pre_acceptance" : "refund_cancellation", 
+        result
+      );
+
       await tx.insert(ledgerEntries)
         .values({
           id: crypto.randomUUID(),
@@ -174,15 +185,19 @@ export async function cancelOrder(db, orderId, cancelTimeStr) {
         });
     }
 
+    const finalStatus = isPreAcceptance ? "annule_avant_acceptation" : "annulee";
+
     await tx.update(orders)
       .set({
-        status: "annulee",
+        status: finalStatus,
         updatedAt: now,
       })
       .where(eq(orders.id, orderId));
 
     return {
       ...result,
+      status: finalStatus,
+      isPreAcceptance,
       totalPaid,
       refundCash,
     };

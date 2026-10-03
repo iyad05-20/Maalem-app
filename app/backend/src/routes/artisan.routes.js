@@ -11,7 +11,7 @@ import {
   returnRequests,
   customRequests 
 } from "../core/db/schema.js";
-import { getAllProducts } from "../db/products.repository.js";
+import { getAllProducts, getProductStockInfo, updateProductStockAction } from "../db/products.repository.js";
 import { supabase } from "../db/supabase.client.js";
 import { loadProducts } from "../services/recommendation.service.js";
 import { productsIndex } from "../services/search/meilisearch.service.js";
@@ -22,6 +22,7 @@ import {
   prepareSenditShipping, 
   confirmSenditPickupReady, 
   shipVendeurSelf, 
+  shipOrderDirect,
   completeVendeurDelivery,
   recordVendorWarning,
   handleEscrowChoice,
@@ -30,6 +31,7 @@ import {
   shipOrder
 } from "../client/services/artisanOrderService.js";
 import { senditClient } from "../services/sendit/senditClient.js";
+import { creditClientWallet } from "../client/services/clientWalletService.js";
 
 export const artisanRouter = express.Router();
 // Authentification obligatoire pour toutes les routes artisan (Anti-IDOR)
@@ -84,41 +86,109 @@ artisanRouter.get("/orders", async (req, res) => {
 /**
  * POST /api/artisan/orders/:id/accept
  * Accepte la commande sous 72h max (Art. 6.1).
+ * (P5 - 28/09/2026) : Vérifie le stock avant acceptation.
+ *   - Si stock = 0 → 409 avec redirection vers la page d'incrémentation du stock
+ *   - Si stock ≤ 20% après décrémentation → notification "Stock Limité"
+ *   - Si stock tombe à 0 après décrémentation → notification "Stock Épuisé"
  */
 artisanRouter.post("/orders/:id/accept", async (req, res) => {
   const { id } = req.params;
   try {
-    await acceptOrder(id);
+    const result = await acceptOrder(id);
     const [updated] = await db.select().from(orders).where(eq(orders.id, id));
-    return res.json({ success: true, message: "Commande acceptée ! Entrée en fabrication.", order: updated });
+
+    const response = {
+      success: true,
+      message: "Commande acceptée ! Entrée en fabrication.",
+      message_ar: "تم قبول الطلب! بدأ التحضير.",
+      order: updated,
+    };
+
+    // P5 : Notifications de stock pour le frontend
+    if (result && result.stockNotification) {
+      response.stockNotification = result.stockNotification;
+
+      if (result.stockNotification.notificationType === "stock_epuise") {
+        response.stockAlert = {
+          type: "stock_epuise",
+          title: "Stock épuisé",
+          title_ar: "المخزون نفد",
+          message: "Le stock de ce produit est tombé à 0. Le post a été masqué automatiquement. Veuillez ajouter du stock pour le rendre visible à nouveau.",
+          message_ar: "نفد مخزون هذا المنتج. تم إخفاء المنشور تلقائياً. يرجى إضافة المخزون لإعادة إظهاره.",
+          actionLabel: "Ajouter du stock",
+          actionLabel_ar: "إضافة مخزون",
+          redirectTo: `/artisan/products/${updated?.productId}/stock`,
+        };
+      } else if (result.stockNotification.notificationType === "stock_limite_20_pourcent") {
+        response.stockAlert = {
+          type: "stock_limite",
+          title: "Stock limité",
+          title_ar: "مخزون محدود",
+          message: `Attention : il ne reste que ${result.stockNotification.stockPercentage}% du stock (${result.stockNotification.newStock} unité(s)). Pensez à réapprovisionner.`,
+          message_ar: `تنبيه: لم يتبق سوى ${result.stockNotification.stockPercentage}% من المخزون (${result.stockNotification.newStock} وحدة). يرجى التفكير في إعادة التزود.`,
+          actionLabel: "Gérer le stock",
+          actionLabel_ar: "إدارة المخزون",
+          redirectTo: `/artisan/products/${updated?.productId}/stock`,
+        };
+      }
+    }
+
+    return res.json(response);
   } catch (err) {
+    // P5 : Erreur de stock — blocage de l'acceptation
+    if (err.statusCode === 409 && err.stockCheck) {
+      return res.status(409).json({
+        success: false,
+        error: err.stockCheck.isOutOfStock
+          ? "Le stock de ce produit est épuisé. Vous devez d'abord incrémenter le stock avant de pouvoir accepter cette commande."
+          : "Le stock est insuffisant pour la quantité commandée. Veuillez ajuster le stock.",
+        error_ar: err.stockCheck.isOutOfStock
+          ? "مخزون هذا المنتج نفد. يجب عليك أولاً زيادة المخزون قبل قبول هذا الطلب."
+          : "المخزون غير كافٍ للكمية المطلوبة. يرجى تعديل المخزون.",
+        stockCheck: err.stockCheck,
+        actionRequired: "increment_stock",
+        actionLabel: "Incrémenter le stock",
+        actionLabel_ar: "زيادة المخزون",
+        redirectTo: err.stockCheck.redirectTo,
+      });
+    }
     return res.status(400).json({ success: false, error: err.message });
   }
 });
 
 /**
  * POST /api/artisan/orders/:id/refuse
- * Refuse la commande avec motif explicatif libre (Art. 6.4).
+ * Refuse la commande avec motif en liste déroulante + texte si "Autre" (Décision 23).
+ * SANS sanction ni avertissement automatique (Décision 24).
+ * Remboursement automatique 100% sur le wallet interne du client (Décision 28).
  */
 artisanRouter.post("/orders/:id/refuse", async (req, res) => {
   const { id } = req.params;
-  const { reason } = req.body;
-
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ success: false, error: "Un motif explicatif est obligatoire pour refuser une commande." });
-  }
+  const { category = "autre", reason = "" } = req.body;
 
   try {
     const [order] = await db.select().from(orders).where(eq(orders.id, id));
     if (!order) return res.status(404).json({ success: false, error: "Commande introuvable." });
 
     const now = new Date().toISOString();
+    const finalReason = String(reason || category).trim();
 
-    // Remboursement 100% Client
+    // 1. Remboursement automatique 100% au Wallet Client (Décision 28)
+    await creditClientWallet(
+      order.clientRef, 
+      order.totalPrice, 
+      id, 
+      "refund_order_refused", 
+      { category, reason: finalReason }
+    );
+
+    // 2. Mise à jour de la commande
     await db.update(orders).set({
-      status: "annulee",
+      status: "refuse_vendeur",
       refusedByArtisan: 1,
-      refusalReason: reason.trim(),
+      refusalReason: finalReason,
+      refusalReasonCategory: category,
+      refusalReasonText: finalReason,
       updatedAt: now,
     }).where(eq(orders.id, id));
 
@@ -129,20 +199,16 @@ artisanRouter.post("/orders/:id/refuse", async (req, res) => {
       compteCredit: `CLIENT_WALLET:${order.clientRef}`,
       montant: order.totalPrice,
       type: "order_refused_by_artisan_refund",
-      metadata: JSON.stringify({ reason: reason.trim() }),
+      metadata: JSON.stringify({ category, reason: finalReason }),
       createdAt: now,
     });
 
-    // Émission systématique de l'avertissement vendeur (Art. 12.3 CGV v23 / Point 3)
-    await recordVendorWarning(
-      order.artisanRef,
-      `Refus de commande (Art. 12.3 CGV) : ${reason.trim()}`,
-      id
-    );
+    // Remarque : AUCUN avertissement émis (Décision 24)
 
     return res.json({ 
       success: true, 
-      message: "Commande refusée. Le client a été intégralement remboursé et un avertissement a été enregistré." 
+      status: "refuse_vendeur",
+      message: "Commande déclinée sans pénalité. Le client a été intégralement remboursé sur son portefeuille interne Vork." 
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -181,8 +247,23 @@ artisanRouter.post("/orders/:id/prep-photos", async (req, res) => {
 });
 
 /**
+ * POST /api/artisan/orders/:id/ship
+ * Expédition directe unifiée (Décision C05).
+ * Le vendeur choisit le mode d'acheminement de son choix (ses propres moyens, transporteur indépendant, etc.)
+ */
+artisanRouter.post("/orders/:id/ship", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await shipOrderDirect(id, req.body);
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/artisan/orders/:id/ship-sendit-step1
- * Étape 1 Sendit : Génération du Bon de Livraison (BL).
+ * Étape 1 Sendit (Rétrocompatibilité -> Redirige vers expédition directe).
  */
 artisanRouter.post("/orders/:id/ship-sendit-step1", async (req, res) => {
   const { id } = req.params;
@@ -676,10 +757,33 @@ artisanRouter.post("/products", async (req, res) => {
     return res.status(401).json({ success: false, error: "Identité artisan introuvable. Reconnectez-vous." });
   }
 
-  const { title, description, price, productType = "standard", category, image, manufacturingDays = 5 } = req.body;
+  const { 
+    title, 
+    description, 
+    price, 
+    productType = "standard", 
+    category, 
+    image, 
+    manufacturingDays = 5,
+    stock,
+    stockPolicy,
+    shippingFee,
+    shippingThreshold,
+  } = req.body;
 
   if (!title || !price) {
     return res.status(400).json({ success: false, error: "Le titre et le prix net sont obligatoires." });
+  }
+
+  // Décision 33 : Seuil de transport obligatoire si frais de livraison définis
+  const numShippingFee = Number(shippingFee) || 0;
+  const numShippingThreshold = Number(shippingThreshold);
+  if (numShippingFee > 0 && (!numShippingThreshold || numShippingThreshold < 1)) {
+    return res.status(400).json({
+      success: false,
+      error: "Le seuil de quantité pour le transport est obligatoire dès lors que des frais de livraison sont définis (minimum 1 article par forfait).",
+      error_ar: "عتبة الكمية لمصاريف الشحن إلزامية عند تحديد سعر التوصيل (قطعة واحدة كحد أدنى لكل طرد).",
+    });
   }
 
   const numNet = Number(price);
@@ -694,6 +798,8 @@ artisanRouter.post("/products", async (req, res) => {
   // Identité artisan dérivée exclusivement du JWT (Anti-IDOR)
   const artisanName = req.user?.fullName || req.body.artisanName || "Maâlem";
 
+  const numStock = stock !== undefined && stock !== null && stock !== "" ? Math.max(0, parseInt(stock)) : null;
+
   // 1. Prepare Supabase row conforming to database schema
   const supabaseRow = {
     id: productId,
@@ -701,7 +807,12 @@ artisanRouter.post("/products", async (req, res) => {
     category: category || "Céramique & Poterie",
     category_group: categoryGroup,
     price: clientPrice,
-    in_stock: true,
+    in_stock: numStock !== null ? numStock > 0 : true,
+    stock: numStock,
+    initial_stock: numStock,
+    is_out_of_stock: numStock === 0,
+    is_hidden: numStock === 0,
+    stock_policy: stockPolicy || {},
     artisan_name: artisanName,
     image_url: prodImg,
     identity: {
@@ -713,6 +824,8 @@ artisanRouter.post("/products", async (req, res) => {
       commission_ht: commissionHt,
       tva: tvaVal,
       manufacturing_days: Number(manufacturingDays) || 5,
+      shipping_fee: numShippingFee,
+      shipping_threshold: numShippingThreshold || 1,
     },
     rec_tags: {
       style: ["traditionnel", "fait-main"],
@@ -794,6 +907,136 @@ artisanRouter.put("/products/:id", async (req, res) => {
     message: "Produit mis à jour avec succès !",
     product: artisanProductsList[index],
   });
+});
+
+/**
+ * GET /api/artisan/products/:id/stock
+ * Consulter les informations de stock d'un produit (P5 - 28/09/2026).
+ */
+artisanRouter.get("/products/:id/stock", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const stockInfo = await getProductStockInfo(id);
+    if (!stockInfo) {
+      return res.status(404).json({ success: false, error: "Produit introuvable.", error_ar: "المنتج غير موجود." });
+    }
+    return res.json({ success: true, ...stockInfo });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PUT /api/artisan/products/:id/stock
+ * Incrémenter / modifier le stock d'un produit (P5 - 28/09/2026).
+ * La nouvelle valeur de stock devient la référence 100% (initial_stock).
+ * Le signe « Stock Limité » apparaît quand le stock descend ≤ 20% de initial_stock.
+ * Actions possibles : 'add_stock', 'disable_tracking', 'switch_to_on_demand', 'hide_manually'
+ */
+artisanRouter.put("/products/:id/stock", async (req, res) => {
+  const { id } = req.params;
+  const { action = "add_stock", stock, days } = req.body;
+
+  if (action === "add_stock" && (!stock || Number(stock) < 0)) {
+    return res.status(400).json({
+      success: false,
+      error: "Veuillez spécifier une quantité de stock valide (≥ 0).",
+      error_ar: "يرجى تحديد كمية مخزون صالحة (≥ 0).",
+    });
+  }
+
+  try {
+    const result = await updateProductStockAction(id, action, { stock, days });
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+
+    const messages = {
+      add_stock: {
+        fr: `Stock mis à jour avec succès : ${stock} unité(s). Cette valeur est maintenant votre référence 100%.`,
+        ar: `تم تحديث المخزون بنجاح: ${stock} وحدة. هذه القيمة هي الآن مرجعك 100%.`,
+      },
+      disable_tracking: {
+        fr: "Suivi de stock désactivé pour ce produit. Le post est à nouveau visible.",
+        ar: "تم تعطيل تتبع المخزون لهذا المنتج. المنشور مرئي مرة أخرى.",
+      },
+      switch_to_on_demand: {
+        fr: `Produit converti en \"Sur Commande\" avec un délai de fabrication de ${days || 7} jour(s).`,
+        ar: `تم تحويل المنتج إلى \"حسب الطلب\" مع مدة تصنيع ${days || 7} يوم(أيام).`,
+      },
+      hide_manually: {
+        fr: "Post masqué manuellement. Il reste dans votre historique mais n'apparaît plus sur le marché.",
+        ar: "تم إخفاء المنشور يدوياً. يبقى في سجلك لكنه لا يظهر في السوق.",
+      },
+    };
+
+    return res.json({
+      success: true,
+      message: messages[action]?.fr || "Stock mis à jour.",
+      message_ar: messages[action]?.ar || "تم تحديث المخزون.",
+      product: result.product,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PUT /api/artisan/products/:id/stock-policy
+ * Configurer la politique de stock de la boutique du vendeur (P5 - 28/09/2026).
+ *
+ * Politiques disponibles :
+ *   - show_stock_to_client (boolean) : Afficher le stock actuel au client
+ *   - allow_order_exceeding_stock (boolean) : Commande possible si qté commandée > stock actuel
+ *   - auto_accept_exceeding_stock (boolean) : Acceptation auto reste active même si qté > stock
+ *     (uniquement si allow_order_exceeding_stock = true)
+ *
+ * NOTE : Ces options sont OBLIGATOIRES dès que le vendeur active le stock sur un produit.
+ * Le stock est optionnel, mais si activé → politique obligatoire.
+ */
+artisanRouter.put("/products/:id/stock-policy", async (req, res) => {
+  const { id } = req.params;
+  const {
+    show_stock_to_client = false,
+    allow_order_exceeding_stock = false,
+    auto_accept_exceeding_stock = false,
+  } = req.body;
+
+  // Validation : auto_accept_exceeding_stock n'est possible que si allow_order_exceeding_stock est true
+  if (auto_accept_exceeding_stock && !allow_order_exceeding_stock) {
+    return res.status(400).json({
+      success: false,
+      error: "L'acceptation automatique pour les commandes dépassant le stock n'est possible que si vous autorisez d'abord les commandes dépassant le stock.",
+      error_ar: "القبول التلقائي للطلبات التي تتجاوز المخزون ممكن فقط إذا سمحت أولاً بالطلبات التي تتجاوز المخزون.",
+    });
+  }
+
+  try {
+    const stockPolicy = {
+      show_stock_to_client: Boolean(show_stock_to_client),
+      allow_order_exceeding_stock: Boolean(allow_order_exceeding_stock),
+      auto_accept_exceeding_stock: Boolean(auto_accept_exceeding_stock),
+    };
+
+    const { error } = await supabase
+      .from('products')
+      .update({
+        stock_policy: stockPolicy,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+
+    if (error) throw error;
+
+    return res.json({
+      success: true,
+      message: "Politique de stock mise à jour avec succès.",
+      message_ar: "تم تحديث سياسة المخزون بنجاح.",
+      stockPolicy,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /**

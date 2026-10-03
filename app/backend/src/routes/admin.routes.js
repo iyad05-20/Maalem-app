@@ -9,7 +9,8 @@ import {
   withdrawalRequests, 
   ledgerEntries, 
   returnRequests,
-  adminAuditLogs
+  adminAuditLogs,
+  formalRequests
 } from "../core/db/schema.js";
 import { recordVendorWarning } from "../client/services/artisanOrderService.js";
 import { requireAdmin, logAdminAction } from "../middleware/localAuth.middleware.js";
@@ -450,6 +451,81 @@ adminRouter.get("/audit-logs", async (_req, res) => {
   try {
     const logs = await db.select().from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(100);
     return res.json({ success: true, count: logs.length, logs });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/formal-requests
+ * Liste des demandes formelles escaladées pour supervision administrative (P6).
+ */
+adminRouter.get("/formal-requests", async (req, res) => {
+  const { status } = req.query;
+  try {
+    let query = db.select().from(formalRequests);
+    if (status) {
+      query = query.where(eq(formalRequests.status, status));
+    }
+    const list = await query.orderBy(desc(formalRequests.createdAt));
+    const allOrders = await db.select().from(orders);
+    const ordersMap = new Map(allOrders.map(o => [o.id, o]));
+
+    const enriched = list.map(r => ({
+      ...r,
+      order: ordersMap.get(r.orderId) || null,
+      evidenceUrls: r.evidenceUrls ? JSON.parse(r.evidenceUrls) : [],
+    }));
+
+    return res.json({ success: true, count: enriched.length, requests: enriched });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/formal-requests/:id/observation
+ * Enregistrer l'observation ou avis de médiation de Vork (SANS sentence forcée - Décision Q3.5).
+ */
+adminRouter.post("/formal-requests/:id/observation", async (req, res) => {
+  const { id } = req.params;
+  const { observationNotes } = req.body;
+  const operatorId = req.adminOperator?.id || req.userId || "admin_master";
+
+  if (!observationNotes || !observationNotes.trim()) {
+    return res.status(400).json({ success: false, error: "Veuillez renseigner les notes d'observation de Vork." });
+  }
+
+  try {
+    const [request] = await db.select().from(formalRequests).where(eq(formalRequests.id, id));
+    if (!request) {
+      return res.status(404).json({ success: false, error: "Demande formelle introuvable." });
+    }
+
+    const now = new Date();
+    const updatedNotes = `${request.adminNotes ? `${request.adminNotes}\n\n` : ""}[Observation Vork le ${now.toISOString()} par ${operatorId}] : ${observationNotes.trim()}`;
+
+    await db.update(formalRequests)
+      .set({
+        adminNotes: updatedNotes,
+        status: "observee_admin",
+      })
+      .where(eq(formalRequests.id, id));
+
+    await logAdminAction(
+      operatorId,
+      "formal_request_observation",
+      id,
+      { observationNotes: observationNotes.trim(), orderId: request.orderId },
+      req.ip
+    );
+
+    return res.json({
+      success: true,
+      message: "Observation de médiation Vork enregistrée avec succès. Les deux parties ont été notifiées.",
+      message_ar: "تم تسجيل ملاحظة الوساطة بنجاح وإشعار الطرفين.",
+      status: "observee_admin",
+    });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }

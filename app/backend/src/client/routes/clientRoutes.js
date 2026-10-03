@@ -6,6 +6,8 @@ import { orders, paymentIntents, withdrawalRequests, ledgerEntries, disputes, cu
 import { MockCmiProvider } from "../../core/paymentProviders/MockCmiProvider.js";
 import { cancelOrder, deliverOrder } from "../services/clientPaymentService.js";
 import { requestReturn } from "../services/clientReturnService.js";
+import { getClientWalletDetails, requestClientWithdrawal, creditClientWallet, debitClientWallet, getOrCreateClientWallet } from "../services/clientWalletService.js";
+import { getProductStockInfo } from "../../db/products.repository.js";
 import { optionalAuthMiddleware } from "../../middleware/auth.middleware.js";
 
 const router = Router();
@@ -20,6 +22,8 @@ const createOrderSchema = z.object({
   productType: z.enum(["standard", "personnalise", "sur_commande"]).optional(),
   productTitle: z.string().optional(),
   productImage: z.string().optional(),
+  productId: z.string().optional(),
+  quantity: z.number().int().positive().optional(),
   transportProvider: z.enum(["sendit", "vendeur"]).optional(),
   clientSignature: z.string().optional(),
 });
@@ -47,7 +51,9 @@ router.get("/orders", async (req, res) => {
       ? or(eq(orders.clientRef, "client-me"), eq(orders.clientRef, clientRef))
       : eq(orders.clientRef, clientRef);
 
-    const list = await db.select().from(orders).where(orderCondition).orderBy(desc(orders.createdAt));
+    const rawList = await db.select().from(orders).where(orderCondition).orderBy(desc(orders.createdAt));
+    // Élimination des commandes annulées avant acceptation de la vue active client (Décision 28)
+    const list = rawList.filter(o => o.status !== "annule_avant_acceptation");
 
     // 2. Récupérer les demandes sur-mesure de l'Atelier
     const customCondition = clientRef === "client-me"
@@ -107,9 +113,16 @@ router.get("/orders", async (req, res) => {
  * [CLIENT API] Accepter un devis d'artisan pour une création sur-mesure de l'Atelier.
  * Transforme le projet en commande ferme dans 'orders' et notifie l'artisan.
  */
+/**
+ * [CLIENT API] Accepter un devis d'artisan pour une création sur-mesure (Décision 38).
+ * Le client choisit UNE SEULE offre à la fois et la paie (in-app séquestre).
+ * Possibilité d'utiliser le solde portefeuille (wallet) pour payer le delta.
+ * La commande reste en attente de validation par l'artisan (acceptedAt = null)
+ * afin de permettre au client d'annuler son choix tant que l'artisan n'a pas validé.
+ */
 router.post("/custom-requests/:id/accept-quote", async (req, res) => {
   const { id } = req.params;
-  const { quoteIndex = 0, artisanRef } = req.body;
+  const { quoteIndex = 0, artisanRef, useWallet = true } = req.body;
   console.log(`\n[VORK-API] 📥 POST /custom-requests/${id}/accept-quote - QuoteIndex: ${quoteIndex}, ArtisanRef: ${artisanRef}`);
 
   try {
@@ -123,6 +136,25 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
       tags = typeof request.customizationTags === "string" ? JSON.parse(request.customizationTags) : (request.customizationTags || {});
     } catch (e) {}
 
+    // Vérifier si une offre est déjà active (Décision 38 : une seule offre à la fois)
+    if (tags.chosenQuote && tags.chosenQuote.orderId) {
+      const [existingOrder] = await db.select().from(orders).where(eq(orders.id, tags.chosenQuote.orderId));
+      if (existingOrder && (existingOrder.acceptedAt || existingOrder.status === "en_preparation")) {
+        return res.status(409).json({
+          success: false,
+          error: "L'artisan sélectionné a déjà commencé la fabrication. Vous ne pouvez plus changer d'offre.",
+          error_ar: "بدأ الحرفي المختار في التصنيع بالفعل. لا يمكنك تغيير العرض الآن."
+        });
+      }
+      if (existingOrder && existingOrder.status === "acompte_verse") {
+        return res.status(409).json({
+          success: false,
+          error: "Vous avez déjà une offre sélectionnée. Veuillez d'abord annuler votre choix précédent pour en choisir une autre.",
+          error_ar: "لديك بالفعل عرض محدد. يرجى إلغاء اختيارك السابق أولاً لاختيار عرض آخر."
+        });
+      }
+    }
+
     const quotes = Array.isArray(tags.quotes) ? tags.quotes : [];
     if (quotes.length === 0) {
       return res.status(400).json({ success: false, error: "Aucun devis disponible pour cette demande." });
@@ -132,22 +164,38 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
       ? quotes.find(q => q.artisanRef === artisanRef) || quotes[quoteIndex] || quotes[0]
       : (quotes[quoteIndex] || quotes[0]);
 
+    const quotePrice = Number(targetQuote.proposedPrice);
+    const clientRef = req.userId || request.clientRef || "client-me";
     const now = new Date().toISOString();
     const orderId = `ord_${request.id.replace(/^req_/, '')}_${Date.now().toString(36).slice(-4)}`;
     const title = tags.summary ? tags.summary.split("\n")[0].replace(/^[•\s*]+/, "") : (tags.title || "Création sur-mesure");
 
+    // Gestion du paiement et du delta via Wallet (Décision 38)
+    const wallet = await getOrCreateClientWallet(clientRef);
+    const currentBalance = Number(wallet.balance || 0);
+    const paidFromWallet = (useWallet && currentBalance > 0) ? Math.min(currentBalance, quotePrice) : 0;
+    const deltaCardAmount = Math.max(0, Math.round((quotePrice - paidFromWallet) * 100) / 100);
+
+    if (paidFromWallet > 0) {
+      await debitClientWallet(clientRef, paidFromWallet, orderId, "custom_quote_payment", {
+        customRequestId: id,
+        artisanRef: targetQuote.artisanRef,
+      });
+    }
+
+    // Création de la commande liée (acceptedAt = null tant que l'artisan n'a pas confirmé)
     const newOrder = {
       id: orderId,
-      clientRef: req.userId || request.clientRef || "client-me",
+      clientRef,
       artisanRef: targetQuote.artisanRef,
       artisanName: targetQuote.artisanName || "Maâlem",
-      totalPrice: Number(targetQuote.proposedPrice),
+      totalPrice: quotePrice,
       productType: request.productType || "sur_commande",
       productTitle: title,
       productImage: request.proofImage || tags.anchorProduct?.imageUrl || null,
       transportProvider: "vendeur",
-      status: "acompte_verse", // Commande validée par le client -> entre directement en fabrication
-      acceptedAt: now,
+      status: "acompte_verse",
+      acceptedAt: null, // Décision 38 : En attente d'acceptation artisan, permet au client d'annuler son choix
       estimatedTransportDays: Number(targetQuote.confectionDays) || 14,
       createdAt: now,
       updatedAt: now,
@@ -155,26 +203,131 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
 
     await db.insert(orders).values(newOrder);
 
-    // Mettre à jour la custom_request
+    // Mettre à jour la custom_request avec l'offre choisie
+    tags.chosenQuote = {
+      orderId,
+      artisanRef: targetQuote.artisanRef,
+      artisanName: targetQuote.artisanName || "Maâlem",
+      proposedPrice: quotePrice,
+      paidFromWallet,
+      deltaCardAmount,
+      chosenAt: now,
+    };
+
     await db.update(customRequests)
       .set({
-        status: "accepte",
+        status: "offre_choisie",
         artisanRef: targetQuote.artisanRef,
-        totalPrice: Number(targetQuote.proposedPrice),
+        totalPrice: quotePrice,
+        customizationTags: JSON.stringify(tags),
         updatedAt: now,
       })
       .where(eq(customRequests.id, id));
 
-    console.log(`[VORK-API] ✅ Quote accepted! Order ${orderId} created for artisan ${targetQuote.artisanRef}`);
+    console.log(`[VORK-API] ✅ Quote accepted! Order ${orderId} placed (Wallet: ${paidFromWallet} MAD, Delta: ${deltaCardAmount} MAD)`);
 
     return res.json({
       success: true,
-      message: `Devis de ${targetQuote.artisanName} (${targetQuote.proposedPrice} MAD) accepté avec succès ! La commande est entrée en fabrication.`,
+      message: `Offre de ${targetQuote.artisanName} (${quotePrice} MAD) sélectionnée ! La demande reste modifiable tant que l'artisan n'a pas commencé.`,
+      message_ar: `تم اختيار عرض ${targetQuote.artisanName} (${quotePrice} درهم)! يمكنك إلغاء اختيارك طالما لم يبدأ الحرفي العمل.`,
       orderId,
       order: newOrder,
+      financials: {
+        totalPrice: quotePrice,
+        paidFromWallet,
+        deltaCardAmount,
+      },
     });
   } catch (err) {
     console.error("[VORK-API] ❌ Error accepting quote:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * [CLIENT API] Annuler le choix d'une offre avant validation par l'artisan (Décision 38).
+ * Le client est immédiatement remboursé dans son Wallet interne Vork.
+ * La demande sur-mesure est rouverte sur la place de marché des artisans.
+ */
+router.post("/custom-requests/:id/cancel-quote-selection", async (req, res) => {
+  const { id } = req.params;
+  const clientRef = req.userId || "client-me";
+  console.log(`\n[VORK-API] 📥 POST /custom-requests/${id}/cancel-quote-selection`);
+
+  try {
+    const [request] = await db.select().from(customRequests).where(eq(customRequests.id, id));
+    if (!request) {
+      return res.status(404).json({ success: false, error: "Demande sur-mesure introuvable." });
+    }
+
+    let tags = {};
+    try {
+      tags = typeof request.customizationTags === "string" ? JSON.parse(request.customizationTags) : (request.customizationTags || {});
+    } catch (e) {}
+
+    const chosen = tags.chosenQuote;
+    if (!chosen || !chosen.orderId) {
+      return res.status(400).json({ success: false, error: "Aucun choix d'offre actif à annuler." });
+    }
+
+    // Vérifier l'état de la commande chez l'artisan
+    const [order] = await db.select().from(orders).where(eq(orders.id, chosen.orderId));
+    if (order && (order.acceptedAt || order.status === "en_preparation")) {
+      return res.status(409).json({
+        success: false,
+        error: "L'artisan a déjà validé votre commande et commencé la fabrication. Annulation impossible.",
+        error_ar: "قام الحرفي بالمصادقة على طلبك وبدأ العمل. لا يمكن الإلغاء الآن."
+      });
+    }
+
+    const now = new Date().toISOString();
+    const refundAmount = Number(order ? order.totalPrice : chosen.proposedPrice);
+
+    // 1. Annulation de la commande liée
+    if (order) {
+      await db.update(orders)
+        .set({
+          status: "annule_avant_acceptation",
+          updatedAt: now,
+        })
+        .where(eq(orders.id, chosen.orderId));
+    }
+
+    // 2. Remboursement automatique 100% au Wallet Client (Décision 28 & 38)
+    const refundRes = await creditClientWallet(
+      clientRef,
+      refundAmount,
+      chosen.orderId,
+      "refund_quote_canceled",
+      { customRequestId: id, reason: "annulation_choix_offre" }
+    );
+
+    // 3. Réouverture de la demande sur le marché des artisans
+    tags.previousChoices = tags.previousChoices || [];
+    tags.previousChoices.push({ ...chosen, canceledAt: now });
+    delete tags.chosenQuote;
+
+    await db.update(customRequests)
+      .set({
+        status: "en_attente_artisan", // Reste affichée pour que les artisans continuent à proposer/ajuster (Décision 38)
+        artisanRef: "artisan-open",
+        customizationTags: JSON.stringify(tags),
+        updatedAt: now,
+      })
+      .where(eq(customRequests.id, id));
+
+    console.log(`[VORK-API] ✅ Quote choice canceled! ${refundAmount} MAD refunded to wallet for ${clientRef}`);
+
+    return res.json({
+      success: true,
+      message: "Choix d'offre annulé avec succès. Les fonds ont été restitués dans votre portefeuille Vork. Vous pouvez choisir un autre devis.",
+      message_ar: "تم إلغاء اختيار العرض بنجاح وإرجاع المبلغ لمحفظتك في ڤورك. يمكنك الآن اختيار عرض آخر.",
+      refundedAmount: refundAmount,
+      walletBalance: refundRes.balance,
+      customRequestStatus: "en_attente_artisan",
+    });
+  } catch (err) {
+    console.error("[VORK-API] ❌ Error canceling quote choice:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -204,6 +357,36 @@ router.post("/orders", async (req, res) => {
     console.error(`[VORK-API] ❌ Validation error:`, parsed.error.format());
     return res.status(422).json({ error: parsed.error.flatten() });
   }
+
+  // ─── Vérification de la disponibilité du post / stock (Décision 7 & 36) ─────
+  if (parsed.data.productId) {
+    const stockInfo = await getProductStockInfo(parsed.data.productId);
+    if (stockInfo) {
+      // Décision 7 : Si post désactivé / masqué
+      if (stockInfo.isHidden) {
+        console.warn(`[VORK-API] ⚠️ Commande rejetée : Produit ${parsed.data.productId} masqué par le vendeur (Décision 7).`);
+        return res.status(400).json({
+          success: false,
+          error: "Le vendeur a déclaré son refus de toute commande de ce produit pour le moment.",
+          error_ar: "أعلن البائع رفضه لأي طلبية لهذا المنتج في الوقت الحالي.",
+          code: "PRODUCT_HIDDEN_BY_SELLER"
+        });
+      }
+      // Décision 36 : Si hors-stock et dépassement non autorisé par le vendeur
+      const orderQty = parsed.data.quantity || 1;
+      const allowExceed = stockInfo.stockPolicy?.allowOrderExceedingStock ?? stockInfo.stockPolicy?.allow_order_exceeding_stock ?? true;
+      if (stockInfo.isOutOfStock && !allowExceed) {
+        console.warn(`[VORK-API] ⚠️ Commande rejetée : Produit ${parsed.data.productId} hors stock (Décision 36).`);
+        return res.status(400).json({
+          success: false,
+          error: "Le produit est actuellement hors stock et le vendeur ne prend pas de commande sur ce produit pour le moment.",
+          error_ar: "المنتج غير متوفر حالياً في المخزون ولا يستقبل البائع طلبات لهذا المنتج في الوقت الحالي.",
+          code: "PRODUCT_OUT_OF_STOCK"
+        });
+      }
+    }
+  }
+
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const productType = parsed.data.productType ?? "standard";
@@ -220,6 +403,8 @@ router.post("/orders", async (req, res) => {
       productType,
       productTitle: parsed.data.productTitle || "Création Artisanale",
       productImage: parsed.data.productImage || null,
+      productId: parsed.data.productId || null,
+      quantity: String(parsed.data.quantity || 1),
       transportProvider,
       clientSignature: parsed.data.clientSignature || null,
       status: "en_attente_paiement",
@@ -333,27 +518,28 @@ router.post("/orders/:id/deliver", async (req, res) => {
     if (!order) return res.status(404).json({ error: "Commande introuvable" });
 
     const now = new Date().toISOString();
-    const isCustom = ["personnalise", "sur_commande"].includes(order.productType);
-    const withdrawalExpiresAt = isCustom
-      ? null
-      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const escrowReleasedAt = isCustom ? now : null;
 
+    // Libération immédiate des fonds dans le wallet du vendeur (Décision 1 & 30)
     await db.update(orders)
       .set({
-        status: "livre",
+        status: "valide",
         deliveredAt: order.deliveredAt || now,
         receptionValidatedBy: "client",
         clientApprovalStatus: "approved",
-        withdrawalExpiresAt,
-        escrowReleasedAt,
-        escrowActionChoice: isCustom ? "released_to_wallet" : "pending",
+        escrowReleasedAt: now,
+        escrowActionChoice: "released_to_wallet",
         updatedAt: now,
       })
       .where(eq(orders.id, req.params.id));
 
-    console.log(`[VORK-API] ✅ Order approved by client (Type: ${order.productType}, Escrow released: ${!!escrowReleasedAt})`);
-    res.json({ success: true, clientApprovalStatus: "approved", escrowReleasedAt, withdrawalExpiresAt });
+    console.log(`[VORK-API] ✅ Order confirmed & escrow released by client (ID: ${order.id})`);
+    res.json({ 
+      success: true, 
+      status: "valide",
+      clientApprovalStatus: "approved", 
+      escrowReleasedAt: now,
+      message: "Réception confirmée et fonds débloqués à l'artisan."
+    });
   } catch (e) {
     console.error(`[VORK-API] ❌ Receipt confirmation failed:`, e.message);
     res.status(400).json({ error: e.message });
@@ -611,8 +797,9 @@ router.post("/orders/:id/cancel-return", async (req, res) => {
 });
 
 /**
- * [CLIENT API] Validation manuelle de la réception par le client (Art. 4.3 C).
- * Le client confirme avoir bien reçu son colis dans la fenêtre de 24h post-livraison.
+ * [CLIENT API] Validation manuelle de la réception par le client (Décision 1 & C02).
+ * Le client confirme avoir reçu et inspecté son colis.
+ * Libération immédiate des fonds du séquestre vers le solde disponible de l'artisan (C02).
  */
 router.post("/orders/:id/validate-delivery", async (req, res) => {
   const { id } = req.params;
@@ -621,55 +808,125 @@ router.post("/orders/:id/validate-delivery", async (req, res) => {
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   if (!order) return res.status(404).json({ error: "Commande introuvable" });
 
-  if (!["livre", "auto_valide"].includes(order.status)) {
+  if (!["livre", "en_cours_de_transport"].includes(order.status)) {
     return res.status(400).json({ error: "La commande n'est pas dans un état permettant la validation de réception." });
   }
 
   const now = new Date().toISOString();
   await db.update(orders)
     .set({
-      status: "complete",
+      status: "valide",
+      clientApprovalStatus: "approved",
+      escrowReleasedAt: now,
+      escrowActionChoice: "released_to_wallet",
       updatedAt: now,
     })
     .where(eq(orders.id, id));
 
-  console.log(`[VORK-API] ✅ Delivery manually validated by client for order ${id}`);
-  res.json({ success: true, orderId: id });
+  console.log(`[VORK-API] ✅ Delivery validated by client for order ${id} -> Funds liberated to artisan wallet! (C02)`);
+  res.json({ 
+    success: true, 
+    orderId: id, 
+    status: "valide", 
+    escrowReleasedAt: now,
+    message: "Réception validée avec succès. Les fonds ont été libérés pour le Maâlem.",
+    message_ar: "تمت المصادقة على الاستلام بنجاح. تم تحويل المستحقات للصانع." 
+  });
 });
 
 /**
- * [CLIENT API] Déclaration de non-réception 24h post-validation automatique (Art. 4.3 D).
- * Disponible uniquement si la réception a été validée automatiquement et dans les 24h suivantes.
+ * [CLIENT API] Déclaration de non-réception après délai estimé + 48h de tolérance (C08).
+ * Le client ne peut signaler la non-réception qu'une fois la date estimée + 48h écoulée.
  */
 router.post("/orders/:id/declare-not-received", async (req, res) => {
   const { id } = req.params;
+  const { reason } = req.body || {};
   console.log(`\n[VORK-API] 📥 POST /orders/${id}/declare-not-received`);
 
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   if (!order) return res.status(404).json({ error: "Commande introuvable" });
 
-  if (order.status !== "auto_valide") {
-    return res.status(400).json({ error: "Déclaration irrecevable : la réception n'a pas été validée automatiquement ou le délai de 24h est dépassé." });
+  if (!["en_cours_de_transport", "livre"].includes(order.status)) {
+    return res.status(400).json({ 
+      error: "Déclaration non recevable : la commande doit être en cours d'acheminement ou déclarée livrée." 
+    });
   }
 
-  // Vérifier que la déclaration intervient dans les 24h post-validation automatique
-  if (order.autoValidatedAt) {
-    const hoursElapsed = (Date.now() - new Date(order.autoValidatedAt).getTime()) / (1000 * 60 * 60);
-    if (hoursElapsed >= 24) {
-      return res.status(400).json({ error: "Le délai de 24h pour déclarer la non-réception est dépassé (Art. 4.3 D)." });
-    }
+  // C08 : Vérifier la tolérance de 48h après la date estimée de livraison
+  const shippedDate = order.shippedAt ? new Date(order.shippedAt) : new Date(order.createdAt);
+  const estimatedDays = Number(order.estimatedTransportDays || 7);
+  const expectedDeliveryTime = shippedDate.getTime() + (estimatedDays * 24 * 60 * 60 * 1000);
+  const tolerance48hTime = expectedDeliveryTime + (48 * 60 * 60 * 1000); // Date estimée + 48h
+  const nowMs = Date.now();
+
+  if (nowMs < tolerance48hTime) {
+    const remainingHours = Math.max(1, Math.ceil((tolerance48hTime - nowMs) / (1000 * 60 * 60)));
+    return res.status(400).json({ 
+      success: false,
+      error: "delai_tolerance_48h_non_atteint",
+      message: `Conformément à la charte Vork, le signalement de non-réception est accessible 48 heures après la date estimée de livraison (déblocage dans environ ${remainingHours}h). Merci de patienter ou de contacter directement l'artisan via la messagerie.`,
+      message_ar: `وفقاً لميثاق Vork، يُتاح الإبلاغ عن عدم الاستلام بعد 48 ساعة من تاريخ التسليم المتوقع (متبقي حوالي ${remainingHours} ساعة). يرجى التحلي بالصبر أو التواصل مع الصانع مباشرة.`,
+      expectedDeliveryDate: new Date(expectedDeliveryTime).toISOString(),
+      unlocksAt: new Date(tolerance48hTime).toISOString(),
+    });
   }
 
   const now = new Date().toISOString();
   await db.update(orders)
     .set({
       status: "en_reclamation",
+      notReceivedReportedAt: now,
       updatedAt: now,
     })
     .where(eq(orders.id, id));
 
-  console.log(`[VORK-API] ✅ Non-receipt declared by client for order ${id} (Art. 4.3 D)`);
-  res.json({ success: true, orderId: id });
+  // Enregistrer l'avertissement vendeur traçable (non bloquant sans décision admin)
+  try {
+    const { recordVendorWarning } = await import("../services/artisanOrderService.js");
+    await recordVendorWarning(
+      order.artisanRef, 
+      `Signalement non-réception client après dépassement délai + 48h (${reason || 'colis_non_recu'})`, 
+      id
+    );
+  } catch (err) {
+    console.warn(`[VORK-API] Warning record non-fatal:`, err.message);
+  }
+
+  console.log(`[VORK-API] ⚠️ Non-receipt declared by client for order ${id} post-48h tolerance (C08)`);
+  res.json({ 
+    success: true, 
+    orderId: id, 
+    status: "en_reclamation",
+    message: "Signalement de non-réception enregistré. L'artisan et l'administration Vork ont été notifiés.",
+    message_ar: "تم تسجيل إشعار عدم الاستلام. تم إبلاغ الصانع وإدارة Vork للمتابعة."
+  });
+});
+
+/**
+ * [CLIENT API] Consultation du solde et historique du Wallet Client (Décision 28)
+ */
+router.get("/wallet/:userId/balance", async (req, res) => {
+  const userId = req.params.userId || req.userId || "client-me";
+  try {
+    const wallet = await getClientWalletDetails(userId);
+    return res.json({ success: true, ...wallet });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * [CLIENT API] Demande de virement bancaire du Wallet vers RIB (Décision 28)
+ */
+router.post("/wallet/:userId/withdraw", async (req, res) => {
+  const userId = req.params.userId || req.userId || "client-me";
+  const { amount, rib } = req.body;
+  try {
+    const result = await requestClientWithdrawal(userId, amount, rib);
+    return res.json(result);
+  } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
 });
 
 export default router;

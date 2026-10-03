@@ -16,14 +16,14 @@ import mockCmiRouter        from './core/paymentProviders/mockCmi.js';
 import { cronRouter }       from './routes/cronRoutes.js';
 import { adminRouter }      from './routes/admin.routes.js';
 import { artisanRouter }    from './routes/artisan.routes.js';
+import { formalRequestRouter } from './routes/formalRequest.routes.js';
 import { startCronScheduler } from './services/cronService.js';
 import { loadProducts }       from './services/recommendation.service.js';
 import { initSearchIndex }  from './services/search/meilisearch.service.js';
 import { initAtelierVocab } from './services/llm/atelierPromptComposer.js';
 import { initSchema }       from './core/db/index.js';
 import { seedDefaultAccounts } from './services/localAuth.service.js';
-import { senditWebhookHandler } from './services/sendit/senditWebhookHandler.js';
-import { senditClient } from './services/sendit/senditClient.js';
+
 
 (async () => {
   try {
@@ -134,6 +134,7 @@ const apiRoutes = [
   ['/artisan',         artisanRouter],
   ['/cron',            cronRouter],
   ['/admin',           adminRouter],
+  ['/formal-requests', formalRequestRouter],
 ];
 
 for (const [routePath, router] of apiRoutes) {
@@ -146,10 +147,7 @@ app.use('/mock-cmi', mockCmiRouter);
 // Start Cron Scheduler (every 60 minutes)
 startCronScheduler(60);
 
-// Sendit Webhooks
-app.post('/api/webhooks/sendit', senditWebhookHandler);
-
-const MOCK_DISTRICTS = [
+const MOROCCAN_CITIES = [
   { id: 46, name: "Casablanca" },
   { id: 1, name: "Rabat" },
   { id: 2, name: "Marrakech" },
@@ -196,20 +194,14 @@ const MOCK_DISTRICTS = [
   { id: 43, name: "Laâyoune" }
 ];
 
-// Districts API
-app.get('/api/districts', async (req, res) => {
+// Moroccan Districts / Cities API (Direct reference)
+app.get('/api/districts', (req, res) => {
   const querystring = req.query.querystring;
-  try {
-    const result = await senditClient.getDistricts(querystring);
-    res.json(result);
-  } catch (e) {
-    console.warn(`[VORK-API] ⚠️ Failed to fetch districts from Sendit API (${e.message}). Using local fallback.`);
-    let data = MOCK_DISTRICTS;
-    if (querystring) {
-      data = MOCK_DISTRICTS.filter(d => d.name.toLowerCase().includes(querystring.toLowerCase()));
-    }
-    res.json({ success: true, message: "Liste des villes (Local Fallback).", data });
+  let data = MOROCCAN_CITIES;
+  if (querystring) {
+    data = MOROCCAN_CITIES.filter(d => d.name.toLowerCase().includes(String(querystring).toLowerCase()));
   }
+  res.json({ success: true, message: "Référentiel des villes marocaines.", data });
 });
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────

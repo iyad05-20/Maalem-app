@@ -2,10 +2,10 @@ import express from "express";
 import { 
   runAllCronJobs, 
   runJ2RelanceJob, 
-  runAutoValidationJob, 
-  runEscrowReleaseJob, 
+  runClientDeliveryRemindersJob, 
+  runAdminEscrowMonitoringJob, 
   runExpiredReturnsJob, 
-  runMonthlyWarningResetJob,
+  runFormalRequestsDeadlineJob,
   runWeeklyWithdrawalBatchJob 
 } from "../services/cronService.js";
 import { db } from "../core/db/index.js";
@@ -29,7 +29,7 @@ cronRouter.get("/status", async (req, res) => {
 
 /**
  * POST /api/cron/run-all
- * Déclenche manuellement l'ensemble des 5 tâches.
+ * Déclenche manuellement l'ensemble des tâches.
  */
 cronRouter.post("/run-all", async (req, res) => {
   try {
@@ -51,19 +51,22 @@ cronRouter.post("/run/:jobName", async (req, res) => {
     let result;
     switch (jobName) {
       case "relance-j2":
+      case "relance-artisan-acceptation":
         result = await runJ2RelanceJob();
         break;
-      case "auto-validation":
-        result = await runAutoValidationJob();
+      case "rappels-validation-client":
+      case "auto-validation": // compatibilité
+        result = await runClientDeliveryRemindersJob();
         break;
-      case "release-escrow":
-        result = await runEscrowReleaseJob();
+      case "surveillance-sequestres":
+      case "release-escrow": // compatibilité
+        result = await runAdminEscrowMonitoringJob();
         break;
       case "expire-returns":
         result = await runExpiredReturnsJob();
         break;
-      case "reset-warnings":
-        result = await runMonthlyWarningResetJob();
+      case "demandes-formelles-48h":
+        result = await runFormalRequestsDeadlineJob();
         break;
       case "virements-vendredi":
         result = await runWeeklyWithdrawalBatchJob();
@@ -71,7 +74,7 @@ cronRouter.post("/run/:jobName", async (req, res) => {
       default:
         return res.status(400).json({ 
           success: false, 
-          error: `Nom de job invalide : ${jobName}. Valeurs acceptées : relance-j2, auto-validation, release-escrow, expire-returns, reset-warnings, virements-vendredi` 
+          error: `Nom de job invalide : ${jobName}. Valeurs acceptées : relance-j2, rappels-validation-client, surveillance-sequestres, expire-returns, demandes-formelles-48h, virements-vendredi` 
         });
     }
 

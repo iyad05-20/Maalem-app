@@ -49,13 +49,57 @@ export const orders = pgTable("orders", {
   counterUnreachable: numeric("counter_unreachable").default("0"),
   proofImage: text("proof_image"),
 
-  // CGV v23 & Arbitrages Prioritaires Ziad (11/09/2026)
+  // CGV v23 & Flux Vork (26/09/2026)
+  productId: text("product_id"),
+  quantity: numeric("quantity").default("1"),
+  inAppAmount: numeric("in_app_amount"),
+  cashOnDeliveryAmount: numeric("cash_on_delivery_amount"),
+  platformCommission: numeric("platform_commission"),
+  artisanInAppNet: numeric("artisan_in_app_net"),
+  refusalReasonCategory: text("refusal_reason_category"),
+  refusalReasonText: text("refusal_reason_text"),
+
   estimatedTransportDays: numeric("estimated_transport_days"),
-  escrowActionChoice: text("escrow_action_choice").default("pending"), // 'pending' | 'pending_artisan_choice' | 'released_to_wallet' | 'extended_by_artisan'
+  escrowActionChoice: text("escrow_action_choice").default("pending"), // 'pending' | 'released_to_wallet'
   shippingParcelFee: numeric("shipping_parcel_fee"),
   packageDimensions: text("package_dimensions"), // JSON string: { length, width, height }
   clientApprovalStatus: text("client_approval_status").default("pending"), // 'pending' | 'approved'
   clientApprovalRequestedAt: text("client_approval_requested_at"),
+});
+
+export const formalRequests = pgTable("formal_requests", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  initiatorType: text("initiator_type").notNull(), // 'client' | 'artisan'
+  initiatorId: text("initiator_id").notNull(),
+  respondentId: text("respondent_id").notNull(),
+  category: text("category").notNull(), // 'non_validation' | 'produit_non_conforme' | 'retard' | 'autre'
+  description: text("description").notNull(),
+  evidenceUrls: text("evidence_urls"), // JSON array
+  status: text("status").notNull().default("ouverte"), // 'ouverte' | 'repondue' | 'escaladee_admin' | 'resolue' | 'rejetee'
+  responseMessage: text("response_message"),
+  adminNotes: text("admin_notes"),
+  createdAt: text("created_at").notNull(),
+  deadlineRespondentAt: text("deadline_respondent_at"), // +48h
+  resolvedAt: text("resolved_at"),
+});
+
+export const clientWallets = pgTable("client_wallets", {
+  id: text("id").primaryKey(), // clientRef / userId
+  balance: numeric("balance").notNull().default("0"),
+  currency: text("currency").notNull().default("MAD"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const clientWalletTransactions = pgTable("client_wallet_transactions", {
+  id: text("id").primaryKey(),
+  clientRef: text("client_ref").notNull(),
+  orderId: text("order_id"),
+  type: text("type").notNull(), // 'refund_pre_acceptance' | 'refund_dispute' | 'withdrawal_request' | 'purchase_use'
+  amount: numeric("amount").notNull(),
+  balanceAfter: numeric("balance_after").notNull(),
+  metadata: text("metadata"),
+  createdAt: text("created_at").notNull(),
 });
 
 export const cronExecutions = pgTable("cron_executions", {
