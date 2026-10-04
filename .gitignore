@@ -5,10 +5,13 @@ yarn-debug.log*
 yarn-error.log*
 *.log
 
-# Environment files
+# Environment & secrets
 .env
 .env.local
 .env.*.local
+*serviceAccount*.json
+*.pem
+*.key
 
 # Build output
 dist/
