@@ -136,7 +136,8 @@ export const ReportModal: React.FC<ReportModalProps> = ({
             background: '#FFFFFF',
             borderRadius: 24,
             boxShadow: '0 24px 60px -12px rgba(15, 23, 42, 0.35)',
-            overflow: 'hidden',
+            maxHeight: '90vh',
+            overflowY: 'auto',
             border: '1px solid rgba(226, 232, 240, 0.8)',
           }}
         >

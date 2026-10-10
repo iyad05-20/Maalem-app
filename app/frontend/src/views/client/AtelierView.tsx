@@ -38,9 +38,20 @@ const CRAFT_CATEGORIES = [
   { id: 'autre', label: 'Autre Savoir-Faire d\'Art', origin: 'Tout le Maroc', icon: '✨' },
 ];
 
-export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigate }) => {
+export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigate, onModalStateChange }) => {
   // Mode : 'entry' | 'manual_wizard'
   const [viewMode, setViewMode] = useState<'entry' | 'manual_wizard'>('entry');
+
+  // Notify App.tsx to hide bottom floating nav bar when wizard is active
+  useEffect(() => {
+    const isWizardActive = viewMode === 'manual_wizard';
+    if (onModalStateChange) {
+      onModalStateChange(isWizardActive);
+    }
+    return () => {
+      if (onModalStateChange) onModalStateChange(false);
+    };
+  }, [viewMode, onModalStateChange]);
   
   // Template product if initiated from product detail
   const [templateProduct, setTemplateProduct] = useState<any | null>(null);
@@ -167,12 +178,17 @@ export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigat
 
   return (
     <div
+      className="app-view"
       style={{
-        minHeight: '100vh',
+        minHeight: '100%',
+        height: '100%',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
         background: '#FAF8F5',
         color: '#1A2A3A',
         fontFamily: 'var(--font-body, system-ui, sans-serif)',
-        paddingBottom: 90,
+        padding: '0 0 calc(140px + env(safe-area-inset-bottom)) 0',
+        boxSizing: 'border-box',
       }}
     >
       {/* Top Moroccan Header Bar */}
@@ -623,36 +639,39 @@ export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigat
                   </span>
                 </label>
 
-                <button
-                  onClick={() => {
-                    if (!safetyAccepted) {
-                      setErrorMsg('Veuillez cocher la case d\'acceptation pour continuer.');
-                      return;
-                    }
-                    setErrorMsg(null);
-                    setStep(2);
-                  }}
-                  disabled={!safetyAccepted}
-                  style={{
-                    width: '100%',
-                    marginTop: 20,
-                    padding: 14,
-                    borderRadius: 16,
-                    border: 'none',
-                    background: safetyAccepted ? 'linear-gradient(135deg, #1A2A3A 0%, #B8623F 100%)' : '#E2E8F0',
-                    color: safetyAccepted ? '#FFFFFF' : '#94A3B8',
-                    fontWeight: 700,
-                    fontSize: '0.9rem',
-                    cursor: safetyAccepted ? 'pointer' : 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                  }}
-                >
-                  Étape suivante : Image d'Inspiration
-                  <ArrowRight size={16} />
-                </button>
+                <div style={{ marginTop: 24, paddingBottom: 8 }}>
+                  <button
+                    id="atelier-step1-continue-btn"
+                    onClick={() => {
+                      if (!safetyAccepted) {
+                        setErrorMsg('Veuillez cocher la case d\'acceptation pour continuer.');
+                        return;
+                      }
+                      setErrorMsg(null);
+                      setStep(2);
+                    }}
+                    disabled={!safetyAccepted}
+                    style={{
+                      width: '100%',
+                      padding: 16,
+                      borderRadius: 16,
+                      border: 'none',
+                      background: safetyAccepted ? 'linear-gradient(135deg, #1A2A3A 0%, #B8623F 100%)' : '#E2E8F0',
+                      color: safetyAccepted ? '#FFFFFF' : '#94A3B8',
+                      fontWeight: 700,
+                      fontSize: '0.92rem',
+                      cursor: safetyAccepted ? 'pointer' : 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      boxShadow: safetyAccepted ? '0 8px 24px rgba(184, 98, 63, 0.25)' : 'none',
+                    }}
+                  >
+                    Étape suivante : Image d'Inspiration
+                    <ArrowRight size={16} />
+                  </button>
+                </div>
               </motion.div>
             )}
 
@@ -791,7 +810,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigat
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 12, marginTop: 24, paddingBottom: 8 }}>
                   <button
                     onClick={() => setStep(1)}
                     style={{
@@ -916,7 +935,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigat
                   })}
                 </div>
 
-                <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 12, marginTop: 24, paddingBottom: 8 }}>
                   <button
                     onClick={() => setStep(2)}
                     style={{
@@ -1099,7 +1118,7 @@ export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigat
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 12, marginTop: 24, paddingBottom: 8 }}>
                   <button
                     onClick={() => setStep(3)}
                     disabled={submitting}

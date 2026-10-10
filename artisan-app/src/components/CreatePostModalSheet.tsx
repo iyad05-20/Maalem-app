@@ -110,7 +110,7 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
           transition={{ type: "spring", damping: 26, stiffness: 320 }}
           className="sheet-panel"
           onClick={e => e.stopPropagation()}
-          style={{ maxWidth: 390 }}
+          style={{ maxWidth: 440, maxHeight: "92dvh", overflowY: "auto" }}
         >
           <div className="sheet-handle" />
 

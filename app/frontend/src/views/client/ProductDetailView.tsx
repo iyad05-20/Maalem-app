@@ -253,7 +253,7 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         </div>
 
         {/* Scrollable Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 100px 20px' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 170px 20px' }}>
           
           {/* Main Product Image */}
           <div style={{ margin: '20px 0', borderRadius: 24, overflow: 'hidden', height: 280, position: 'relative', boxShadow: 'var(--shadow-md)' }}>

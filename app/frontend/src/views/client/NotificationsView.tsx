@@ -474,7 +474,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
         </div>
 
         {/* Liste des Notifications Colorées */}
-        <div style={{ flex: 1, overflowY: "auto", paddingRight: 2, display: "flex", flexDirection: "column", gap: 10, scrollbarWidth: "none" }}>
+        <div style={{ flex: 1, overflowY: "auto", paddingRight: 2, paddingBottom: 24, display: "flex", flexDirection: "column", gap: 10, scrollbarWidth: "none" }}>
           {filteredNotifications.length > 0 ? (
             filteredNotifications.map((n) => {
               // Couleurs spécifiques par type de notification
