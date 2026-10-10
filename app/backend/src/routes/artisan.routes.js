@@ -28,7 +28,8 @@ import {
   handleEscrowChoice,
   nudgeClientApproval,
   contestWarningForceMajeure,
-  shipOrder
+  shipOrder,
+  convertOrderToCatalogProduct
 } from "../client/services/artisanOrderService.js";
 import { creditClientWallet } from "../client/services/clientWalletService.js";
 
@@ -347,6 +348,38 @@ artisanRouter.post("/orders/:id/complete-delivery", async (req, res) => {
     const result = await completeVendeurDelivery(id, signaturePhoto);
     return res.json({ success: true, ...result });
   } catch (err) {
+    return res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/artisan/orders/:id/convert-to-catalog
+ * Transfert d'une commande personnalisée/sur-mesure achevée vers le catalogue en post 'Sur Commande'
+ * Accessible uniquement vers la fin de confection (photos fournies, prêt, expédié, livré).
+ * Requiert obligatoirement une vraie photo du produit confectionné, titre, prix, catégorie, tags.
+ */
+artisanRouter.post("/orders/:id/convert-to-catalog", async (req, res) => {
+  const { id } = req.params;
+  const artisanRef = getArtisanRef(req);
+
+  try {
+    const result = await convertOrderToCatalogProduct(id, artisanRef, req.body);
+    return res.json(result);
+  } catch (err) {
+    if (err.message === "image_reelle_confection_obligatoire") {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Une photo réelle du produit confectionné est obligatoire pour la publication.",
+        error_ar: "صورة حقيقية للمنتج المصنوع إلزامية للنشر." 
+      });
+    }
+    if (err.message === "commande_non_achevee") {
+      return res.status(400).json({ 
+        success: false, 
+        error: "La commande doit être finalisée ou en fin de confection avant de pouvoir être ajoutée au catalogue.",
+        error_ar: "يجب إتمام الطلب أو الوصول لمرحلة نهاية التصنيع قبل إضافته للكتالوج." 
+      });
+    }
     return res.status(400).json({ success: false, error: err.message });
   }
 });
@@ -825,6 +858,8 @@ artisanRouter.post("/products", async (req, res) => {
 
   const numStock = stock !== undefined && stock !== null && stock !== "" ? Math.max(0, parseInt(stock)) : null;
 
+  const personalizationMode = req.body.personalizationMode || req.body.personalization_mode || "accept_direct";
+
   // 1. Prepare Supabase row conforming to database schema
   const supabaseRow = {
     id: productId,
@@ -840,6 +875,9 @@ artisanRouter.post("/products", async (req, res) => {
     stock_policy: stockPolicy || {},
     artisan_name: artisanName,
     image_url: prodImg,
+    personalization_mode: personalizationMode,
+    accept_customization: personalizationMode !== "disabled",
+    allow_public_customization: personalizationMode === "delegate_to_market",
     identity: {
       category: category || "Céramique & Poterie",
       category_group: categoryGroup,
@@ -851,6 +889,9 @@ artisanRouter.post("/products", async (req, res) => {
       manufacturing_days: Number(manufacturingDays) || 5,
       shipping_fee: numShippingFee,
       shipping_threshold: numShippingThreshold || 1,
+      personalization_mode: personalizationMode,
+      accept_customization: personalizationMode !== "disabled",
+      allow_public_customization: personalizationMode === "delegate_to_market",
     },
     rec_tags: {
       style: ["traditionnel", "fait-main"],
@@ -898,6 +939,10 @@ artisanRouter.post("/products", async (req, res) => {
     price: numNet,
     clientPrice,
     productType,
+    personalizationMode,
+    personalization_mode: personalizationMode,
+    acceptCustomization: personalizationMode !== "disabled",
+    allowPublicCustomization: personalizationMode === "delegate_to_market",
     category: category || "Céramique & Poterie",
     image: prodImg,
     artisanName,
@@ -922,15 +967,34 @@ artisanRouter.put("/products/:id", async (req, res) => {
   const updates = req.body;
   const index = artisanProductsList.findIndex(p => p.id === id);
 
-  if (index === -1) {
-    return res.status(404).json({ success: false, error: "Produit introuvable." });
+  if (index !== -1) {
+    artisanProductsList[index] = { ...artisanProductsList[index], ...updates };
   }
 
-  artisanProductsList[index] = { ...artisanProductsList[index], ...updates };
+  try {
+    const sbUpdates = {};
+    if (updates.title) sbUpdates.title = updates.title;
+    if (updates.price) sbUpdates.price = updates.price;
+    if (updates.description) {
+      sbUpdates.identity = { description: updates.description };
+    }
+    const mode = updates.personalizationMode || updates.personalization_mode;
+    if (mode) {
+      sbUpdates.personalization_mode = mode;
+      sbUpdates.accept_customization = mode !== "disabled";
+      sbUpdates.allow_public_customization = mode === "delegate_to_market";
+    }
+    if (Object.keys(sbUpdates).length > 0) {
+      await supabase.from("products").update(sbUpdates).eq("id", id);
+    }
+  } catch (e) {
+    console.warn("[VORK-API] Failed to update product in Supabase:", e.message);
+  }
+
   return res.json({
     success: true,
     message: "Produit mis à jour avec succès !",
-    product: artisanProductsList[index],
+    product: index !== -1 ? artisanProductsList[index] : updates,
   });
 });
 

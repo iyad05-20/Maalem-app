@@ -348,6 +348,121 @@ router.get("/custom-requests", async (req, res) => {
 });
 
 /**
+ * [CLIENT API] Créer une nouvelle demande personnalisée / sur-mesure (Atelier Manuel v2)
+ */
+router.post("/custom-requests", async (req, res) => {
+  const clientRef = req.userId || req.body.clientRef || "client-me";
+  const {
+    customizationOrigin = "from_scratch", // 'from_post' | 'from_scratch'
+    sourceProductId,
+    sourceVendorId,
+    categoryName,
+    categoryId,
+    title,
+    description,
+    budget,
+    proofImage,
+    safetyGuidelinesAccepted = true,
+    transportProvider = "vendeur",
+  } = req.body;
+
+  if (!safetyGuidelinesAccepted) {
+    return res.status(400).json({
+      success: false,
+      error: "Vous devez accepter la charte d'engagement et de sécurité avant de valider votre demande.",
+      error_ar: "يجب الموافقة على ميثاق السلامة والالتزام قبل تأكيد طلبك."
+    });
+  }
+
+  // Si personnalisation depuis un produit (from_post), vérifier le mode du produit
+  let finalMarketType = "public";
+  let targetArtisanRef = "artisan-open";
+
+  if (customizationOrigin === "from_post" && sourceProductId) {
+    try {
+      const { supabase } = await import("../../db/supabase.client.js");
+      const { data: prod } = await supabase.from("products").select("*").eq("id", sourceProductId).single();
+      if (prod) {
+        const mode = prod.personalization_mode || "accept_direct";
+        if (mode === "disabled") {
+          return res.status(400).json({
+            success: false,
+            error: "Cet artisan a désactivé la personnalisation sur cette création.",
+            error_ar: "عطل الحرفي إمكانية التخصيص على هذا التصميم."
+          });
+        }
+        if (mode === "accept_direct") {
+          finalMarketType = "private";
+          targetArtisanRef = sourceVendorId || prod.facets?.artisan_ref || prod.artisan_ref || "artisan-1";
+        } else {
+          // delegate_to_market
+          finalMarketType = "public";
+          targetArtisanRef = "artisan-open";
+        }
+      }
+    } catch (e) {
+      console.warn("[VORK-API] Could not check source product mode:", e.message);
+    }
+  }
+
+  const now = new Date().toISOString();
+  const id = `req-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const finalTitle = title || (categoryName ? `Création sur-mesure (${categoryName})` : "Création sur-mesure");
+
+  const tags = {
+    summary: description || finalTitle,
+    title: finalTitle,
+    category: categoryName || "Sur-mesure",
+    budget: budget ? `${budget} MAD` : "Sur devis",
+    quotes: [],
+    customizationOrigin,
+    sourceProductId: sourceProductId || null,
+    sourceVendorId: sourceVendorId || null,
+  };
+
+  const newRecord = {
+    id,
+    clientRef,
+    artisanRef: targetArtisanRef,
+    totalPrice: budget ? Number(budget) : 0,
+    productType: "sur_commande",
+    transportProvider,
+    status: "en_attente_artisan",
+    proofImage: proofImage || null,
+    customizationTags: JSON.stringify(tags),
+    sourceProductId: sourceProductId || null,
+    sourceVendorId: sourceVendorId || null,
+    customizationOrigin,
+    marketType: finalMarketType,
+    safetyGuidelinesAccepted: safetyGuidelinesAccepted ? 1 : 0,
+    categoryId: categoryId || null,
+    categoryName: categoryName || null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await db.insert(customRequests).values(newRecord);
+    return res.status(201).json({
+      success: true,
+      message: finalMarketType === "public"
+        ? "Votre demande a été publiée avec succès sur le Marché Public des Artisans."
+        : "Votre demande personnalisée a été transmise directement au Maâlem.",
+      message_ar: finalMarketType === "public"
+        ? "تم نشر طلبك بنجاح في السوق المفتوح للحرفيين."
+        : "تم إرسال طلبك المخصص مباشرة إلى الصانع.",
+      customRequest: {
+        ...newRecord,
+        customizationTags: tags,
+      }
+    });
+  } catch (err) {
+    console.error("[VORK-API] ❌ Error inserting custom request:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * [CLIENT API] Créer une nouvelle commande.
  */
 router.post("/orders", async (req, res) => {

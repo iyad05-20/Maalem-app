@@ -68,7 +68,7 @@ async function run() {
   await sql`ALTER TABLE public.disputes ADD COLUMN IF NOT EXISTS arbitrated_by TEXT DEFAULT 'admin-vork';`;
 
   // 5. Custom Requests & Market
-  console.log('5. Ensuring custom_requests table exists...');
+  console.log('5. Ensuring custom_requests table exists and has v2 columns...');
   await sql`
     CREATE TABLE IF NOT EXISTS public.custom_requests (
       id TEXT PRIMARY KEY,
@@ -84,8 +84,80 @@ async function run() {
       customization_tags TEXT
     );
   `;
+  await sql`ALTER TABLE public.custom_requests ADD COLUMN IF NOT EXISTS source_product_id TEXT;`;
+  await sql`ALTER TABLE public.custom_requests ADD COLUMN IF NOT EXISTS source_vendor_id TEXT;`;
+  await sql`ALTER TABLE public.custom_requests ADD COLUMN IF NOT EXISTS customization_origin TEXT DEFAULT 'from_post';`;
+  await sql`ALTER TABLE public.custom_requests ADD COLUMN IF NOT EXISTS market_type TEXT DEFAULT 'private';`;
+  await sql`ALTER TABLE public.custom_requests ADD COLUMN IF NOT EXISTS safety_guidelines_accepted NUMERIC DEFAULT 1;`;
+  await sql`ALTER TABLE public.custom_requests ADD COLUMN IF NOT EXISTS category_id TEXT;`;
+  await sql`ALTER TABLE public.custom_requests ADD COLUMN IF NOT EXISTS category_name TEXT;`;
 
-  console.log('✅ All schema alterations applied successfully!');
+  // 6. Orders v2 columns
+  console.log('6. Adding v2 model tracking and catalog publication columns to orders...');
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS source_product_id TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS source_vendor_id TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS customization_origin TEXT DEFAULT 'from_post';`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS catalog_published_at TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS published_product_id TEXT;`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS republication_consent_status TEXT DEFAULT 'not_required';`;
+  await sql`ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS republication_consent_party TEXT;`;
+
+  // 7. Products personalization modes
+  console.log('7. Adding personalization mode columns to products...');
+  try {
+    await sql`ALTER TABLE public.products ADD COLUMN IF NOT EXISTS personalization_mode TEXT DEFAULT 'accept_direct';`;
+    await sql`ALTER TABLE public.products ADD COLUMN IF NOT EXISTS accept_customization BOOLEAN DEFAULT true;`;
+    await sql`ALTER TABLE public.products ADD COLUMN IF NOT EXISTS allow_public_customization BOOLEAN DEFAULT false;`;
+  } catch (prodErr) {
+    console.warn('Note: products table alterations (non-fatal):', prodErr.message);
+  }
+
+  // 8. Notifications table
+  console.log('8. Ensuring notifications table exists...');
+  await sql`
+    CREATE TABLE IF NOT EXISTS public.notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_type TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      title_ar TEXT,
+      message TEXT NOT NULL,
+      message_ar TEXT,
+      link_url TEXT,
+      source_id TEXT,
+      secondary_user_id TEXT,
+      secondary_user_name TEXT,
+      is_read NUMERIC DEFAULT 0,
+      metadata TEXT,
+      created_at TEXT NOT NULL
+    );
+  `;
+
+  // 9. Reports table
+  console.log('9. Ensuring reports table exists...');
+  await sql`
+    CREATE TABLE IF NOT EXISTS public.reports (
+      id TEXT PRIMARY KEY,
+      reporter_id TEXT NOT NULL,
+      reporter_type TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      target_title TEXT,
+      target_owner_id TEXT,
+      category TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      evidence_urls TEXT,
+      status TEXT NOT NULL DEFAULT 'en_attente_admin',
+      admin_decision TEXT,
+      admin_notes TEXT,
+      resolved_by TEXT,
+      resolved_at TEXT,
+      created_at TEXT NOT NULL
+    );
+  `;
+
+  console.log('✅ All schema alterations and new v2 tables applied successfully!');
   process.exit(0);
 }
 

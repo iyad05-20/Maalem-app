@@ -27,6 +27,11 @@ export interface ArtisanOrder {
   counterUnreachable?: number | null;
   nonReceptionClaimedAt?: string | null;
   j2RelanceSentAt?: string | null;
+  shippedAt?: string | null;
+  customizationOrigin?: "from_post" | "from_scratch" | null;
+  catalogPublishedAt?: string | null;
+  publishedProductId?: string | null;
+  republicationConsentStatus?: string | null;
 }
 
 export interface ArtisanReturn {

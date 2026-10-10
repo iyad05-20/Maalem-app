@@ -18,13 +18,30 @@ import { orders, formalRequests } from "../core/db/schema.js";
  *           et donne son AVIS. Les parties restent libres de suite.
  */
 
+/**
+ * Catégories officielles de demandes formelles (Spécification v2 / Décision Ziad)
+ */
+export const FORMAL_REQUEST_CATEGORIES = {
+  client: [
+    { id: "abus_delais", label: "Abus de délais (Fabrication ou Transport)", labelAr: "تجاوز المواعيد (تصنيع أو نقل)" },
+    { id: "annulation_refusee", label: "Refus injustifié d'annulation", labelAr: "رفض غير مبرر للإلغاء" },
+    { id: "produit_defectueux", label: "Produit défectueux ou non-conforme", labelAr: "منتج به عيب أو غير مطابق" },
+    { id: "autre", label: "Autre motif", labelAr: "سبب آخر" },
+  ],
+  artisan: [
+    { id: "client_inaccessible", label: "Client injoignable après expédition", labelAr: "العميل لا يجيب بعد الشحن" },
+    { id: "refus_validation_reception", label: "Refus de validation de réception après livraison", labelAr: "رفض تأكيد الاستلام بعد التسليم" },
+    { id: "autre", label: "Autre motif", labelAr: "سبب آخر" },
+  ],
+};
+
 export async function createFormalRequest({
   orderId,
-  initiatorType, // 'client' | 'artisan' (Q3.1 : les deux peuvent faire une demande)
+  initiatorType, // 'client' | 'artisan'
   initiatorId,
-  category, // 'non_validation' | 'produit_non_conforme' | 'retard' | 'refus_remboursement' | 'autre' (Q3.3)
+  category,
   description,
-  evidenceUrls = [], // Photos optionnelles (Q3.3)
+  evidenceUrls = [],
 }) {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw new Error("commande_introuvable");

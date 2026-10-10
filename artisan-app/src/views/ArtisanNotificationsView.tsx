@@ -1,23 +1,66 @@
-import React, { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { ChevronRight, ExternalLink, Flag } from "lucide-react";
 import type { ArtisanNotification } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
+import { ReportModal } from "../components/ReportModal";
 
 interface ArtisanNotificationsViewProps {
   notifications: ArtisanNotification[];
   onNavigateTab: (tab: any) => void;
+  artisanRef?: string;
 }
 
 export const ArtisanNotificationsView: React.FC<ArtisanNotificationsViewProps> = ({
   notifications,
   onNavigateTab,
+  artisanRef,
 }) => {
   const { isRTL, t } = useI18n();
   const [filter, setFilter] = useState<"all" | "orders" | "disputes" | "wallet">("all");
+  const [serverNotifs, setServerNotifs] = useState<any[]>([]);
+  const [reportTarget, setReportTarget] = useState<any | null>(null);
 
-  const filteredNotifications = notifications.filter(n => {
+  useEffect(() => {
+    const fetchServerNotifs = async () => {
+      try {
+        const token = localStorage.getItem("token") || "";
+        const res = await fetch(`/api/notifications`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.notifications)) {
+          setServerNotifs(data.notifications);
+        }
+      } catch (e) {
+        console.warn("Could not fetch artisan server notifications:", e);
+      }
+    };
+    fetchServerNotifs();
+  }, [artisanRef]);
+
+  const serverMapped: any[] = serverNotifs.map(sn => ({
+    id: sn.id,
+    type: sn.type,
+    title: sn.title,
+    title_fr: sn.title,
+    title_ar: sn.titleAr,
+    message: sn.message,
+    message_fr: sn.message,
+    message_ar: sn.messageAr,
+    date: sn.createdAt,
+    read: Boolean(sn.isRead),
+    linkTab: "home",
+    linkUrl: sn.linkUrl,
+    secondaryUserId: sn.secondaryUserId,
+    secondaryUserName: sn.secondaryUserName,
+    sourceId: sn.sourceId,
+  }));
+
+  const allNotifications = [...serverMapped, ...notifications];
+
+  const filteredNotifications = allNotifications.filter(n => {
     if (filter === "orders") {
-      return ["new_order", "urgent_order", "order_prep", "order_shipped", "order_delivered", "order_confirmed", "order_cancelled"].includes(n.type);
+      return ["new_order", "urgent_order", "order_prep", "order_shipped", "order_delivered", "order_confirmed", "order_cancelled", "secondary_vendor_started_work"].includes(n.type);
     }
     if (filter === "disputes") return n.type === "dispute" || n.type === "return";
     if (filter === "wallet") return n.type === "escrow_released" || n.type === "withdrawal";
@@ -26,6 +69,8 @@ export const ArtisanNotificationsView: React.FC<ArtisanNotificationsViewProps> =
 
   const getBadge = (type: string) => {
     switch (type) {
+      case "secondary_vendor_started_work":
+        return { label: isRTL ? "تفويض بالماركت" : "DÉLÉGATION", bg: "rgba(212, 175, 55, 0.18)", color: "#B8623F" };
       case "urgent_order":
         return { label: isRTL ? "مهلة حرجة" : "URGENT", bg: "rgba(220, 53, 69, 0.1)", color: "#DC3545" };
       case "order_cancelled":
@@ -136,6 +181,59 @@ export const ArtisanNotificationsView: React.FC<ArtisanNotificationsViewProps> =
                   {displayMessage}
                 </p>
 
+                {/* Actions spécifiques pour délégation ou lien de profil */}
+                {(n as any).secondaryUserId && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, marginBottom: 8 }} onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => {
+                        window.open(`/api/artisan/vendor/${(n as any).secondaryUserId}/profile`, '_blank');
+                      }}
+                      style={{
+                        padding: "5px 10px",
+                        borderRadius: 8,
+                        background: "rgba(26, 42, 58, 0.08)",
+                        border: "1px solid var(--border)",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: "var(--primary)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <ExternalLink size={11} />
+                      {isRTL ? "معاينة بروفايل الصانع 2" : "Profil du Maâlem 2"}
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setReportTarget({
+                          targetId: (n as any).sourceId || (n as any).secondaryUserId,
+                          targetTitle: `Artisan 2 (${(n as any).secondaryUserName || (n as any).secondaryUserId})`,
+                          targetOwnerId: (n as any).secondaryUserId,
+                        });
+                      }}
+                      style={{
+                        padding: "5px 8px",
+                        borderRadius: 8,
+                        background: "rgba(239, 68, 68, 0.08)",
+                        border: "1px solid rgba(239, 68, 68, 0.25)",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: "#DC2626",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Flag size={11} />
+                      {isRTL ? "إبلاغ" : "Signaler"}
+                    </button>
+                  </div>
+                )}
+
                 <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 4, fontSize: 10, color: "var(--accent-warm)", fontWeight: 700 }}>
                   <span>{t("notif_view_file")}</span>
                   <ChevronRight size={12} style={{ transform: isRTL ? "rotate(180deg)" : "none" }} />
@@ -144,6 +242,18 @@ export const ArtisanNotificationsView: React.FC<ArtisanNotificationsViewProps> =
             );
           })}
         </div>
+      )}
+
+      {reportTarget && (
+        <ReportModal
+          isOpen={Boolean(reportTarget)}
+          onClose={() => setReportTarget(null)}
+          targetType="product"
+          targetId={reportTarget.targetId}
+          targetTitle={reportTarget.targetTitle}
+          targetOwnerId={reportTarget.targetOwnerId}
+          reporterType="artisan"
+        />
       )}
     </div>
   );

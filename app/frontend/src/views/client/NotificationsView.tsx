@@ -1,35 +1,78 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { 
   X, 
-  ChevronRight
+  ChevronRight,
+  ExternalLink,
+  Flag
 } from "lucide-react";
 import type { ClientOrder } from "../../types/clientPayment";
 import { useClientI18n } from "../../services/i18n";
+import { ReportModal } from "../../components/Shared/ReportModal";
 
 interface NotificationsViewProps {
   orders: ClientOrder[];
   onClose: () => void;
   onSelectOrder: (orderId: string) => void;
+  currentUser?: any;
+  onNavigate?: (view: any) => void;
 }
 
 export interface AppNotification {
   id: string;
-  orderId: string;
+  orderId?: string;
   title: string;
   message: string;
   type: "urgent" | "warning" | "info" | "success";
   isRead: boolean;
   createdAt: string;
   badgeText?: string;
+  linkUrl?: string;
+  sourceId?: string;
+  secondaryUserId?: string;
 }
 
-export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, onClose, onSelectOrder }) => {
+export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, onClose, onSelectOrder, currentUser }) => {
   const { lang, t } = useClientI18n();
   const [filter, setFilter] = useState<"all" | "unread" | "urgent">("all");
+  const [serverNotifs, setServerNotifs] = useState<any[]>([]);
+  const [reportTarget, setReportTarget] = useState<any | null>(null);
+
+  useEffect(() => {
+    const fetchServerNotifs = async () => {
+      try {
+        const uid = currentUser?.id || "client-me";
+        const res = await fetch(`/api/notifications?userId=${uid}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.notifications)) {
+          setServerNotifs(data.notifications);
+        }
+      } catch (err) {
+        console.warn("Could not fetch server notifications:", err);
+      }
+    };
+    fetchServerNotifs();
+  }, [currentUser]);
 
   // Génération dynamique et professionnelle des notifications basées sur les CGV
   const notifications: AppNotification[] = [];
+
+  // Ajouter les notifications persistantes du serveur
+  serverNotifs.forEach((sn) => {
+    notifications.push({
+      id: sn.id,
+      orderId: sn.metadata?.orderId || '',
+      title: (lang === 'ar' && sn.titleAr) ? sn.titleAr : sn.title,
+      message: (lang === 'ar' && sn.messageAr) ? sn.messageAr : sn.message,
+      type: sn.type === 'from_scratch_published_to_catalog' ? 'info' : 'info',
+      isRead: Boolean(sn.isRead),
+      createdAt: sn.createdAt,
+      badgeText: sn.type === 'from_scratch_published_to_catalog' ? (lang === 'ar' ? 'نشر في الكتالوج' : 'NOUVEAU POST') : undefined,
+      linkUrl: sn.linkUrl,
+      sourceId: sn.sourceId,
+      secondaryUserId: sn.secondaryUserId,
+    });
+  });
 
   orders.forEach((o) => {
     const isCustom = ["personnalise", "sur_commande"].includes(o.productType);
@@ -469,7 +512,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
                   whileTap={{ scale: 0.98 }}
                   onClick={() => {
                     onClose();
-                    onSelectOrder(n.orderId);
+                    if (n.orderId) onSelectOrder(n.orderId);
                   }}
                   style={{
                     background: bgColor,
@@ -528,6 +571,56 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
                     <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0, lineHeight: 1.45 }}>
                       {n.message}
                     </p>
+
+                    {/* Action buttons si publication ou lien externe */}
+                    {n.linkUrl && (
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                        <a
+                          href={n.linkUrl}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 10px',
+                            borderRadius: 8,
+                            background: '#1A2A3A',
+                            color: '#FFFFFF',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <ExternalLink size={12} />
+                          Voir la création
+                        </a>
+
+                        <button
+                          onClick={() => {
+                            setReportTarget({
+                              targetId: n.sourceId || (n.linkUrl ? n.linkUrl.split('/').pop() || '' : '') || 'item',
+                              targetTitle: n.title,
+                              targetOwnerId: n.secondaryUserId,
+                            });
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 8px',
+                            borderRadius: 8,
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            color: '#DC2626',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Flag size={12} />
+                          Signaler
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <ChevronRight size={15} color="var(--text-secondary)" style={{ alignSelf: "center", opacity: 0.5, transform: lang === 'ar' ? 'rotate(180deg)' : 'none' }} />
@@ -547,6 +640,20 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
             </div>
           )}
         </div>
+
+        {/* Modal de signalement */}
+        {reportTarget && (
+          <ReportModal
+            isOpen={Boolean(reportTarget)}
+            onClose={() => setReportTarget(null)}
+            targetType="product"
+            targetId={reportTarget.targetId}
+            targetTitle={reportTarget.targetTitle}
+            targetOwnerId={reportTarget.targetOwnerId}
+            reporterId={currentUser?.id || 'client-me'}
+            reporterType="client"
+          />
+        )}
       </motion.div>
     </motion.div>
   );

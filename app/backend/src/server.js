@@ -17,6 +17,9 @@ import { cronRouter }       from './routes/cronRoutes.js';
 import { adminRouter }      from './routes/admin.routes.js';
 import { artisanRouter }    from './routes/artisan.routes.js';
 import { formalRequestRouter } from './routes/formalRequest.routes.js';
+import { notificationRouter }  from './routes/notification.routes.js';
+import { reportRouter }        from './routes/report.routes.js';
+
 import { startCronScheduler } from './services/cronService.js';
 import { loadProducts }       from './services/recommendation.service.js';
 import { initSearchIndex }  from './services/search/meilisearch.service.js';
@@ -135,6 +138,8 @@ const apiRoutes = [
   ['/cron',            cronRouter],
   ['/admin',           adminRouter],
   ['/formal-requests', formalRequestRouter],
+  ['/notifications',   notificationRouter],
+  ['/reports',         reportRouter],
 ];
 
 for (const [routePath, router] of apiRoutes) {

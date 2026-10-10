@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { Wallet, Lock, CheckCircle2, Landmark, Package, Camera, Check, X, Truck, FileSignature, ChevronRight, Printer } from "lucide-react";
+import { Wallet, Lock, CheckCircle2, Landmark, Package, Camera, Check, X, Truck, FileSignature, ChevronRight, Printer, Sparkles } from "lucide-react";
 import type { ArtisanOrder, ArtisanWallet } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
 import { getBackendUrl } from "../services/artisanApi";
+import { ConvertToCatalogModalSheet } from "../components/ConvertToCatalogModalSheet";
 
 export type ArtisanTab = "home" | "market" | "create" | "posts" | "profile";
 
@@ -28,6 +29,7 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
 }) => {
   const { isRTL, t } = useI18n();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [convertingOrder, setConvertingOrder] = useState<ArtisanOrder | null>(null);
 
   const getStatusLabel = (status: string) => {
     switch (status) {
@@ -294,6 +296,59 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
                     </button>
                   )}
 
+                  {/* ─── TRANSFERT VERS POST SUR COMMANDE (Règle V2 / Décision Ziad) ─── */}
+                  {(() => {
+                    const isCustomOrSurCmd = ["personnalise", "sur_commande"].includes(order.productType) || Boolean((order as any).customizationOrigin);
+                    const isAlreadyPublished = Boolean((order as any).catalogPublishedAt || (order as any).publishedProductId);
+                    const isConfectionAdvanced = ["livre", "valide", "terminee"].includes(order.status) || Boolean(order.shippedAt) || (order.status === "en_preparation" && hasPhotos);
+
+                    if (isAlreadyPublished) {
+                      return (
+                        <div style={{ background: "rgba(45, 106, 79, 0.08)", border: "1px solid rgba(45, 106, 79, 0.25)", borderRadius: 10, padding: "7px 10px", fontSize: 10.5, color: "#2D6A4F", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                          <CheckCircle2 size={13} />
+                          <span>{isRTL ? "✓ تم نشر هذا النموذج كمنتج 'تحت الطلب' بالكتالوج" : "✓ Publié au catalogue en post 'Sur Commande'"}</span>
+                        </div>
+                      );
+                    }
+
+                    if (isCustomOrSurCmd) {
+                      return (
+                        <button
+                          type="button"
+                          disabled={!isConfectionAdvanced}
+                          onClick={() => setConvertingOrder(order)}
+                          title={!isConfectionAdvanced ? "Accessible vers la fin de fabrication ou après upload des photos" : ""}
+                          style={{
+                            width: "100%",
+                            padding: "9px 12px",
+                            borderRadius: 12,
+                            border: isConfectionAdvanced ? "1.5px solid var(--accent-warm)" : "1px dashed var(--border)",
+                            background: isConfectionAdvanced ? "rgba(184, 98, 63, 0.06)" : "rgba(0,0,0,0.02)",
+                            color: isConfectionAdvanced ? "var(--accent-warm)" : "var(--text-secondary)",
+                            fontWeight: 700,
+                            fontSize: 11,
+                            cursor: isConfectionAdvanced ? "pointer" : "not-allowed",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 6,
+                            marginTop: 4,
+                            opacity: isConfectionAdvanced ? 1 : 0.5,
+                          }}
+                        >
+                          <Sparkles size={14} />
+                          <span>
+                            {isConfectionAdvanced
+                              ? (isRTL ? "✦ تحويل إلى منشور 'تحت الطلب'" : "✦ Transférer en post 'Sur Commande'")
+                              : (isRTL ? "تحويل للكتالوج (متاح بنهاية الصنع)" : "Transférer au catalogue (fin de confection)")}
+                          </span>
+                        </button>
+                      );
+                    }
+
+                    return null;
+                  })()}
+
                   {/* ─── CARTE RELANCE CLIENT POUR APPROBATION RÉCEPTION (RÈGLE ZIAD 11/09/2026) ─── */}
                   {order.status === "livre" && order.clientApprovalStatus !== "approved" && (
                     <div style={{ background: "rgba(196, 169, 106, 0.1)", border: "1px solid rgba(196, 169, 106, 0.3)", borderRadius: 12, padding: "10px 12px", marginTop: 4 }}>
@@ -356,6 +411,17 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
             );
           })}
         </div>
+      )}
+
+      {convertingOrder && (
+        <ConvertToCatalogModalSheet
+          order={convertingOrder}
+          onClose={() => setConvertingOrder(null)}
+          onSuccess={() => {
+            (convertingOrder as any).catalogPublishedAt = new Date().toISOString();
+            setConvertingOrder(null);
+          }}
+        />
       )}
     </div>
   );

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, Star, Heart, Shield, ArrowRight, MessageSquare, Edit3 } from 'lucide-react';
+import { X, Star, Heart, Shield, ArrowRight, MessageSquare, Edit3, Flag, Sparkles } from 'lucide-react';
 import type { Product, View } from '../../types';
 import { recSession } from '../../services/recommendationSession';
 import { reviewsService, type Review } from '../../services/reviewsService';
 import { clientWalletAPI } from '../../services/clientWalletApi';
 import { LuxuryStockBadge } from '../../components/Shared/LuxuryStockBadge';
+import { ReportModal } from '../../components/Shared/ReportModal';
 
 interface ProductDetailViewProps {
   product: Product;
@@ -76,6 +77,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
   const allowOrderExceedingStock = Boolean(stockPolicy.allowOrderExceedingStock ?? stockPolicy.allow_order_exceeding_stock ?? true);
   const isStrictOutOfStock = isOutOfStock && !allowOrderExceedingStock;
   const isOnDemandOrder = isOutOfStock && allowOrderExceedingStock;
+
+  const [showReportModal, setShowReportModal] = useState(false);
+  const personalizationMode = pAny.personalization_mode || pAny.personalizationMode || pAny.identity?.personalization_mode || (pAny.accept_customization === false ? 'disabled' : 'accept_direct');
+  const isPersonalizationDisabled = personalizationMode === 'disabled';
 
   // Sync bookmark state with parent prop
   useEffect(() => {
@@ -214,18 +219,37 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             Détails de la création
           </h2>
 
-          <button
-            onClick={handleBookmarkToggle}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: isFav ? '#DC3545' : 'var(--text-secondary)',
-              transition: 'transform 0.15s ease'
-            }}
-          >
-            <Heart size={20} fill={isFav ? '#DC3545' : 'none'} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              onClick={() => setShowReportModal(true)}
+              title="Signaler ce produit"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#94A3B8',
+                padding: 6,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Flag size={18} />
+            </button>
+            <button
+              onClick={handleBookmarkToggle}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: isFav ? '#DC3545' : 'var(--text-secondary)',
+                transition: 'transform 0.15s ease',
+                padding: 6,
+              }}
+            >
+              <Heart size={20} fill={isFav ? '#DC3545' : 'none'} />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Content */}
@@ -448,22 +472,61 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             bottom: 0,
             left: 0,
             right: 0,
-            background: 'rgba(252, 251, 249, 0.9)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(252, 251, 249, 0.95)',
+            backdropFilter: 'blur(10px)',
             borderTop: '1px solid var(--border)',
-            padding: '16px 20px',
+            padding: '14px 20px',
             borderBottomLeftRadius: 32,
             borderBottomRightRadius: 32,
             zIndex: 10
           }}
         >
+          {/* Bouton Personnaliser (Tri-mode: masqué si disabled, direct ou marché public) */}
+          {!isPersonalizationDisabled && (
+            <button
+              onClick={() => {
+                sessionStorage.setItem('vork_atelier_template_product', JSON.stringify({
+                  ...product,
+                  personalizationMode,
+                }));
+                onNavigate('atelier');
+                onClose();
+              }}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: 18,
+                background: personalizationMode === 'delegate_to_market'
+                  ? 'linear-gradient(135deg, #FFFDF8, #F3ECE2)'
+                  : 'linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(184, 98, 63, 0.12))',
+                color: 'var(--primary)',
+                border: '1.5px solid rgba(212, 175, 55, 0.4)',
+                fontFamily: 'var(--font-display)',
+                fontWeight: 700,
+                fontSize: '0.84rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginBottom: 10,
+                boxShadow: '0 2px 8px rgba(212, 175, 55, 0.08)',
+              }}
+            >
+              <Sparkles size={16} color="var(--accent-warm)" />
+              {personalizationMode === 'delegate_to_market'
+                ? '✦ Personnaliser via le Marché Public des Artisans'
+                : '✦ Personnaliser avec ce Maâlem'}
+            </button>
+          )}
+
           <button
             onClick={handleOrder}
             disabled={isOrdering || isStrictOutOfStock}
             style={{
               width: '100%',
-              padding: '16px',
-              borderRadius: 20,
+              padding: '15px',
+              borderRadius: 18,
               background: isStrictOutOfStock 
                 ? 'rgba(26, 42, 58, 0.2)' 
                 : isOnDemandOrder 
@@ -492,6 +555,18 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             {!isOrdering && !isStrictOutOfStock && <ArrowRight size={16} />}
           </button>
         </div>
+
+        {/* Modal de signalement */}
+        <ReportModal
+          isOpen={showReportModal}
+          onClose={() => setShowReportModal(false)}
+          targetType="product"
+          targetId={product.id}
+          targetTitle={product.title}
+          targetOwnerId={product.artisanRef || (product as any).artisan_ref}
+          reporterId={currentUser?.id || 'client-me'}
+          reporterType="client"
+        />
       </motion.div>
     </motion.div>
   );

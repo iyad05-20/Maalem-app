@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ShoppingBag, MapPin, Clock, DollarSign, CheckCircle, Send, Tag } from "lucide-react";
+import { ShoppingBag, MapPin, Clock, DollarSign, CheckCircle, Send, Tag, Flag } from "lucide-react";
 import type { CustomOrderRequest } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
+import { ReportModal } from "../components/ReportModal";
 
 interface Props {
   customRequests: CustomOrderRequest[];
@@ -15,6 +16,7 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [quoteForm, setQuoteForm] = useState<{ price: string; days: string; note: string }>({ price: "", days: "", note: "" });
   const [activeQuoteId, setActiveQuoteId] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ id: string; title: string } | null>(null);
 
   const CATEGORIES = [
     { id: "all", label: t("market_cat_all") },
@@ -183,13 +185,30 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
                     </div>
                   </div>
                 ) : (
-                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 14px" }}>
+                  <div style={{ borderTop: "1px solid var(--border)", padding: "10px 14px", display: "flex", gap: 8, alignItems: "center" }}>
                     <button
                       className={hasAlreadyQuoted ? "btn-outline" : "btn-primary"}
-                      style={{ fontSize: 12, padding: "9px 14px" }}
+                      style={{ flex: 1, fontSize: 12, padding: "9px 14px" }}
                       onClick={() => setActiveQuoteId(req.id)}
                     >
                       <Send size={14} /> {hasAlreadyQuoted ? t("market_quote_edit") : t("market_propose_quote")}
+                    </button>
+                    <button
+                      onClick={() => setReportTarget({ id: req.id, title: req.title })}
+                      title={isRTL ? "إبلاغ عن هذا الطلب" : "Signaler cette demande"}
+                      style={{
+                        background: "none",
+                        border: "1px solid var(--border)",
+                        borderRadius: 12,
+                        padding: "8px 10px",
+                        color: "var(--text-secondary)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Flag size={14} />
                     </button>
                   </div>
                 )}
@@ -197,6 +216,17 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
             );
           })}
         </div>
+      )}
+
+      {reportTarget && (
+        <ReportModal
+          isOpen={Boolean(reportTarget)}
+          onClose={() => setReportTarget(null)}
+          targetType="custom_request"
+          targetId={reportTarget.id}
+          targetTitle={reportTarget.title}
+          reporterType="artisan"
+        />
       )}
     </div>
   );

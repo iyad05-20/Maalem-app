@@ -4,6 +4,7 @@ import { Header } from "./components/Header";
 import { OverviewView } from "./views/OverviewView";
 import { DisputesView } from "./views/DisputesView";
 import { FormalRequestsView } from "./views/FormalRequestsView";
+import { ReportsModerationView } from "./views/ReportsModerationView";
 import { VendorsView } from "./views/VendorsView";
 import { EscrowLedgerView } from "./views/EscrowLedgerView";
 import { LogisticsView } from "./views/LogisticsView";
@@ -34,6 +35,7 @@ export const App: React.FC = () => {
   const [logisticsOrders, setLogisticsOrders] = useState<any[]>([]);
   const [cronExecutions, setCronExecutions] = useState<CronExecution[]>([]);
   const [formalRequests, setFormalRequests] = useState<any[]>([]);
+  const [pendingReportsCount, setPendingReportsCount] = useState(0);
 
   // Selected Dispute for Workbench Modal
   const [activeDisputeModal, setActiveDisputeModal] = useState<DisputeDossier | null>(null);
@@ -70,6 +72,21 @@ export const App: React.FC = () => {
       setLogisticsOrders(logisticsRes);
       setCronExecutions(cronRes);
       setFormalRequests(formalReqsRes);
+
+      // Fetch pending reports count
+      try {
+        const token = localStorage.getItem("adminToken") || localStorage.getItem("token") || "";
+        const repRes = await fetch("/api/reports", {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const repData = await repRes.json();
+        if (repData.success && Array.isArray(repData.reports)) {
+          const pending = repData.reports.filter((r: any) => r.status === "en_attente_admin").length;
+          setPendingReportsCount(pending);
+        }
+      } catch (err) {
+        console.warn("[ADMIN] Erreur comptage signalements:", err);
+      }
     } catch (err: any) {
       console.error("[ADMIN] Erreur lors du chargement des données:", err);
     } finally {
@@ -123,6 +140,8 @@ export const App: React.FC = () => {
         return { title: "⚖️ Médiation & Arbitrage des Litiges (Art. 20)", subtitle: "Instruction contradictoire et rendu de décision d'arbitrage motivé sous 48h." };
       case "formal-requests":
         return { title: "📜 Supervision des Demandes Formelles", subtitle: "Médiation et observations Vork sur les différends directs (Délai 48h)." };
+      case "reports":
+        return { title: "🚩 Modération des Signalements & Plagiat", subtitle: "Traitement des réclamations, enquêtes contradictoires et sanctions administratives." };
       case "vendors":
         return { title: "🛡️ Santé des Boutiques Maâlems (Art. 6.4 & 22)", subtitle: "Gestion des compteurs d'avertissements mensuels et des suspensions." };
       case "escrow":
@@ -145,6 +164,7 @@ export const App: React.FC = () => {
         openDisputesCount={openDisputesCount}
         warningsCount={warnedVendorsCount}
         formalRequestsCount={escalatedFormalRequestsCount}
+        reportsCount={pendingReportsCount}
       />
 
       {/* Main Area */}
@@ -181,6 +201,10 @@ export const App: React.FC = () => {
               requests={formalRequests}
               onRefresh={loadAllData}
             />
+          )}
+
+          {currentTab === "reports" && (
+            <ReportsModerationView />
           )}
 
           {currentTab === "vendors" && (

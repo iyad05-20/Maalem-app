@@ -8,10 +8,11 @@ import {
   Clock, 
   Award,
   ChevronRight,
-  FileText
+  FileText,
+  Flag
 } from "lucide-react";
 
-export type AdminTab = "overview" | "disputes" | "formal-requests" | "vendors" | "escrow" | "logistics" | "cron";
+export type AdminTab = "overview" | "disputes" | "formal-requests" | "reports" | "vendors" | "escrow" | "logistics" | "cron";
 
 interface SidebarProps {
   currentTab: AdminTab;
@@ -19,6 +20,7 @@ interface SidebarProps {
   openDisputesCount: number;
   warningsCount: number;
   formalRequestsCount?: number;
+  reportsCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -26,12 +28,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange, 
   openDisputesCount, 
   warningsCount,
-  formalRequestsCount = 0
+  formalRequestsCount = 0,
+  reportsCount = 0
 }) => {
   const navItems = [
     { id: "overview", label: "Vue d'Ensemble", icon: LayoutDashboard },
     { id: "disputes", label: "Médiation & Litiges", icon: Scale, badge: openDisputesCount, badgeColor: "#DC3545" },
     { id: "formal-requests", label: "Demandes Formelles", icon: FileText, badge: formalRequestsCount > 0 ? formalRequestsCount : undefined, badgeColor: "#B8623F" },
+    { id: "reports", label: "Signalements Modération", icon: Flag, badge: reportsCount > 0 ? reportsCount : undefined, badgeColor: "#EF4444" },
     { id: "vendors", label: "Santé des Maâlems", icon: ShieldAlert, badge: warningsCount > 0 ? warningsCount : undefined, badgeColor: "#8B6914" },
     { id: "escrow", label: "Séquestre & Retraits", icon: Wallet },
     { id: "logistics", label: "Suivi Logistique", icon: Truck },

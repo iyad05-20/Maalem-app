@@ -4,11 +4,21 @@ import {
   respondToFormalRequest, 
   escalateToAdmin, 
   getFormalRequestsForUser, 
-  getFormalRequestsForOrder 
+  getFormalRequestsForOrder,
+  FORMAL_REQUEST_CATEGORIES
 } from "../services/formalRequestService.js";
 import { optionalAuthMiddleware } from "../middleware/auth.middleware.js";
 
 export const formalRequestRouter = express.Router();
+
+/**
+ * GET /api/formal-requests/categories
+ * Récupère les catégories normalisées selon l'initiateur (client ou artisan).
+ */
+formalRequestRouter.get("/categories", (req, res) => {
+  return res.json({ success: true, categories: FORMAL_REQUEST_CATEGORIES });
+});
+
 formalRequestRouter.use(optionalAuthMiddleware);
 
 /**

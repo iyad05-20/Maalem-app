@@ -40,6 +40,7 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
   const [showStockToClient, setShowStockToClient] = useState(true);
   const [allowExceedingStock, setAllowExceedingStock] = useState(false);
   const [autoAcceptExceedingStock, setAutoAcceptExceedingStock] = useState(false);
+  const [personalizationMode, setPersonalizationMode] = useState<"accept_direct" | "delegate_to_market" | "disabled">("accept_direct");
   const [loading, setLoading] = useState(false);
 
   // Pricing formula: artisan saisit son prix NET
@@ -74,6 +75,10 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
         dimensions: { length: Number(length), width: Number(width), height: Number(height) },
         shippingFee: Number(shippingFee) || 0,
         shippingThreshold: Number(shippingThreshold) || 1,
+        personalizationMode,
+        personalization_mode: personalizationMode,
+        accept_customization: personalizationMode !== "disabled",
+        allow_public_customization: personalizationMode === "delegate_to_market",
         stock: hasStockTracking ? Number(stockQty) : null,
         stockPolicy: hasStockTracking ? {
           show_stock_to_client: showStockToClient,
@@ -156,6 +161,72 @@ export const CreatePostModalSheet: React.FC<CreatePostModalSheetProps> = ({
                   >
                     {pType === "standard" ? t("create_type_standard") : t("create_type_custom")}
                   </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── TRI-MODE DE PERSONNALISATION (Règle V2 / Décision Ziad) ── */}
+            <div style={{
+              background: "rgba(212, 175, 55, 0.06)",
+              border: "1.5px solid rgba(212, 175, 55, 0.3)",
+              borderRadius: 16,
+              padding: 14,
+            }}>
+              <label className="form-label" style={{ fontSize: 11, fontWeight: 800, color: "var(--primary)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>✦ {isRTL ? "خيارات التخصيص للمشتري" : "Options de personnalisation client"}</span>
+              </label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  {
+                    id: "accept_direct",
+                    title: isRTL ? "قبول التخصيص المباشر" : "Accepter la personnalisation directe",
+                    desc: isRTL ? "أقبل تفصيل هذا المنتج بنفسي. الطلبات توجه حصرياً لورشتي." : "J'accepte de personnaliser ce modèle moi-même. Commandes acheminées directement dans votre atelier.",
+                    badge: isRTL ? "مباشر" : "Direct",
+                  },
+                  {
+                    id: "delegate_to_market",
+                    title: isRTL ? "تفويض للسوق المفتوح" : "Déléguer au Marché Public",
+                    desc: isRTL ? "أرفض التخصيص المباشر ولكن أسمح لصناع آخرين بتنفيذه. ستتلقى إشعاراً عند بدء الصانع الثاني بالعمل." : "Je refuse la personnalisation directe mais j'autorise d'autres artisans à s'inspirer de ce modèle sur le marché public. Vous serez notifié si un artisan démarre sa confection.",
+                    badge: isRTL ? "سوق عام" : "Marché Public",
+                  },
+                  {
+                    id: "disabled",
+                    title: isRTL ? "تعطيل التخصيص نهائياً" : "Désactiver la personnalisation",
+                    desc: isRTL ? "المنتج يباع فقط كما هو. زر التخصيص سيكون مخفياً للمشترين." : "Produit vendu tel quel uniquement. Le bouton 'Personnaliser' sera masqué sur la fiche produit.",
+                    badge: isRTL ? "معطل" : "Masqué",
+                  },
+                ].map(m => (
+                  <div
+                    key={m.id}
+                    onClick={() => setPersonalizationMode(m.id as any)}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      border: personalizationMode === m.id ? "1.5px solid var(--accent-warm)" : "1px solid var(--border)",
+                      background: personalizationMode === m.id ? "#FFFFFF" : "rgba(255,255,255,0.5)",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: personalizationMode === m.id ? "var(--primary)" : "var(--text-secondary)" }}>
+                        {m.title}
+                      </span>
+                      <span style={{
+                        fontSize: 8.5,
+                        fontWeight: 800,
+                        padding: "2px 6px",
+                        borderRadius: 6,
+                        background: personalizationMode === m.id ? "var(--accent-warm)" : "rgba(0,0,0,0.06)",
+                        color: personalizationMode === m.id ? "#FFFFFF" : "var(--text-secondary)",
+                      }}>
+                        {m.badge}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 9.5, color: "var(--text-secondary)", margin: 0, lineHeight: 1.35 }}>
+                      {m.desc}
+                    </p>
+                  </div>
                 ))}
               </div>
             </div>

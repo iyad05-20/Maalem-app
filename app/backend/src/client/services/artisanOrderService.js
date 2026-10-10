@@ -2,6 +2,7 @@ import { eq, and, gte, or, isNull, sql } from "drizzle-orm";
 import { db } from "../../core/db/index.js";
 import { orders, vendorWarnings, vendorProfiles } from "../../core/db/schema.js";
 import { decrementProductStock, checkStockBeforeAccept } from "../../db/products.repository.js";
+import { createNotification } from "../../services/notificationService.js";
 
 /**
  * 1. Acceptation par l'artisan (lance la fabrication / préparation)
@@ -57,6 +58,29 @@ export async function acceptOrder(orderId) {
         updatedAt: now,
       })
       .where(eq(orders.id, orderId));
+
+    // Si la commande provient du Marché Public et est basée sur le modèle d'un autre artisan (Mode 2)
+    // Notifier immédiatement le Vendeur Initial (propriétaire du modèle source)
+    if (order.sourceVendorId && order.sourceVendorId !== order.artisanRef) {
+      try {
+        await createNotification({
+          userId: order.sourceVendorId,
+          userType: "artisan",
+          type: "template_started_by_vendor",
+          title: "Un artisan a démarré la fabrication basée sur votre modèle",
+          titleAr: "بدأ صانع في تصنيع طلب مستوحى من تصميمك",
+          message: `L'artisan ${order.artisanName || 'partenaire'} a pris en charge la fabrication d'une commande personnalisée issue de votre modèle "${order.productTitle || 'Produit'}". Vous pouvez consulter son profil ou le contacter.`,
+          messageAr: `بدأ الصانع ${order.artisanName || 'الشريك'} في تحضير طلبية مستوحاة من منتجك "${order.productTitle || 'المنتج'}". يمكنك الاطلاع على حسابه الشخصي أو مراسلته.`,
+          linkUrl: `/artisan/vendor/${order.artisanRef}/profile`,
+          sourceId: orderId,
+          secondaryUserId: order.artisanRef,
+          secondaryUserName: order.artisanName,
+          metadata: { orderId, sourceProductId: order.sourceProductId, sourceVendorId: order.sourceVendorId },
+        });
+      } catch (notifErr) {
+        console.warn("[VORK-API] Failed to emit vendor delegation notification:", notifErr.message);
+      }
+    }
 
     // Décrément du stock et masquage automatique du post si stock = 0 (Décision 27)
     let stockResult = null;
@@ -355,4 +379,119 @@ export async function contestWarningForceMajeure(warningId, vendorRef, reason, p
 export async function shipOrder(orderId, deliveryData) {
   return prepareSenditShipping(orderId, deliveryData);
 }
+
+/**
+ * 12. Conversion d'une Commande Personnalisée vers un Post "Sur Commande" au Catalogue (Maâlem v2)
+ * Règle stricte : accessible uniquement vers la fin de confection (fin de construction avec photo ou livré).
+ * Exige une photo finale obligatoire, le marquage des tags et les informations produit.
+ */
+export async function convertOrderToCatalogProduct(orderId, artisanRef, payload = {}) {
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) throw new Error("commande_introuvable");
+  if (order.artisanRef !== artisanRef) throw new Error("non_autorise");
+
+  // Vérification stricte : le bouton n'est accessible que vers la fin de confection
+  const isFinishedOrAdvanced = ["livre", "valide"].includes(order.status) || 
+    (order.status === "en_preparation" && Boolean(order.prepPhotos)) ||
+    Boolean(order.shippedAt);
+
+  if (!isFinishedOrAdvanced) {
+    throw new Error("conversion_impossible_confection_non_achevee");
+  }
+
+  const { title, description, category, price, image, tags = {}, manufacturingDays = 7 } = payload;
+
+  if (!image) {
+    throw new Error("image_reelle_confection_obligatoire");
+  }
+  if (!title || !price) {
+    throw new Error("titre_et_prix_obligatoires");
+  }
+
+  const now = new Date().toISOString();
+  const newProductId = `prd-custom-${Date.now()}`;
+  const numNet = Number(price);
+  const commissionHt = Math.round(numNet * 0.05);
+  const tvaVal = Math.round(commissionHt * 0.20);
+  const clientPrice = numNet + commissionHt + tvaVal;
+
+  const { supabase } = await import("../../db/supabase.client.js");
+
+  const productRow = {
+    id: newProductId,
+    title: String(title).trim(),
+    category: category || order.productTitle || "Artisanat d'art",
+    category_group: "artisanat",
+    price: clientPrice,
+    in_stock: true,
+    stock: null, // Produit sur commande
+    is_out_of_stock: false,
+    is_hidden: false,
+    personalization_mode: "accept_direct",
+    accept_customization: true,
+    allow_public_customization: false,
+    artisan_name: order.artisanName || "Maâlem",
+    image_url: image,
+    identity: {
+      category: category || "Artisanat d'art",
+      description: description || order.productTitle || "",
+      product_type: "sur_commande",
+      net_price: numNet,
+      commission_ht: commissionHt,
+      tva: tvaVal,
+      manufacturing_days: Number(manufacturingDays) || 7,
+      source_order_id: orderId,
+    },
+    rec_tags: typeof tags === "object" ? tags : {},
+    facets: {
+      artisan_ref: artisanRef,
+    },
+    created_at: now,
+  };
+
+  try {
+    await supabase.from("products").insert(productRow);
+  } catch (sbErr) {
+    console.warn("[VORK-API] Could not insert into Supabase products:", sbErr.message);
+  }
+
+  // Mettre à jour la commande avec la traçabilité
+  await db.update(orders).set({
+    catalogPublishedAt: now,
+    publishedProductId: newProductId,
+    republicationConsentStatus: order.customizationOrigin === "from_scratch" ? "client_notified" : "not_required",
+    updatedAt: now,
+  }).where(eq(orders.id, orderId));
+
+  // Si la commande était "From Scratch" (savoir-faire client), émettre la notification au client
+  if (order.customizationOrigin === "from_scratch") {
+    try {
+      await createNotification({
+        userId: order.clientRef,
+        userType: "client",
+        type: "from_scratch_published_to_catalog",
+        title: "Votre création sur-mesure est disponible au catalogue !",
+        titleAr: "إبداعك أصبح متوفراً الآن في كتالوج الصانع!",
+        message: `Le Maâlem ${order.artisanName || 'partenaire'} a ajouté votre modèle confectionné à son catalogue en produit Sur Commande.`,
+        messageAr: `أضاف الصانع ${order.artisanName || 'الشريك'} تصميمك المنفذ إلى كتالوجه كمنتج "تحت الطلب".`,
+        linkUrl: `/products/${newProductId}`,
+        sourceId: newProductId,
+        secondaryUserId: artisanRef,
+        secondaryUserName: order.artisanName,
+        metadata: { orderId, newProductId },
+      });
+    } catch (notifClientErr) {
+      console.warn("[VORK-API] Failed to emit client publication notification:", notifClientErr.message);
+    }
+  }
+
+  return {
+    success: true,
+    productId: newProductId,
+    product: productRow,
+    message: "Produit 'Sur Commande' créé et publié avec succès dans votre catalogue.",
+    message_ar: "تم إنشاء ونشر منتجك 'تحت الطلب' بنجاح في كتالوجك.",
+  };
+}
+
 

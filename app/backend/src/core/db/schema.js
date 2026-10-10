@@ -71,6 +71,15 @@ export const orders = pgTable("orders", {
   carrierTrackingNumber: text("carrier_tracking_number"),
   shippingProofPhoto: text("shipping_proof_photo"),
   notReceivedReportedAt: text("not_received_reported_at"),
+
+  // Traçabilité Modèle Source & Publication Catalogue (v2)
+  sourceProductId: text("source_product_id"),
+  sourceVendorId: text("source_vendor_id"),
+  customizationOrigin: text("customization_origin").default("from_post"), // 'from_post' | 'from_scratch'
+  catalogPublishedAt: text("catalog_published_at"),
+  publishedProductId: text("published_product_id"),
+  republicationConsentStatus: text("republication_consent_status").default("not_required"), // 'not_required' | 'pending' | 'granted' | 'rejected'
+  republicationConsentParty: text("republication_consent_party"), // 'source_vendor' | 'client'
 });
 
 export const formalRequests = pgTable("formal_requests", {
@@ -244,10 +253,57 @@ export const customRequests = pgTable("custom_requests", {
   artisanRef: text("artisan_ref").notNull().default("artisan-open"),
   totalPrice: numeric("total_price").notNull().default("0"),
   productType: text("product_type").notNull().default("personnalise"), // 'personnalise' | 'sur_commande'
-  transportProvider: text("transport_provider").notNull().default("sendit"),
+  transportProvider: text("transport_provider").notNull().default("vendeur"),
   status: text("status").notNull().default("en_attente_artisan"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   proofImage: text("proof_image"),
   customizationTags: text("customization_tags"),
+
+  // Traçabilité Modèle Source & Marché (v2)
+  sourceProductId: text("source_product_id"),
+  sourceVendorId: text("source_vendor_id"),
+  customizationOrigin: text("customization_origin").notNull().default("from_post"), // 'from_post' | 'from_scratch'
+  marketType: text("market_type").notNull().default("private"), // 'private' | 'public'
+  safetyGuidelinesAccepted: numeric("safety_guidelines_accepted").default("1"),
+  categoryId: text("category_id"),
+  categoryName: text("category_name"),
 });
+
+export const notifications = pgTable("notifications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(), // ClientRef ou ArtisanRef
+  userType: text("user_type").notNull(), // 'artisan' | 'client'
+  type: text("type").notNull(), // 'template_started_by_vendor' | 'from_scratch_published_to_catalog' | 'report_update'
+  title: text("title").notNull(),
+  titleAr: text("title_ar"),
+  message: text("message").notNull(),
+  messageAr: text("message_ar"),
+  linkUrl: text("link_url"),
+  sourceId: text("source_id"), // orderId ou productId
+  secondaryUserId: text("secondary_user_id"),
+  secondaryUserName: text("secondary_user_name"),
+  isRead: numeric("is_read").default("0"),
+  metadata: text("metadata"), // JSON string
+  createdAt: text("created_at").notNull(),
+});
+
+export const reports = pgTable("reports", {
+  id: text("id").primaryKey(),
+  reporterId: text("reporter_id").notNull(),
+  reporterType: text("reporter_type").notNull(), // 'client' | 'artisan'
+  targetType: text("target_type").notNull(), // 'product' | 'public_custom_request' | 'vendor'
+  targetId: text("target_id").notNull(),
+  targetTitle: text("target_title"),
+  targetOwnerId: text("target_owner_id"),
+  category: text("category").notNull(), // 'plagiat' | 'image_inappropriee' | 'non_respect_charte' | 'autre'
+  reason: text("reason").notNull(),
+  evidenceUrls: text("evidence_urls"), // JSON string array
+  status: text("status").notNull().default("en_attente_admin"), // 'en_attente_admin' | 'en_investigation' | 'resolu' | 'rejete'
+  adminDecision: text("admin_decision"), // 'post_deleted' | 'vendor_banned' | 'dismissed'
+  adminNotes: text("admin_notes"),
+  resolvedBy: text("resolved_by"),
+  resolvedAt: text("resolved_at"),
+  createdAt: text("created_at").notNull(),
+});
+
