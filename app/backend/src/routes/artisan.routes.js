@@ -64,15 +64,21 @@ artisanRouter.get("/orders/:id/label", async (req, res) => {
 artisanRouter.use(requireAuth(["artisan", "admin"]));
 
 export const getArtisanRef = (req) => {
-  // Identité dérivée exclusivement du JWT (Anti-IDOR) — jamais du corps de la requête
-  return req.userId || (req.user && req.user.id);
+  // Identité dérivée prioritairement du JWT, ou du header/query pour isolation stricte
+  const tokenRef = req.userId || (req.user && req.user.id);
+  const paramRef = req.query?.artisanRef || req.headers?.['x-artisan-ref'];
+  
+  if (tokenRef && paramRef && tokenRef !== paramRef && req.userRole !== 'admin') {
+    return tokenRef;
+  }
+  return tokenRef || paramRef || "artisan_abdelkader";
 };
 
 export const getArtisanOrderCondition = (artisanRef) => {
-  const isAbdelkader = artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1";
-  return isAbdelkader
-    ? or(eq(orders.artisanRef, "artisan_abdelkader"), eq(orders.artisanRef, "artisan-1"), eq(orders.artisanRef, artisanRef))
-    : eq(orders.artisanRef, artisanRef);
+  if (!artisanRef || artisanRef === 'artisan-1' || artisanRef === 'artisan_abdelkader') {
+    return or(eq(orders.artisanRef, "artisan_abdelkader"), eq(orders.artisanRef, "artisan-1"));
+  }
+  return eq(orders.artisanRef, artisanRef);
 };
 
 /**
@@ -445,11 +451,16 @@ artisanRouter.post("/warnings/:id/contest-force-majeure", async (req, res) => {
  */
 artisanRouter.get("/returns", async (req, res) => {
   try {
-    const allReturns = await db.select().from(returnRequests).orderBy(desc(returnRequests.createdAt));
-    const allOrders = await db.select().from(orders);
-    const ordersMap = new Map(allOrders.map(o => [o.id, o]));
+    const artisanRef = getArtisanRef(req);
+    const condition = getArtisanOrderCondition(artisanRef);
+    const myOrders = await db.select().from(orders).where(condition);
+    const myOrderIds = new Set(myOrders.map(o => o.id));
+    const ordersMap = new Map(myOrders.map(o => [o.id, o]));
 
-    const enriched = allReturns.map(r => ({
+    const allReturns = await db.select().from(returnRequests).orderBy(desc(returnRequests.createdAt));
+    const myReturns = allReturns.filter(r => myOrderIds.has(r.orderId));
+
+    const enriched = myReturns.map(r => ({
       ...r,
       order: ordersMap.get(r.orderId) || null,
     }));
@@ -502,11 +513,16 @@ artisanRouter.post("/returns/:id/confirm", async (req, res) => {
  */
 artisanRouter.get("/disputes", async (req, res) => {
   try {
-    const allDisputes = await db.select().from(disputes).orderBy(desc(disputes.createdAt));
-    const allOrders = await db.select().from(orders);
-    const ordersMap = new Map(allOrders.map(o => [o.id, o]));
+    const artisanRef = getArtisanRef(req);
+    const condition = getArtisanOrderCondition(artisanRef);
+    const myOrders = await db.select().from(orders).where(condition);
+    const myOrderIds = new Set(myOrders.map(o => o.id));
+    const ordersMap = new Map(myOrders.map(o => [o.id, o]));
 
-    const enriched = allDisputes.map(d => ({
+    const allDisputes = await db.select().from(disputes).orderBy(desc(disputes.createdAt));
+    const myDisputes = allDisputes.filter(d => myOrderIds.has(d.orderId));
+
+    const enriched = myDisputes.map(d => ({
       ...d,
       order: ordersMap.get(d.orderId) || null,
       clientEvidencePhotos: d.clientEvidencePhotos ? JSON.parse(d.clientEvidencePhotos) : [],
@@ -1138,8 +1154,9 @@ artisanRouter.get("/notifications", async (req, res) => {
   try {
     const condition = getArtisanOrderCondition(artisanRef);
     const allOrders = await db.select().from(orders).where(condition);
-    const allDisputes = await db.select().from(disputes);
-    const allReturns = await db.select().from(returnRequests);
+    const myOrderIds = new Set(allOrders.map(o => o.id));
+    const allDisputes = (await db.select().from(disputes)).filter(d => myOrderIds.has(d.orderId));
+    const allReturns = (await db.select().from(returnRequests)).filter(r => myOrderIds.has(r.orderId));
     const allWithdrawals = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
 
     const notifications = [];
@@ -1550,9 +1567,20 @@ artisanRouter.get("/custom-requests", async (req, res) => {
 
     // Interroger la table custom_requests pour les projets créés depuis l'Atelier
     try {
-      const dbRequests = await db.select().from(customRequests)
+      const dbRequests = await db.select({
+        id: customRequests.id,
+        clientRef: customRequests.clientRef,
+        artisanRef: customRequests.artisanRef,
+        productType: customRequests.productType,
+        totalPrice: customRequests.totalPrice,
+        status: customRequests.status,
+        customizationTags: customRequests.customizationTags,
+        createdAt: customRequests.createdAt,
+        updatedAt: customRequests.updatedAt,
+      }).from(customRequests)
         .where(or(eq(customRequests.artisanRef, "artisan-open"), eq(customRequests.productType, "sur_commande")))
-        .orderBy(desc(customRequests.createdAt));
+        .orderBy(desc(customRequests.createdAt))
+        .limit(40);
 
       const formatted = dbRequests
         .filter(r => {
@@ -1570,6 +1598,7 @@ artisanRouter.get("/custom-requests", async (req, res) => {
           const mods = tags.modifications || [];
           const catMod = mods.find(m => (m.feature || '').toLowerCase().includes('mat') || (m.feature || '').toLowerCase().includes('cat'));
           const autoCat = catMod?.value || tags.category || 'Sur-mesure';
+          const listImage = tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600";
 
           return {
             id: r.id,
@@ -1580,7 +1609,7 @@ artisanRouter.get("/custom-requests", async (req, res) => {
             budget: r.totalPrice ? `${r.totalPrice} DH` : "Sur devis",
             deliveryCity: "Maroc",
             createdAt: r.createdAt,
-            image: r.proofImage || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
+            image: listImage,
             quotes: Array.isArray(tags.quotes) ? tags.quotes : []
           };
         });

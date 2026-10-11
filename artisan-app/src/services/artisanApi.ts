@@ -32,9 +32,11 @@ export function setBackendUrl(url: string) {
 const getApiBase = () => `${getBackendUrl()}/artisan`;
 
 function getHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const user = artisanAuthService.getStoredUser();
   return {
     "Content-Type": "application/json",
     ...artisanAuthService.getAuthHeaders(),
+    ...(user?.id ? { "X-Artisan-Ref": user.id } : {}),
     ...extra,
   };
 }

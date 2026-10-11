@@ -4,6 +4,9 @@ import type { ArtisanNotification } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
 import { ReportModal } from "../components/ReportModal";
 
+import { artisanAuthService } from "../services/artisanAuthService";
+import { getBackendUrl } from "../services/artisanApi";
+
 interface ArtisanNotificationsViewProps {
   notifications: ArtisanNotification[];
   onNavigateTab: (tab: any) => void;
@@ -23,9 +26,14 @@ export const ArtisanNotificationsView: React.FC<ArtisanNotificationsViewProps> =
   useEffect(() => {
     const fetchServerNotifs = async () => {
       try {
-        const token = localStorage.getItem("token") || "";
-        const res = await fetch(`/api/notifications`, {
-          headers: { Authorization: `Bearer ${token}` }
+        const token = artisanAuthService.getToken() || "";
+        const currentRef = artisanRef || artisanAuthService.getStoredUser()?.id || "";
+        const root = getBackendUrl().replace(/\/api\/artisan\/?$/, "/api").replace(/\/artisan\/?$/, "");
+        const res = await fetch(`${root}/notifications?userId=${encodeURIComponent(currentRef)}`, {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          }
         });
         const data = await res.json();
         if (data.success && Array.isArray(data.notifications)) {

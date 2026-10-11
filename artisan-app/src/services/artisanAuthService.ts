@@ -19,6 +19,28 @@ class ArtisanAuthService {
     return `${root}/api/auth`;
   }
 
+  private saveSession(token: string, user: ArtisanUser) {
+    try {
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      localStorage.setItem(TOKEN_KEY, token);
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } catch (e) {
+      console.warn("[ARTISAN-AUTH] Storage write warning:", e);
+    }
+  }
+
+  private clearSession() {
+    try {
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(USER_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+    } catch (e) {
+      console.warn("[ARTISAN-AUTH] Storage clear warning:", e);
+    }
+  }
+
   /**
    * Connexion Maâlem via Supabase JWT
    */
@@ -31,7 +53,6 @@ class ArtisanAuthService {
       });
       const data = await res.json();
 
-      // Le backend local retourne { success, token, user } (pas data.session)
       if (data.success && data.token && data.user) {
         const artisanUser: ArtisanUser = {
           id: data.user.id,
@@ -43,8 +64,7 @@ class ArtisanAuthService {
           avatarUrl: data.user.avatarUrl,
         };
 
-        localStorage.setItem(TOKEN_KEY, data.token);
-        localStorage.setItem(USER_KEY, JSON.stringify(artisanUser));
+        this.saveSession(data.token, artisanUser);
 
         return { success: true, user: artisanUser };
       }
@@ -79,7 +99,6 @@ class ArtisanAuthService {
       });
       const data = await res.json();
 
-      // Le backend local retourne { success, token, user }
       if (data.success) {
         if (data.token && data.user) {
           const artisanUser: ArtisanUser = {
@@ -90,8 +109,7 @@ class ArtisanAuthService {
             specialty: specialty || "Artisanat Marocain",
             city: city || "Fès",
           };
-          localStorage.setItem(TOKEN_KEY, data.token);
-          localStorage.setItem(USER_KEY, JSON.stringify(artisanUser));
+          this.saveSession(data.token, artisanUser);
           return { success: true, user: artisanUser };
         }
         return { success: true, error: "Compte artisan créé avec succès ! Connectez-vous." };
@@ -120,16 +138,15 @@ class ArtisanAuthService {
     } catch (err) {
       console.warn("[ARTISAN-AUTH] Logout network warning:", err);
     } finally {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(USER_KEY);
+      this.clearSession();
     }
   }
 
   /**
-   * Récupérer le jeton stocké
+   * Récupérer le jeton stocké (priorité à sessionStorage pour isolation inter-onglets)
    */
   getToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
   }
 
   /**
@@ -141,10 +158,10 @@ class ArtisanAuthService {
   }
 
   /**
-   * Récupérer le profil utilisateur stocké localement
+   * Récupérer le profil utilisateur stocké localement (priorité à sessionStorage)
    */
   getStoredUser(): ArtisanUser | null {
-    const raw = localStorage.getItem(USER_KEY);
+    const raw = sessionStorage.getItem(USER_KEY) || localStorage.getItem(USER_KEY);
     if (!raw) return null;
     try {
       return JSON.parse(raw);
@@ -154,7 +171,7 @@ class ArtisanAuthService {
   }
 
   /**
-   * Vérification de session active auprès de Supabase
+   * Vérification de session active auprès de Supabase / Backend
    */
   async checkSession(): Promise<ArtisanUser | null> {
     const token = this.getToken();
@@ -166,7 +183,6 @@ class ArtisanAuthService {
       });
       const data = await res.json();
 
-      // Le backend local retourne { success, user } sans 'profile' séparé
       if (data.success && data.user) {
         const artisanUser: ArtisanUser = {
           id: data.user.id,
@@ -177,13 +193,12 @@ class ArtisanAuthService {
           city: data.user.city || "Fès",
           avatarUrl: data.user.avatarUrl,
         };
-        localStorage.setItem(USER_KEY, JSON.stringify(artisanUser));
+        this.saveSession(token, artisanUser);
         return artisanUser;
       }
 
       if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
+        this.clearSession();
         return null;
       }
     } catch (err) {

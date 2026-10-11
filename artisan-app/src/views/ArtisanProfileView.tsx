@@ -257,7 +257,7 @@ export const ArtisanProfileView: React.FC<Props> = ({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
         {[
           { value: stats?.totalOrders ?? 0, label: t("profile_stat_orders") },
-          { value: stats?.acceptanceRate ? `${Math.round(stats.acceptanceRate * 100)}%` : "—", label: t("profile_stat_acceptance") },
+          { value: stats?.acceptanceRate != null ? `${Math.round(stats.acceptanceRate)}%` : "—", label: t("profile_stat_acceptance") },
           { value: `${avgRating.toFixed(1)} ★`, label: t("profile_stat_rating") },
         ].map(m => (
           <div key={m.label} className="artisan-card" style={{ padding: "12px 8px", textAlign: "center" }}>

@@ -66,49 +66,107 @@ export const App: React.FC = () => {
   const [showCGVModal, setShowCGVModal] = useState<boolean>(false);
   const [outOfStockProduct, setOutOfStockProduct] = useState<{ id: string; title: string; imageUrl?: string } | null>(null);
 
-  const loadAllData = async () => {
-    setLoading(true);
+  // ── Chargement Dynamique par Domaine ───────────────────────────────────────
+
+  // 1. Données Atelier & Commandes (Fréquentes / Temps réel)
+  const loadHomeData = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     try {
-      const [o, r, d, w, h, p, cr, n, prof, st] = await Promise.all([
-        artisanAPI.getOrders().catch(() => []),
+      const artisanRef = currentUser?.id;
+      const [o, w, n] = await Promise.all([
+        artisanAPI.getOrders(artisanRef).catch(() => []),
+        artisanAPI.getWallet(artisanRef).catch(() => null),
+        artisanAPI.getNotifications(artisanRef).catch(() => []),
+      ]);
+      setOrders(o);
+      if (w) setWallet(w);
+      setNotifications(n);
+    } catch (err) {
+      console.warn("[DYNAMIC-SYNC] Erreur sync commandes/wallet:", err);
+    } finally {
+      if (!isBackground) setLoading(false);
+    }
+  };
+
+  // 2. Marché Sur-Mesure (Chargement à la demande / Lazy)
+  const loadMarketData = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
+    try {
+      const cr = await artisanAPI.getCustomRequests().catch(() => []);
+      setCustomRequests(cr);
+    } catch (err) {
+      console.warn("[DYNAMIC-SYNC] Erreur sync marché:", err);
+    } finally {
+      if (!isBackground) setLoading(false);
+    }
+  };
+
+  // 3. Catalogue de Produits
+  const loadPostsData = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
+    try {
+      const p = await artisanAPI.getProducts().catch(() => []);
+      setProducts(p);
+    } catch (err) {
+      console.warn("[DYNAMIC-SYNC] Erreur sync catalogue:", err);
+    } finally {
+      if (!isBackground) setLoading(false);
+    }
+  };
+
+  // 4. Profil, Litiges, Retours & Performance
+  const loadProfileData = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
+    try {
+      const artisanRef = currentUser?.id;
+      const [h, prof, st, r, d] = await Promise.all([
+        artisanAPI.getProfileHealth(artisanRef).catch(() => ({ profile: null, warnings: [] })),
+        artisanAPI.getProfileDetails().catch(() => null),
+        artisanAPI.getStats(artisanRef).catch(() => null),
         artisanAPI.getReturns().catch(() => []),
         artisanAPI.getDisputes().catch(() => []),
-        artisanAPI.getWallet().catch(() => null),
-        artisanAPI.getProfileHealth().catch(() => ({ profile: null, warnings: [] })),
-        artisanAPI.getProducts().catch(() => []),
-        artisanAPI.getCustomRequests().catch(() => []),
-        artisanAPI.getNotifications().catch(() => []),
-        artisanAPI.getProfileDetails().catch(() => null),
-        artisanAPI.getStats().catch(() => null),
       ]);
-
-      setOrders(o);
-      setReturns(r);
-      setDisputes(d);
-      setWallet(w);
       if (h) {
         setHealth(h.profile);
         setWarnings(h.warnings || []);
       }
-      setProducts(p);
-      setCustomRequests(cr);
-      setNotifications(n);
       setProfileDetails(prof);
       setStats(st);
-    } catch (err: any) {
-      console.error("Erreur chargement données:", err);
+      setReturns(r);
+      setDisputes(d);
+    } catch (err) {
+      console.warn("[DYNAMIC-SYNC] Erreur sync profil:", err);
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   };
 
+  // Chargement global initial / rafraîchissement manuel
+  const loadAllData = async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
+    try {
+      await Promise.all([
+        loadHomeData(true),
+        loadPostsData(true),
+        loadProfileData(true),
+        // Ne charger le marché immédiatement que si l'onglet actif est "market"
+        currentTab === "market" ? loadMarketData(true) : Promise.resolve(),
+      ]);
+    } catch (err) {
+      console.error("Erreur chargement global données:", err);
+    } finally {
+      if (!isBackground) setLoading(false);
+    }
+  };
+
+  // Initialisation Session
   useEffect(() => {
     const initAuth = async () => {
       try {
         const user = await artisanAuthService.checkSession();
         setCurrentUser(user);
         if (user) {
-          await loadAllData();
+          await loadAllData(false);
         }
       } catch (err) {
         console.error("Erreur initialisation session:", err);
@@ -119,9 +177,41 @@ export const App: React.FC = () => {
     initAuth();
   }, []);
 
+  // Polling dynamique silencieux en arrière-plan (élimine le besoin de refresh manuel)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const timer = setInterval(() => {
+      // Sync périodique légère (toutes les 5s)
+      loadHomeData(true);
+      if (currentTab === "market") {
+        loadMarketData(true);
+      }
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [currentUser, currentTab]);
+
+  // Synchronisation multi-onglets pour isolation des sessions vendeurs
+  useEffect(() => {
+    const onStorageChange = (e: StorageEvent) => {
+      if (e.key === "artisan_session_token" || e.key === "artisan_user_profile") {
+        const activeUser = artisanAuthService.getStoredUser();
+        if (!activeUser && currentUser) {
+          setCurrentUser(null);
+        } else if (activeUser && activeUser.id !== currentUser?.id) {
+          setCurrentUser(activeUser);
+          loadAllData(false);
+        }
+      }
+    };
+    window.addEventListener("storage", onStorageChange);
+    return () => window.removeEventListener("storage", onStorageChange);
+  }, [currentUser]);
+
   const handleAuthSuccess = async (user: ArtisanUser) => {
     setCurrentUser(user);
-    await loadAllData();
+    await loadAllData(false);
   };
 
   const handleLogout = () => {
@@ -129,12 +219,19 @@ export const App: React.FC = () => {
     setCurrentUser(null);
   };
 
-  // Handlers
+  // Handlers avec navigation et lazy-loading automatique
   const handleTabChange = (tab: MobileArtisanTab) => {
     if (tab === "create") {
       setShowCreatePostModal(true);
     } else {
       setCurrentTab(tab);
+      if (tab === "market" && customRequests.length === 0) {
+        loadMarketData(false);
+      } else if (tab === "profile" && !stats) {
+        loadProfileData(false);
+      } else if (tab === "posts" && products.length === 0) {
+        loadPostsData(false);
+      }
     }
   };
 
