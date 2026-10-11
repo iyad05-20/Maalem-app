@@ -1545,7 +1545,8 @@ let memoryCustomRequests = [
 artisanRouter.get("/custom-requests", async (req, res) => {
   try {
     const { category } = req.query;
-    let list = [...memoryCustomRequests];
+    // Filtrer les requêtes en mémoire dont l'offre n'a pas encore été acceptée
+    let list = memoryCustomRequests.filter(r => r.status !== "offre_choisie" && r.status !== "en_preparation" && r.status !== "annulee");
 
     // Interroger la table custom_requests pour les projets créés depuis l'Atelier
     try {
@@ -1553,26 +1554,36 @@ artisanRouter.get("/custom-requests", async (req, res) => {
         .where(or(eq(customRequests.artisanRef, "artisan-open"), eq(customRequests.productType, "sur_commande")))
         .orderBy(desc(customRequests.createdAt));
 
-      const formatted = dbRequests.map(r => {
-        let tags = {};
-        try { tags = typeof r.customizationTags === 'string' ? JSON.parse(r.customizationTags) : (r.customizationTags || {}); } catch(e) {}
-        const mods = tags.modifications || [];
-        const catMod = mods.find(m => (m.feature || '').toLowerCase().includes('mat') || (m.feature || '').toLowerCase().includes('cat'));
-        const autoCat = catMod?.value || tags.category || 'Sur-mesure';
+      const formatted = dbRequests
+        .filter(r => {
+          let tags = {};
+          try { tags = typeof r.customizationTags === 'string' ? JSON.parse(r.customizationTags) : (r.customizationTags || {}); } catch(e) {}
+          // Exclure toute commande personnalisée acceptée par le client (retirée du marché public)
+          if (r.status === "offre_choisie" || r.status === "en_preparation" || r.status === "annulee" || tags.chosenQuote) {
+            return false;
+          }
+          return true;
+        })
+        .map(r => {
+          let tags = {};
+          try { tags = typeof r.customizationTags === 'string' ? JSON.parse(r.customizationTags) : (r.customizationTags || {}); } catch(e) {}
+          const mods = tags.modifications || [];
+          const catMod = mods.find(m => (m.feature || '').toLowerCase().includes('mat') || (m.feature || '').toLowerCase().includes('cat'));
+          const autoCat = catMod?.value || tags.category || 'Sur-mesure';
 
-        return {
-          id: r.id,
-          clientName: r.clientRef || "Client Vork",
-          category: autoCat,
-          title: tags.summary ? tags.summary.split('\n')[0].replace(/^[•\s*]+/, '') : "Création sur mesure",
-          description: tags.summary || "Demande de création artisanale personnalisée.",
-          budget: r.totalPrice ? `${r.totalPrice} DH` : "Sur devis",
-          deliveryCity: "Maroc",
-          createdAt: r.createdAt,
-          image: r.proofImage || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
-          quotes: Array.isArray(tags.quotes) ? tags.quotes : []
-        };
-      });
+          return {
+            id: r.id,
+            clientName: r.clientRef || "Client Vork",
+            category: autoCat,
+            title: tags.summary ? tags.summary.split('\n')[0].replace(/^[•\s*]+/, '') : "Création sur mesure",
+            description: tags.summary || "Demande de création artisanale personnalisée.",
+            budget: r.totalPrice ? `${r.totalPrice} DH` : "Sur devis",
+            deliveryCity: "Maroc",
+            createdAt: r.createdAt,
+            image: r.proofImage || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
+            quotes: Array.isArray(tags.quotes) ? tags.quotes : []
+          };
+        });
 
       list = [...formatted, ...list];
     } catch (e) {
@@ -1596,9 +1607,12 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
     return res.status(400).json({ success: false, error: "Le prix et le délai de confection sont obligatoires." });
   }
 
+  const artisanRef = getArtisanRef(req) || "artisan_abdelkader";
+  const artisanName = req.user?.fullName || req.userProfile?.full_name || req.userId || "Maâlem";
+
   const newQuote = {
-    artisanName: req.user?.fullName || req.userId || "Maâlem",
-    artisanRef: getArtisanRef(req),
+    artisanName,
+    artisanRef,
     proposedPrice: Number(proposedPrice),
     confectionDays: Number(confectionDays),
     note: note || "",
@@ -1607,7 +1621,16 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
 
   const reqItem = memoryCustomRequests.find(r => r.id === id);
   if (reqItem) {
-    reqItem.quotes.push(newQuote);
+    if (!Array.isArray(reqItem.quotes)) reqItem.quotes = [];
+    const existingIdx = reqItem.quotes.findIndex(q => 
+      (q.artisanRef && q.artisanRef === artisanRef) || 
+      (q.artisanName && q.artisanName.toLowerCase() === artisanName.toLowerCase())
+    );
+    if (existingIdx >= 0) {
+      reqItem.quotes[existingIdx] = newQuote;
+    } else {
+      reqItem.quotes.push(newQuote);
+    }
   }
 
   // Persister également dans la base PostgreSQL si la demande provient de l'Atelier
@@ -1621,7 +1644,15 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
       if (!Array.isArray(tags.quotes)) {
         tags.quotes = [];
       }
-      tags.quotes.push(newQuote);
+      const existingIdx = tags.quotes.findIndex(q => 
+        (q.artisanRef && q.artisanRef === artisanRef) || 
+        (q.artisanName && q.artisanName.toLowerCase() === artisanName.toLowerCase())
+      );
+      if (existingIdx >= 0) {
+        tags.quotes[existingIdx] = newQuote;
+      } else {
+        tags.quotes.push(newQuote);
+      }
       await db.update(customRequests)
         .set({
           customizationTags: JSON.stringify(tags),

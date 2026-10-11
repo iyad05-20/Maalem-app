@@ -4,6 +4,8 @@ import { ShoppingBag, MapPin, Clock, DollarSign, CheckCircle, Send, Tag, Flag } 
 import type { CustomOrderRequest } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
 import { ReportModal } from "../components/ReportModal";
+import { artisanAuthService } from "../services/artisanAuthService";
+import { getCurrentArtisanRef } from "../services/artisanApi";
 
 interface Props {
   customRequests: CustomOrderRequest[];
@@ -17,6 +19,10 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
   const [quoteForm, setQuoteForm] = useState<{ price: string; days: string; note: string }>({ price: "", days: "", note: "" });
   const [activeQuoteId, setActiveQuoteId] = useState<string | null>(null);
   const [reportTarget, setReportTarget] = useState<{ id: string; title: string } | null>(null);
+
+  const storedUser = artisanAuthService.getStoredUser();
+  const currentArtisanRef = getCurrentArtisanRef();
+  const currentArtisanName = storedUser?.fullName || storedUser?.workshopName;
 
   const CATEGORIES = [
     { id: "all", label: t("market_cat_all") },
@@ -32,6 +38,23 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
   const filtered = customRequests.filter(r =>
     category === "all" || r.category === category
   );
+
+  const handleOpenQuoteForm = (r: CustomOrderRequest) => {
+    setActiveQuoteId(r.id);
+    const existing = r.quotes?.find(q =>
+      (q.artisanRef && (q.artisanRef === currentArtisanRef || q.artisanRef === storedUser?.id)) ||
+      (currentArtisanName && q.artisanName && q.artisanName.toLowerCase() === currentArtisanName.toLowerCase())
+    );
+    if (existing) {
+      setQuoteForm({
+        price: String(existing.proposedPrice || ""),
+        days: String(existing.confectionDays || ""),
+        note: existing.note || "",
+      });
+    } else {
+      setQuoteForm({ price: "", days: "", note: "" });
+    }
+  };
 
   const handleSubmitQuote = async (requestId: string) => {
     const price = Number(quoteForm.price);
@@ -76,7 +99,11 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {filtered.map((req, i) => {
-            const hasAlreadyQuoted = req.quotes?.some(q => q.artisanName);
+            const myQuote = req.quotes?.find(q =>
+              (q.artisanRef && (q.artisanRef === currentArtisanRef || q.artisanRef === storedUser?.id)) ||
+              (currentArtisanName && q.artisanName && q.artisanName.toLowerCase() === currentArtisanName.toLowerCase())
+            );
+            const hasAlreadyQuoted = Boolean(myQuote);
             const isExpanded = activeQuoteId === req.id;
 
             return (
@@ -141,14 +168,19 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
                   </div>
                 )}
 
-                {/* Existing quotes count */}
-                {req.quotes?.length > 0 && (
-                  <div style={{ paddingInlineStart: 14, paddingInlineEnd: 14, paddingBottom: 10 }}>
+                {/* Existing quotes count & my active quote summary */}
+                <div style={{ paddingInlineStart: 14, paddingInlineEnd: 14, paddingBottom: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  {req.quotes?.length > 0 && (
                     <span className="badge badge-gold">
                       <CheckCircle size={9} /> {req.quotes.length} {t("market_quotes_count")}
                     </span>
-                  </div>
-                )}
+                  )}
+                  {hasAlreadyQuoted && myQuote && (
+                    <span style={{ fontSize: 11, color: "var(--accent-emerald, #2D6A4F)", fontWeight: 700, background: "rgba(45,106,79,0.08)", border: "1px solid rgba(45,106,79,0.25)", padding: "3px 8px", borderRadius: 8, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      ✓ {isRTL ? `عرضك: ${myQuote.proposedPrice} درهم (${myQuote.confectionDays} أيام)` : `Mon offre: ${myQuote.proposedPrice} MAD (${myQuote.confectionDays}j)`}
+                    </span>
+                  )}
+                </div>
 
                 {/* Quote Form (expandable) */}
                 {isExpanded ? (
@@ -189,7 +221,7 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
                     <button
                       className={hasAlreadyQuoted ? "btn-outline" : "btn-primary"}
                       style={{ flex: 1, fontSize: 12, padding: "9px 14px" }}
-                      onClick={() => setActiveQuoteId(req.id)}
+                      onClick={() => handleOpenQuoteForm(req)}
                     >
                       <Send size={14} /> {hasAlreadyQuoted ? t("market_quote_edit") : t("market_propose_quote")}
                     </button>

@@ -106,6 +106,7 @@ export interface ArtisanProduct {
 }
 
 export interface CustomOrderQuote {
+  artisanRef?: string;
   artisanName: string;
   proposedPrice: number;
   confectionDays: number;

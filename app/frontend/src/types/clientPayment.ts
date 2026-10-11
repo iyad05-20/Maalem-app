@@ -1,6 +1,9 @@
 export type ProductType = "standard" | "personnalise" | "sur_commande";
 
 export type OrderStatus =
+  | "en_attente_artisan"
+  | "devis_recu"
+  | "offre_choisie"
   | "en_attente_paiement"
   | "paiement_initie"
   | "paiement_echoue"

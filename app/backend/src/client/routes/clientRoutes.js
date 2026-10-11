@@ -56,9 +56,10 @@ router.get("/orders", async (req, res) => {
     const list = rawList.filter(o => o.status !== "annule_avant_acceptation");
 
     // 2. Récupérer les demandes sur-mesure de l'Atelier
-    const customCondition = clientRef === "client-me"
-      ? or(eq(customRequests.clientRef, "client-me"), eq(customRequests.clientRef, clientRef))
-      : eq(customRequests.clientRef, clientRef);
+    const customCondition = or(
+      eq(customRequests.clientRef, "client-me"),
+      eq(customRequests.clientRef, clientRef)
+    );
 
     const rawCustoms = await db.select().from(customRequests)
       .where(customCondition)
@@ -183,19 +184,19 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
       });
     }
 
-    // Création de la commande liée (acceptedAt = null tant que l'artisan n'a pas confirmé)
+    // Création de la commande liée (personnalisée, acceptée d'office suite à l'accord sur devis)
     const newOrder = {
       id: orderId,
       clientRef,
-      artisanRef: targetQuote.artisanRef,
+      artisanRef: targetQuote.artisanRef || "artisan_abdelkader",
       artisanName: targetQuote.artisanName || "Maâlem",
       totalPrice: quotePrice,
-      productType: request.productType || "sur_commande",
+      productType: "personnalise",
       productTitle: title,
       productImage: request.proofImage || tags.anchorProduct?.imageUrl || null,
       transportProvider: "vendeur",
-      status: "acompte_verse",
-      acceptedAt: null, // Décision 38 : En attente d'acceptation artisan, permet au client d'annuler son choix
+      status: "en_preparation",
+      acceptedAt: now,
       estimatedTransportDays: Number(targetQuote.confectionDays) || 14,
       createdAt: now,
       updatedAt: now,

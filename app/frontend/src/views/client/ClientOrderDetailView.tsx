@@ -48,13 +48,35 @@ const STATUS_COLORS: Record<string, string> = {
   annulee: "#6B7280",
 };
 
-const getStatusSteps = (status: string, lang = "fr") => {
-  if (status === "en_attente_artisan" || status === "devis_recu") {
+const getStatusSteps = (status: string, isCustom = false, lang = "fr") => {
+  if (isCustom || status === "en_attente_artisan" || status === "devis_recu" || status === "offre_choisie") {
+    const isWaitArtisan = status === "en_attente_artisan";
+    const isDevisRecu = status === "devis_recu";
+    const isFabrication = ["offre_choisie", "acompte_verse", "payee_integralement", "en_preparation", "pret_a_expedier"].includes(status);
+    const isTransit = status === "en_cours_de_transport";
+    const isDone = ["livre", "complete", "auto_valide"].includes(status);
+
     return [
-      { label: lang === "ar" ? "المشروع" : "Projet", active: status === "en_attente_artisan", done: status === "devis_recu" },
-      { label: lang === "ar" ? "العروض" : "Devis", active: status === "devis_recu", done: false },
-      { label: lang === "ar" ? "الورشة" : "Atelier", active: false, done: false },
-      { label: lang === "ar" ? "التسليم" : "Remis", active: false, done: false },
+      {
+        label: lang === "ar" ? "المشروع" : "Projet",
+        active: isWaitArtisan,
+        done: isDevisRecu || isFabrication || isTransit || isDone,
+      },
+      {
+        label: lang === "ar" ? "العروض" : "Devis",
+        active: isDevisRecu,
+        done: isFabrication || isTransit || isDone,
+      },
+      {
+        label: lang === "ar" ? "الورشة" : "Atelier",
+        active: isFabrication,
+        done: isTransit || isDone,
+      },
+      {
+        label: lang === "ar" ? "التسليم" : "Remis",
+        active: isTransit,
+        done: isDone,
+      },
     ];
   }
 
@@ -100,7 +122,16 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
   onDetailToggle,
 }) => {
   const { lang, changeLanguage } = useClientI18n();
-  const [orders, setOrders] = useState<ClientOrder[]>([]);
+
+  const getInitialCachedOrders = (): ClientOrder[] => {
+    try {
+      const cached = localStorage.getItem("vork_client_orders_cache");
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [];
+  };
+
+  const [orders, setOrders] = useState<ClientOrder[]>(getInitialCachedOrders);
   const [selectedOrder, setSelectedOrder] = useState<ClientOrder | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "history">("active");
   const [loading, setLoading] = useState(false);
@@ -190,30 +221,49 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
     "Autre vice caché grave",
   ];
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isBackground = false) => {
+    if (!isBackground && orders.length === 0) setLoading(true);
     try {
       const list = await clientWalletAPI.fetchOrders(userId || "client-me");
       setOrders(list);
+      try {
+        localStorage.setItem("vork_client_orders_cache", JSON.stringify(list));
+      } catch {}
+
       if (orderId) {
         const current = list.find((o: ClientOrder) => o.id === orderId) || null;
-        setSelectedOrder(current);
-        if (current && ["complete", "annulee"].includes(current.status)) {
-          setActiveTab("history");
-        } else {
-          setActiveTab("active");
+        if (current) {
+          setSelectedOrder(current);
+          if (["complete", "annulee"].includes(current.status)) {
+            setActiveTab("history");
+          } else {
+            setActiveTab("active");
+          }
         }
-      } else {
-        setSelectedOrder(null);
+      } else if (selectedOrder) {
+        // Maintenir la commande sélectionnée synchronisée en temps réel (ex. devis reçus)
+        const updated = list.find((o: ClientOrder) => o.id === selectedOrder.id);
+        if (updated) {
+          setSelectedOrder(updated);
+        }
       }
     } catch {
-      setMessage({ type: "error", text: "Impossible de charger les commandes." });
+      if (!isBackground) {
+        setMessage({ type: "error", text: "Impossible de charger les commandes." });
+      }
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   };
 
-  useEffect(() => { loadData(); }, [orderId]);
+  useEffect(() => {
+    loadData();
+    // Synchronisation active toutes les 4s pour refléter les devis et statuts instantanément
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [orderId, userId]);
 
   useEffect(() => {
     if (onDetailToggle) {
@@ -251,7 +301,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
           <Package size={36} color="var(--text-secondary)" style={{ marginBottom: 12 }} />
           <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 16, color: "var(--primary)", margin: "0 0 6px 0" }}>Aucune commande active</h3>
           <p style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "var(--text-secondary)", marginBottom: 20 }}>Vous n'avez aucune commande pour le moment.</p>
-          <button onClick={loadData} style={{ padding: "12px 20px", borderRadius: 14, background: "var(--primary)", color: "#fff", border: "none", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          <button onClick={() => loadData(false)} style={{ padding: "12px 20px", borderRadius: 14, background: "var(--primary)", color: "#fff", border: "none", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
             Recharger les données
           </button>
         </div>
@@ -768,7 +818,7 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                   </p>
                   
                   <div style={{ display: "flex", width: "100%", position: "relative", alignItems: "flex-start", padding: "4px 0" }}>
-                    {getStatusSteps(selectedOrder.status, lang).map((step, idx, arr) => {
+                    {getStatusSteps(selectedOrder.status, isCustom, lang).map((step, idx, arr) => {
                       const isLast = idx === arr.length - 1;
                       const isRTL = lang === "ar";
                       return (
@@ -872,13 +922,34 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                         <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
                           {lang === "ar" ? "المعلم الصانع" : "Maâlem Créateur"}
                         </p>
-                        <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 13, color: "var(--primary)", margin: 0 }}>{selectedOrder.artisanName || selectedOrder.artisanRef}</p>
+                        <p style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 13, color: "var(--primary)", margin: 0 }}>
+                          {(() => {
+                            const quotesList = (selectedOrder as any).quotes || [];
+                            if (isCustom && !selectedOrder.acceptedAt) {
+                              if (quotesList.length === 0) return lang === "ar" ? "السوق المفتوح (في الانتظار)" : "Marché Public (En attente)";
+                              if (quotesList.length === 1) return quotesList[0].artisanName || "Maâlem";
+                              return lang === "ar" ? `${quotesList.length} عروض مستلمة من الحرفيين` : `${quotesList.length} offres reçues des Maâlems`;
+                            }
+                            return selectedOrder.artisanName || selectedOrder.artisanRef;
+                          })()}
+                        </p>
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <p style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "var(--text-secondary)", margin: 0 }}>
                           {lang === "ar" ? "المجموع الكلي" : "Prix Total"}
                         </p>
-                        <p style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16, color: "var(--primary)", margin: 0 }}>{selectedOrder.totalPrice} <span style={{ fontSize: 11, fontWeight: 500 }}>{lang === "ar" ? "د.م" : "MAD"}</span></p>
+                        <p style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 16, color: "var(--primary)", margin: 0 }}>
+                          {(() => {
+                            const quotesList = (selectedOrder as any).quotes || [];
+                            if (isCustom && !selectedOrder.acceptedAt) {
+                              if (quotesList.length === 0) return lang === "ar" ? "على العرض" : "Sur devis";
+                              if (quotesList.length === 1) return `${quotesList[0].proposedPrice} ${lang === "ar" ? "د.م" : "MAD"}`;
+                              const minP = Math.min(...quotesList.map((q: any) => Number(q.proposedPrice) || 0));
+                              return `${lang === "ar" ? "ابتداءً من" : "Dès"} ${minP} ${lang === "ar" ? "د.م" : "MAD"}`;
+                            }
+                            return `${selectedOrder.totalPrice} ${lang === "ar" ? "د.م" : "MAD"}`;
+                          })()}
+                        </p>
                       </div>
                     </div>
 
@@ -905,6 +976,23 @@ export const ClientOrderDetailView: React.FC<ClientOrderDetailViewProps> = ({
                   <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "var(--primary)", marginBottom: 10 }}>
                     {lang === "ar" ? "الإجراءات المتاحة" : "Actions disponibles"}
                   </p>
+
+                  {/* ── Section En Attente Devis (Projets Atelier diffusés sur le marché) ── */}
+                  {isCustom && (!((selectedOrder as any).quotes) || (selectedOrder as any).quotes.length === 0) && selectedOrder.status === "en_attente_artisan" && (
+                    <div style={{ background: "rgba(212,175,55,0.08)", border: "1.5px dashed rgba(212,175,55,0.4)", borderRadius: 16, padding: "16px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <Clock size={16} color="#8B6914" />
+                        <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 13, color: "#8B6914" }}>
+                          {lang === "ar" ? "طلبك معروض في السوق المفتوح للحرفيين" : "Projet diffusé sur le Marché Public des Artisans"}
+                        </span>
+                      </div>
+                      <p style={{ fontFamily: "var(--font-body)", fontSize: 11.5, color: "var(--text-secondary)", margin: 0, lineHeight: 1.4 }}>
+                        {lang === "ar"
+                          ? "يقوم الحرفيون المؤهلون حالياً بدراسة مواصفاتك لتقديم عروض الأسعار وآجال التسليم. ستظهر العروض هنا فور تقديمها."
+                          : "Les Maâlems qualifiés étudient actuellement votre demande pour soumettre leurs propositions de prix et de délais. Leurs devis apparaîtront directement ici."}
+                      </p>
+                    </div>
+                  )}
 
                   {/* ── Section Devis Reçus (Projets Atelier Sur-Mesure) ── */}
                   {(selectedOrder as any).quotes && (selectedOrder as any).quotes.length > 0 && !selectedOrder.acceptedAt && (

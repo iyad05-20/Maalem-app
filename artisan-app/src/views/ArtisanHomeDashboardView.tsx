@@ -79,11 +79,97 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
     }
   };
 
-  const activeOrders = orders
-    .filter(o => o.status !== "annulee")
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const pendingStandardOrders = orders.filter(
+    o => o.productType === "standard" && ["acompte_verse", "payee_integralement"].includes(o.status) && !o.acceptedAt
+  );
 
-  const toAcceptCount = activeOrders.filter(o => ["acompte_verse", "payee_integralement"].includes(o.status)).length;
+  const pendingSurCommandeOrders = orders.filter(
+    o => o.productType === "sur_commande" && ["acompte_verse", "payee_integralement"].includes(o.status) && !o.acceptedAt
+  );
+
+  const activeOrders = orders.filter(o => {
+    if (o.status === "annulee") return false;
+    // Commandes personnalisées sont toujours actives dès acceptation du devis
+    if (o.productType === "personnalise") return true;
+    // Commandes standards ou sur commande déjà acceptées / en cours
+    return Boolean(o.acceptedAt) || ["en_preparation", "en_cours_de_transport", "pret_a_expedier", "livre", "terminee"].includes(o.status);
+  }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const [activeFilter, setActiveFilter] = useState<"all" | "standard" | "sur_commande" | "personnalise">("all");
+
+  const displayedOrders = activeOrders.filter(o => {
+    if (activeFilter === "all") return true;
+    return o.productType === activeFilter;
+  });
+
+  const renderPendingCard = (order: ArtisanOrder, i: number, typeLabel: string) => (
+    <motion.div
+      key={order.id}
+      className="artisan-card"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: i * 0.04 }}
+      style={{ padding: 14 }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {order.productImage ? (
+            <img
+              src={order.productImage}
+              alt=""
+              style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", border: "1px solid rgba(0,0,0,0.08)" }}
+            />
+          ) : (
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Package size={20} color="var(--text-placeholder)" />
+            </div>
+          )}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+              <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 14, color: "var(--primary)" }}>
+                {order.productTitle || (isRTL ? "قطعة تقليدية" : "Création")}
+              </span>
+              <span className="badge badge-urgent" style={{ fontSize: 9 }}>
+                {typeLabel}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+              <span style={{ color: "var(--accent-warm)", fontWeight: 700 }}>#{order.id.slice(0, 8)}</span>
+              {" · "}
+              {new Date(order.createdAt).toLocaleDateString(isRTL ? "ar-MA" : "fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+            </div>
+          </div>
+        </div>
+        <div style={{ textAlign: isRTL ? "left" : "right" }}>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 15, color: "var(--primary)" }}>
+            {order.totalPrice} <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-secondary)" }}>MAD</span>
+          </div>
+          <div style={{ fontSize: 10, color: "var(--accent-emerald)", fontWeight: 700 }}>
+            {isRTL ? `الصافي ≈ ${Math.round(order.totalPrice * 0.95)} درهم` : `Net ≈ ${Math.round(order.totalPrice * 0.95)} MAD`}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button
+          className="btn-outline"
+          style={{ flex: 1, borderColor: "rgba(220,53,69,0.3)", color: "#DC3545", padding: "8px 12px", fontSize: 12 }}
+          onClick={() => onOpenRefuseModal(order.id)}
+        >
+          <X size={14} /> {t("order_action_decline")}
+        </button>
+        <button
+          className="btn-terracotta"
+          style={{ flex: 2, padding: "8px 14px", fontSize: 12 }}
+          disabled={actionLoading === order.id}
+          onClick={() => handleAccept(order.id)}
+        >
+          <Check size={15} />
+          {actionLoading === order.id ? t("order_accepting") : t("order_accept_action")}
+        </button>
+      </div>
+    </motion.div>
+  );
 
   return (
     <div className="app-view">
@@ -142,24 +228,93 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* ══ COMMANDES ACTIVES ══════════════════════════════════════════════ */}
-      <div className="section-header">
-        <div>
-          <div className="section-title">
-            {toAcceptCount > 0 ? t("orders_to_treat") : t("orders_active_list")}
+      {/* ══ SECTION 1 : COMMANDES STANDARDS À VALIDER (LISTE VERTICALE 1) ═════════════ */}
+      {pendingStandardOrders.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div className="section-header" style={{ marginBottom: 8 }}>
+            <div>
+              <div className="section-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{isRTL ? "طلبات المنتجات الجاهزة للتأكيد" : "Commandes Standards à valider"}</span>
+                <span className="badge badge-urgent">{pendingStandardOrders.length}</span>
+              </div>
+              <div className="section-subtitle">
+                {isRTL ? "منتجات الكتالوج القياسية في انتظار موافقتك للشحن" : "Articles du catalogue prêts à expédier en attente de votre accord"}
+              </div>
+            </div>
           </div>
-          <div className="section-subtitle">
-          {activeOrders.length} {t("order_count_suffix")}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {pendingStandardOrders.map((order, i) => renderPendingCard(order, i, isRTL ? "معيارية" : "Standard"))}
           </div>
         </div>
-        {toAcceptCount > 0 && (
-          <span className="badge badge-urgent">
-            ⚡ {toAcceptCount} {t("order_pending_validation")}
-          </span>
-        )}
+      )}
+
+      {/* ══ SECTION 2 : COMMANDES SUR COMMANDE À VALIDER (LISTE VERTICALE 2) ══════════ */}
+      {pendingSurCommandeOrders.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div className="section-header" style={{ marginBottom: 8 }}>
+            <div>
+              <div className="section-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{isRTL ? "طلبات تحت الطلب للتأكيد" : "Commandes Sur Commande à valider"}</span>
+                <span className="badge badge-warning" style={{ background: "rgba(184, 98, 63, 0.15)", color: "var(--accent-warm)" }}>
+                  {pendingSurCommandeOrders.length}
+                </span>
+              </div>
+              <div className="section-subtitle">
+                {isRTL ? "طلبات الكتالوج الخاصة بورشكم في انتظار بدء التصنيع" : "Modèles du catalogue sur commande à valider pour lancement en atelier"}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {pendingSurCommandeOrders.map((order, i) => renderPendingCard(order, i, isRTL ? "تحت الطلب" : "Sur Commande"))}
+          </div>
+        </div>
+      )}
+
+      {/* ══ SECTION 3 : COMMANDES ACTUELLES / EN COURS (AVEC FILTRE) ══════════════════ */}
+      <div className="section-header" style={{ marginBottom: 8 }}>
+        <div>
+          <div className="section-title">
+            {isRTL ? "الطلبات الجارية في الورشة" : "Commandes Actuelles / En cours"}
+          </div>
+          <div className="section-subtitle">
+            {activeOrders.length} {t("order_count_suffix")}
+          </div>
+        </div>
       </div>
 
-      {activeOrders.length === 0 ? (
+      {/* Filter Tabs */}
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, scrollbarWidth: "none", marginBottom: 12 }}>
+        <button
+          className={`pill-tab ${activeFilter === "all" ? "active" : ""}`}
+          onClick={() => setActiveFilter("all")}
+          style={{ fontSize: 11, padding: "6px 12px" }}
+        >
+          {isRTL ? "الكل" : "Toutes"} ({activeOrders.length})
+        </button>
+        <button
+          className={`pill-tab ${activeFilter === "standard" ? "active" : ""}`}
+          onClick={() => setActiveFilter("standard")}
+          style={{ fontSize: 11, padding: "6px 12px" }}
+        >
+          {isRTL ? "جاهزة" : "Standards"} ({activeOrders.filter(o => o.productType === "standard").length})
+        </button>
+        <button
+          className={`pill-tab ${activeFilter === "sur_commande" ? "active" : ""}`}
+          onClick={() => setActiveFilter("sur_commande")}
+          style={{ fontSize: 11, padding: "6px 12px" }}
+        >
+          {isRTL ? "تحت الطلب" : "Sur Commande"} ({activeOrders.filter(o => o.productType === "sur_commande").length})
+        </button>
+        <button
+          className={`pill-tab ${activeFilter === "personnalise" ? "active" : ""}`}
+          onClick={() => setActiveFilter("personnalise")}
+          style={{ fontSize: 11, padding: "6px 12px" }}
+        >
+          {isRTL ? "مخصصة" : "Personnalisées"} ({activeOrders.filter(o => o.productType === "personnalise").length})
+        </button>
+      </div>
+
+      {displayedOrders.length === 0 ? (
         <div className="artisan-card" style={{ padding: "40px 20px", textAlign: "center" }}>
           <Package size={36} color="var(--text-placeholder)" style={{ marginBottom: 8 }} />
           <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-secondary)" }}>
@@ -168,13 +323,23 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {activeOrders.map((order, i) => {
-            const toAccept = ["acompte_verse", "payee_integralement"].includes(order.status);
+          {displayedOrders.map((order, i) => {
+            const toAccept = ["acompte_verse", "payee_integralement"].includes(order.status) && !order.acceptedAt;
             const inPrep = order.status === "en_preparation";
             const inTransit = order.status === "en_cours_de_transport";
             const done = ["livre", "terminee"].includes(order.status);
             const isBypass = order.prepPhotos?.some(p => String(p).startsWith("bypass:"));
             const hasPhotos = (order.prepPhotos?.length ?? 0) >= 4 || !!isBypass;
+
+            const getTypeBadge = () => {
+              if (order.productType === "personnalise") {
+                return <span className="badge badge-gold" style={{ fontSize: 9 }}>{isRTL ? "مخصصة" : "Personnalisée"}</span>;
+              }
+              if (order.productType === "sur_commande") {
+                return <span className="badge badge-info" style={{ fontSize: 9 }}>{isRTL ? "تحت الطلب" : "Sur Commande"}</span>;
+              }
+              return <span className="badge" style={{ fontSize: 9, background: "rgba(0,0,0,0.06)", color: "var(--text-secondary)" }}>{isRTL ? "معيارية" : "Standard"}</span>;
+            };
 
             return (
               <motion.div
@@ -188,18 +353,23 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
                 {/* Order header */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    {order.productImage && (
+                    {order.productImage ? (
                       <img
                         src={order.productImage}
                         alt=""
                         style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover", border: "1px solid rgba(0,0,0,0.08)" }}
                       />
+                    ) : (
+                      <div style={{ width: 44, height: 44, borderRadius: 10, background: "rgba(0,0,0,0.04)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Package size={20} color="var(--text-placeholder)" />
+                      </div>
                     )}
                     <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                         <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 15, color: "var(--primary)" }}>
                           {order.productTitle || (isRTL ? "قطعة تقليدية" : "Création Artisanale")}
                         </span>
+                        {getTypeBadge()}
                         <span className={`badge badge-${toAccept ? "urgent" : inPrep ? "warning" : inTransit ? "info" : "success"}`}>
                           {getStatusLabel(order.status)}
                         </span>
