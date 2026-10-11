@@ -4,6 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "npm --prefix app/frontend run build && npm --prefix artisan-app run build && npm --prefix admin-dashboard run build",
+    "build:frontend": "npm --prefix app/frontend run build",
+    "build:artisan": "npm --prefix artisan-app run build",
+    "build:admin": "npm --prefix admin-dashboard run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
