@@ -42,9 +42,13 @@ function getHeaders(extra: Record<string, string> = {}): Record<string, string> 
 }
 
 export function getCurrentArtisanRef(override?: string): string {
+  // If an explicit override is provided that's not a legacy default, use it directly
   if (override && override !== "artisan-1" && override !== "artisan_abdelkader") return override;
+  // Fall back to stored user (from sessionStorage or localStorage)
   const user = artisanAuthService.getStoredUser();
-  return user?.id || override || "artisan_abdelkader";
+  if (user?.id) return user.id;
+  // Legacy fallback
+  return override || "artisan_abdelkader";
 }
 
 export const artisanAPI = {
@@ -326,5 +330,57 @@ export const artisanAPI = {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || "Erreur soumission devis.");
     return data;
-  }
+  },
+
+  async updateProduct(productId: string, updates: any): Promise<any> {
+    const res = await fetch(`${getApiBase()}/products/${productId}`, {
+      method: "PUT",
+      headers: getHeaders(),
+      body: JSON.stringify(updates),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur mise à jour produit.");
+    return data;
+  },
+
+  async deleteProduct(productId: string): Promise<any> {
+    const res = await fetch(`${getApiBase()}/products/${productId}`, {
+      method: "DELETE",
+      headers: getHeaders(),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Erreur suppression produit.");
+    return data;
+  },
+
+  async getServerNotifications(artisanRef?: string): Promise<any[]> {
+    const ref = getCurrentArtisanRef(artisanRef);
+    const res = await fetch(`${getBackendUrl()}/notifications?userId=${encodeURIComponent(ref)}&userType=artisan`, {
+      headers: getHeaders(),
+    });
+    const data = await res.json();
+    return data.success && Array.isArray(data.notifications) ? data.notifications : [];
+  },
+
+  async markNotificationRead(notificationId: string, artisanRef?: string): Promise<any> {
+    const ref = getCurrentArtisanRef(artisanRef);
+    const res = await fetch(`${getBackendUrl()}/notifications/${notificationId}/read`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ userId: ref }),
+    });
+    return await res.json();
+  },
+
+  async respondConsentRequest(orderId: string, decision: "accept" | "refuse", reason?: string): Promise<any> {
+    const ref = getCurrentArtisanRef();
+    const res = await fetch(`${getBackendUrl()}/notifications/consent/${orderId}/respond`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ decision, role: "source_vendor", userId: ref, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || "Erreur traitement de l'accord.");
+    return data;
+  },
 };

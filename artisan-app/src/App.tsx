@@ -69,18 +69,46 @@ export const App: React.FC = () => {
   // ── Chargement Dynamique par Domaine ───────────────────────────────────────
 
   // 1. Données Atelier & Commandes (Fréquentes / Temps réel)
-  const loadHomeData = async (isBackground = false) => {
+  // userRef: explicit ref to avoid stale React state (race condition fix)
+  const loadHomeData = async (isBackground = false, userRef?: string) => {
     if (!isBackground) setLoading(true);
     try {
-      const artisanRef = currentUser?.id;
-      const [o, w, n] = await Promise.all([
+      // Priorité: userRef explicite > currentUser (state React potentiellement stale) > service stockage
+      const artisanRef = userRef || currentUser?.id || artisanAuthService.getStoredUser()?.id;
+      if (!artisanRef) { console.warn("[ARTISAN] loadHomeData: no artisanRef, skipping"); return; }
+      const [o, w, n, serverN] = await Promise.all([
         artisanAPI.getOrders(artisanRef).catch(() => []),
         artisanAPI.getWallet(artisanRef).catch(() => null),
         artisanAPI.getNotifications(artisanRef).catch(() => []),
+        artisanAPI.getServerNotifications(artisanRef).catch(() => []),
       ]);
       setOrders(o);
       if (w) setWallet(w);
-      setNotifications(n);
+
+      const mappedServer: ArtisanNotification[] = (serverN || []).map((sn: any) => ({
+        id: sn.id,
+        type: sn.type,
+        title: sn.title,
+        title_fr: sn.title,
+        title_ar: sn.titleAr || sn.title,
+        message: sn.message,
+        message_fr: sn.message,
+        message_ar: sn.messageAr || sn.message,
+        date: sn.createdAt,
+        read: Boolean(sn.isRead),
+        linkTab: sn.type?.includes("custom") && !sn.type?.includes("quote_accepted") ? "market" : "home",
+        linkUrl: sn.linkUrl,
+        orderId: sn.metadata?.orderId || sn.sourceId,
+        sourceId: sn.sourceId,
+        secondaryUserId: sn.secondaryUserId,
+        secondaryUserName: sn.secondaryUserName,
+        actionStatus: sn.actionStatus || sn.metadata?.consentStatus || null,
+        metadata: sn.metadata || {},
+      }));
+      const seen = new Set(mappedServer.map((item) => item.id));
+      const merged = [...mappedServer, ...(n || []).filter((item) => !seen.has(item.id))];
+      merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setNotifications(merged);
     } catch (err) {
       console.warn("[DYNAMIC-SYNC] Erreur sync commandes/wallet:", err);
     } finally {
@@ -115,10 +143,12 @@ export const App: React.FC = () => {
   };
 
   // 4. Profil, Litiges, Retours & Performance
-  const loadProfileData = async (isBackground = false) => {
+  // userRef: explicit ref to avoid stale React state (race condition fix)
+  const loadProfileData = async (isBackground = false, userRef?: string) => {
     if (!isBackground) setLoading(true);
     try {
-      const artisanRef = currentUser?.id;
+      const artisanRef = userRef || currentUser?.id || artisanAuthService.getStoredUser()?.id;
+      if (!artisanRef) { console.warn("[ARTISAN] loadProfileData: no artisanRef, skipping"); return; }
       const [h, prof, st, r, d] = await Promise.all([
         artisanAPI.getProfileHealth(artisanRef).catch(() => ({ profile: null, warnings: [] })),
         artisanAPI.getProfileDetails().catch(() => null),
@@ -141,21 +171,38 @@ export const App: React.FC = () => {
     }
   };
 
-  // Chargement global initial / rafraîchissement manuel
-  const loadAllData = async (isBackground = false) => {
+  const resetWorkshopState = () => {
+    setOrders([]);
+    setWallet(null);
+    setHealth(null);
+    setWarnings([]);
+    setReturns([]);
+    setDisputes([]);
+    setProducts([]);
+    setCustomRequests([]);
+    setNotifications([]);
+    setProfileDetails(null);
+    setStats(null);
+  };
+
+  // Chargement global initial / rafraîchissement dynamique non-bloquant
+  // userRef: explicit artisan ref (pass immediately after auth to avoid race condition)
+  const loadAllData = async (isBackground = false, userRef?: string) => {
     if (!isBackground) setLoading(true);
     try {
-      await Promise.all([
-        loadHomeData(true),
-        loadPostsData(true),
-        loadProfileData(true),
-        // Ne charger le marché immédiatement que si l'onglet actif est "market"
-        currentTab === "market" ? loadMarketData(true) : Promise.resolve(),
-      ]);
+      // Priorité absolue : charger l'atelier & commandes immédiatement pour un affichage ultra-rapide
+      await loadHomeData(true, userRef);
     } catch (err) {
-      console.error("Erreur chargement global données:", err);
+      console.error("Erreur chargement atelier:", err);
     } finally {
       if (!isBackground) setLoading(false);
+    }
+
+    // Chargement asynchrone silencieux des domaines secondaires sans bloquer l'interface
+    loadPostsData(true);
+    loadProfileData(true, userRef);
+    if (currentTab === "market") {
+      loadMarketData(true);
     }
   };
 
@@ -164,9 +211,12 @@ export const App: React.FC = () => {
     const initAuth = async () => {
       try {
         const user = await artisanAuthService.checkSession();
-        setCurrentUser(user);
         if (user) {
-          await loadAllData(false);
+          setCurrentUser(user);
+          await loadAllData(false, user.id);
+        } else {
+          resetWorkshopState();
+          setCurrentUser(null);
         }
       } catch (err) {
         console.error("Erreur initialisation session:", err);
@@ -177,19 +227,34 @@ export const App: React.FC = () => {
     initAuth();
   }, []);
 
-  // Polling dynamique silencieux en arrière-plan (élimine le besoin de refresh manuel)
+  // Polling dynamique silencieux en arrière-plan + rafraîchissement au focus (élimine tout refresh manuel)
   useEffect(() => {
     if (!currentUser) return;
 
-    const timer = setInterval(() => {
-      // Sync périodique légère (toutes les 5s)
-      loadHomeData(true);
+    const artisanId = currentUser.id;
+    const syncActiveTab = () => {
+      loadHomeData(true, artisanId);
       if (currentTab === "market") {
         loadMarketData(true);
+      } else if (currentTab === "posts") {
+        loadPostsData(true);
       }
-    }, 5000);
+    };
 
-    return () => clearInterval(timer);
+    const timer = setInterval(syncActiveTab, 8000);
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === "visible") {
+        syncActiveTab();
+      }
+    };
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
+    };
   }, [currentUser, currentTab]);
 
   // Synchronisation multi-onglets pour isolation des sessions vendeurs
@@ -198,10 +263,12 @@ export const App: React.FC = () => {
       if (e.key === "artisan_session_token" || e.key === "artisan_user_profile") {
         const activeUser = artisanAuthService.getStoredUser();
         if (!activeUser && currentUser) {
+          resetWorkshopState();
           setCurrentUser(null);
         } else if (activeUser && activeUser.id !== currentUser?.id) {
+          resetWorkshopState();
           setCurrentUser(activeUser);
-          loadAllData(false);
+          loadAllData(false, activeUser.id);
         }
       }
     };
@@ -210,27 +277,32 @@ export const App: React.FC = () => {
   }, [currentUser]);
 
   const handleAuthSuccess = async (user: ArtisanUser) => {
+    resetWorkshopState();
     setCurrentUser(user);
-    await loadAllData(false);
+    // Pass user.id explicitly - setCurrentUser hasn't propagated to state yet
+    await loadAllData(false, user.id);
   };
 
   const handleLogout = () => {
     artisanAuthService.logout();
+    resetWorkshopState();
     setCurrentUser(null);
   };
 
-  // Handlers avec navigation et lazy-loading automatique
+  // Handlers avec navigation et sync dynamique à la volée
   const handleTabChange = (tab: MobileArtisanTab) => {
     if (tab === "create") {
       setShowCreatePostModal(true);
     } else {
       setCurrentTab(tab);
-      if (tab === "market" && customRequests.length === 0) {
-        loadMarketData(false);
-      } else if (tab === "profile" && !stats) {
-        loadProfileData(false);
-      } else if (tab === "posts" && products.length === 0) {
-        loadPostsData(false);
+      if (tab === "home") {
+        loadHomeData(orders.length > 0, currentUser?.id);
+      } else if (tab === "market") {
+        loadMarketData(customRequests.length > 0);
+      } else if (tab === "profile") {
+        loadProfileData(Boolean(stats), currentUser?.id);
+      } else if (tab === "posts") {
+        loadPostsData(products.length > 0);
       }
     }
   };
@@ -238,7 +310,7 @@ export const App: React.FC = () => {
   const handleAcceptOrder = async (orderId: string) => {
     try {
       const res = await artisanAPI.acceptOrder(orderId);
-      await loadAllData();
+      await Promise.all([loadAllData(), loadMarketData(true)]);
       if (res && res.stockAlert) {
         const order = orders.find(o => o.id === orderId);
         if (res.stockAlert.type === "stock_epuise") {
@@ -322,12 +394,31 @@ export const App: React.FC = () => {
 
   const handleCreateProduct = async (productData: any) => {
     await artisanAPI.createProduct(productData);
-    await loadAllData();
+    await Promise.all([loadAllData(), loadPostsData(true)]);
   };
 
   const handleUpdateProduct = async (productData: any) => {
-    await artisanAPI.createProduct(productData);
-    await loadAllData();
+    if (productData?.id) {
+      await artisanAPI.updateProduct(productData.id, productData);
+    }
+    await Promise.all([loadAllData(), loadPostsData(true)]);
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    await artisanAPI.deleteProduct(productId);
+    await Promise.all([loadAllData(true), loadPostsData(true)]);
+  };
+
+  const handleRespondConsent = async (orderId: string, decision: "accept" | "refuse", reason?: string) => {
+    await artisanAPI.respondConsentRequest(orderId, decision, reason);
+    await Promise.all([loadHomeData(true, currentUser?.id), loadPostsData(true)]);
+  };
+
+  const handleMarkNotifRead = async (notifId: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === notifId ? { ...n, read: true } : n)));
+    if (notifId.startsWith("notif-")) {
+      await artisanAPI.markNotificationRead(notifId, currentUser?.id).catch(() => {});
+    }
   };
 
   const handleSubmitQuote = async (requestId: string, price: number, days: number, note: string) => {
@@ -410,12 +501,15 @@ export const App: React.FC = () => {
             onOpenDirectDeliveryModal={setDirectDeliveryOrder}
             onEscrowChoice={handleEscrowChoice}
             onNudgeClient={handleNudgeClient}
+            onDeleteProduct={handleDeleteProduct}
+            onConsentUpdated={() => loadHomeData(true, currentUser?.id)}
           />
         )}
 
         {currentTab === "market" && (
           <ArtisanMarketplaceView
             customRequests={customRequests}
+            artisanRef={currentUser?.id}
             onSubmitQuote={handleSubmitQuote}
           />
         )}
@@ -425,6 +519,7 @@ export const App: React.FC = () => {
             products={products}
             onOpenCreateModal={() => setShowCreatePostModal(true)}
             onUpdateProduct={handleUpdateProduct}
+            onDeleteProduct={handleDeleteProduct}
           />
         )}
 
@@ -471,6 +566,10 @@ export const App: React.FC = () => {
             <div style={{ width: 36, height: 4, background: "rgba(0,0,0,0.15)", borderRadius: 2, margin: "0 auto 16px" }} />
             <ArtisanNotificationsView
               notifications={notifications}
+              artisanRef={currentUser?.id}
+              onRespondConsent={handleRespondConsent}
+              onDeleteProduct={handleDeleteProduct}
+              onMarkRead={handleMarkNotifRead}
               onNavigateTab={(tab) => {
                 setShowNotificationsModal(false);
                 if (tab === "retours") setShowReturnsDrawer(true);

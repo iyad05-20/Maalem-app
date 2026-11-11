@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { Wallet, Lock, CheckCircle2, Landmark, Package, Camera, Check, X, Truck, FileSignature, ChevronRight, Printer, Sparkles } from "lucide-react";
+import { Wallet, Lock, CheckCircle2, Landmark, Package, Camera, Check, X, Truck, FileSignature, ChevronRight, Printer, Sparkles, Hammer } from "lucide-react";
 import type { ArtisanOrder, ArtisanWallet } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
 import { getBackendUrl } from "../services/artisanApi";
@@ -18,6 +18,8 @@ interface Props {
   onOpenDirectDeliveryModal: (order: ArtisanOrder) => void;
   onEscrowChoice?: (orderId: string, action: "claim" | "extend", extendDays?: number) => Promise<void>;
   onNudgeClient?: (orderId: string) => Promise<void>;
+  onDeleteProduct?: (productId: string) => Promise<void>;
+  onConsentUpdated?: () => Promise<void> | void;
 }
 
 export const ArtisanHomeDashboardView: React.FC<Props> = ({
@@ -26,6 +28,7 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
   onOpenRefuseModal, onOpenPrepPhotosModal,
   onOpenDirectDeliveryModal,
   onEscrowChoice, onNudgeClient,
+  onDeleteProduct, onConsentUpdated,
 }) => {
   const { isRTL, t } = useI18n();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -88,11 +91,11 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
   );
 
   const activeOrders = orders.filter(o => {
-    if (o.status === "annulee") return false;
+    if (["annulee", "refuse_vendeur", "annule_avant_acceptation"].includes(o.status)) return false;
     // Commandes personnalisées sont toujours actives dès acceptation du devis
     if (o.productType === "personnalise") return true;
     // Commandes standards ou sur commande déjà acceptées / en cours
-    return Boolean(o.acceptedAt) || ["en_preparation", "en_cours_de_transport", "pret_a_expedier", "livre", "terminee"].includes(o.status);
+    return Boolean(o.acceptedAt) || ["en_preparation", "en_cours_de_transport", "pret_a_expedier", "livre", "terminee", "valide", "auto_valide"].includes(o.status);
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const [activeFilter, setActiveFilter] = useState<"all" | "standard" | "sur_commande" | "personnalise">("all");
@@ -229,46 +232,58 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
       </div>
 
       {/* ══ SECTION 1 : COMMANDES STANDARDS À VALIDER (LISTE VERTICALE 1) ═════════════ */}
-      {pendingStandardOrders.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="section-header" style={{ marginBottom: 8 }}>
-            <div>
-              <div className="section-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span>{isRTL ? "طلبات المنتجات الجاهزة للتأكيد" : "Commandes Standards à valider"}</span>
-                <span className="badge badge-urgent">{pendingStandardOrders.length}</span>
-              </div>
-              <div className="section-subtitle">
-                {isRTL ? "منتجات الكتالوج القياسية في انتظار موافقتك للشحن" : "Articles du catalogue prêts à expédier en attente de votre accord"}
-              </div>
+      <div style={{ marginBottom: 16 }}>
+        <div className="section-header" style={{ marginBottom: 8 }}>
+          <div>
+            <div className="section-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>{isRTL ? "طلبات المنتجات الجاهزة للتأكيد" : "Commandes Standards à valider"}</span>
+              <span className={`badge ${pendingStandardOrders.length > 0 ? "badge-urgent" : ""}`} style={pendingStandardOrders.length === 0 ? { background: "rgba(0,0,0,0.06)", color: "var(--text-secondary)" } : undefined}>
+                {pendingStandardOrders.length}
+              </span>
+            </div>
+            <div className="section-subtitle">
+              {isRTL ? "منتجات الكتالوج القياسية في انتظار موافقتك للشحن" : "Articles du catalogue prêts à expédier en attente de votre accord"}
             </div>
           </div>
+        </div>
+        {pendingStandardOrders.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {pendingStandardOrders.map((order, i) => renderPendingCard(order, i, isRTL ? "معيارية" : "Standard"))}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="artisan-card" style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 8 }}>
+            <Package size={15} color="var(--text-placeholder)" />
+            <span>{isRTL ? "لا توجد طلبات معيارية بانتظار التأكيد" : "Aucune commande standard en attente de validation"}</span>
+          </div>
+        )}
+      </div>
 
       {/* ══ SECTION 2 : COMMANDES SUR COMMANDE À VALIDER (LISTE VERTICALE 2) ══════════ */}
-      {pendingSurCommandeOrders.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="section-header" style={{ marginBottom: 8 }}>
-            <div>
-              <div className="section-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span>{isRTL ? "طلبات تحت الطلب للتأكيد" : "Commandes Sur Commande à valider"}</span>
-                <span className="badge badge-warning" style={{ background: "rgba(184, 98, 63, 0.15)", color: "var(--accent-warm)" }}>
-                  {pendingSurCommandeOrders.length}
-                </span>
-              </div>
-              <div className="section-subtitle">
-                {isRTL ? "طلبات الكتالوج الخاصة بورشكم في انتظار بدء التصنيع" : "Modèles du catalogue sur commande à valider pour lancement en atelier"}
-              </div>
+      <div style={{ marginBottom: 20 }}>
+        <div className="section-header" style={{ marginBottom: 8 }}>
+          <div>
+            <div className="section-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>{isRTL ? "طلبات تحت الطلب للتأكيد" : "Commandes Sur Commande à valider"}</span>
+              <span className="badge badge-warning" style={{ background: pendingSurCommandeOrders.length > 0 ? "rgba(184, 98, 63, 0.15)" : "rgba(0,0,0,0.06)", color: pendingSurCommandeOrders.length > 0 ? "var(--accent-warm)" : "var(--text-secondary)" }}>
+                {pendingSurCommandeOrders.length}
+              </span>
+            </div>
+            <div className="section-subtitle">
+              {isRTL ? "طلبات الكتالوج الخاصة بورشكم في انتظار بدء التصنيع" : "Modèles du catalogue sur commande à valider pour lancement en atelier"}
             </div>
           </div>
+        </div>
+        {pendingSurCommandeOrders.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {pendingSurCommandeOrders.map((order, i) => renderPendingCard(order, i, isRTL ? "تحت الطلب" : "Sur Commande"))}
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="artisan-card" style={{ padding: "12px 14px", fontSize: 12, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 8 }}>
+            <Hammer size={15} color="var(--text-placeholder)" />
+            <span>{isRTL ? "لا توجد طلبات تحت الطلب بانتظار التأكيد" : "Aucune commande sur commande en attente de validation"}</span>
+          </div>
+        )}
+      </div>
 
       {/* ══ SECTION 3 : COMMANDES ACTUELLES / EN COURS (AVEC FILTRE) ══════════════════ */}
       <div className="section-header" style={{ marginBottom: 8 }}>
@@ -383,6 +398,25 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
                           ? t("order_type_sendit")
                           : t("order_type_direct")}
                       </div>
+                      {(order.selectedSize || order.selectedColor || (Array.isArray(order.tags) && order.tags.length > 0)) && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                          {order.selectedSize && (
+                            <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 6, background: "rgba(26,42,58,0.07)", color: "var(--primary)" }}>
+                              {isRTL ? "المقاس:" : "Taille:"} {order.selectedSize}
+                            </span>
+                          )}
+                          {order.selectedColor && (
+                            <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 6px", borderRadius: 6, background: "rgba(184,98,63,0.1)", color: "var(--accent-warm)" }}>
+                              {isRTL ? "اللون:" : "Couleur:"} {order.selectedColor}
+                            </span>
+                          )}
+                          {Array.isArray(order.tags) && order.tags.slice(0, 3).map((tag: string, tIdx: number) => (
+                            <span key={tIdx} style={{ fontSize: 9, padding: "2px 6px", borderRadius: 6, background: "rgba(212,175,55,0.12)", color: "#8B6914", fontWeight: 600 }}>
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div style={{ textAlign: isRTL ? "left" : "right" }}>
@@ -466,57 +500,106 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
                     </button>
                   )}
 
-                  {/* ─── TRANSFERT VERS POST SUR COMMANDE (Règle V2 / Décision Ziad) ─── */}
+                  {/* ─── DIAGRAMME 5 : DEMANDER L'ACCORD DE PUBLICATION (POST-RÉCEPTION VALIDÉE) ─── */}
                   {(() => {
-                    const isCustomOrSurCmd = ["personnalise", "sur_commande"].includes(order.productType) || Boolean((order as any).customizationOrigin);
-                    const isAlreadyPublished = Boolean((order as any).catalogPublishedAt || (order as any).publishedProductId);
-                    const isConfectionAdvanced = ["livre", "valide", "terminee"].includes(order.status) || Boolean(order.shippedAt) || (order.status === "en_preparation" && hasPhotos);
+                    const isCustomOrSurCmd = ["personnalise", "sur_commande"].includes(order.productType) || Boolean(order.customizationOrigin);
+                    if (!isCustomOrSurCmd) return null;
+
+                    const consentStatus = order.republicationConsentStatus || "not_required";
+                    const isAlreadyPublished = consentStatus === "granted" && Boolean(order.catalogPublishedAt || order.publishedProductId);
+                    const isWithdrawn = consentStatus === "withdrawn";
+                    const isPending = consentStatus === "pending" || consentStatus === "partially_granted";
+                    const isRejected = consentStatus === "rejected";
+                    const isClientValidated = ["valide", "complete", "auto_valide"].includes(order.status) || order.clientApprovalStatus === "approved";
+
+                    if (isWithdrawn) {
+                      return (
+                        <div style={{ background: "rgba(220, 53, 69, 0.08)", border: "1.5px solid rgba(220, 53, 69, 0.35)", borderRadius: 12, padding: "9px 11px", marginTop: 4 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: "#DC2626", marginBottom: 4 }}>
+                            {isRTL ? "⚠️ تم سحب موافقة النشر — يجب حذف المنشور" : "⚠️ Accord retiré — Suppression du post requise"}
+                          </div>
+                          <div style={{ fontSize: 10, color: "var(--text-secondary)", marginBottom: 6 }}>
+                            {isRTL ? "الطلبات الجارية مستمرة بشكل طبيعي." : "Les commandes en cours continuent normalement."}
+                          </div>
+                          {order.publishedProductId && onDeleteProduct && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setActionLoading(`del-${order.publishedProductId}`);
+                                try {
+                                  await onDeleteProduct(order.publishedProductId!);
+                                } finally {
+                                  setActionLoading(null);
+                                }
+                              }}
+                              style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#DC2626", color: "#fff", fontSize: 10.5, fontWeight: 700, cursor: "pointer" }}
+                            >
+                              {actionLoading === `del-${order.publishedProductId}` ? t("loading") : (isRTL ? "حذف المنشور الآن" : "Supprimer le post maintenant")}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
 
                     if (isAlreadyPublished) {
                       return (
                         <div style={{ background: "rgba(45, 106, 79, 0.08)", border: "1px solid rgba(45, 106, 79, 0.25)", borderRadius: 10, padding: "7px 10px", fontSize: 10.5, color: "#2D6A4F", fontWeight: 700, display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                           <CheckCircle2 size={13} />
-                          <span>{isRTL ? "✓ تم نشر هذا النموذج كمنتج 'تحت الطلب' بالكتالوج" : "✓ Publié au catalogue en post 'Sur Commande'"}</span>
+                          <span>{isRTL ? "✓ تم النشر بعد موافقة الأطراف كمنتج حسب الطلب" : "✓ Demande ACCEPTÉE · Post publié en 'Sur Commande'"}</span>
                         </div>
                       );
                     }
 
-                    if (isCustomOrSurCmd) {
+                    if (isPending) {
                       return (
+                        <div style={{ background: "rgba(212, 175, 55, 0.1)", border: "1px solid rgba(212, 175, 55, 0.35)", borderRadius: 10, padding: "8px 10px", fontSize: 10.5, color: "#8B6914", fontWeight: 700, marginTop: 4 }}>
+                          {consentStatus === "partially_granted"
+                            ? (isRTL ? "⏳ في انتظار موافقة الطرف الثاني قبل النشر" : "⏳ 1 accord validé · En attente de la 2e partie")
+                            : (isRTL ? "⏳ تم إرسال طلب الموافقة · بانتظار الرد" : "⏳ Demande d'accord envoyée · En attente de réponse")}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div style={{ marginTop: 4 }}>
+                        {isRejected && (
+                          <div style={{ background: "rgba(220, 53, 69, 0.08)", border: "1px solid rgba(220, 53, 69, 0.25)", borderRadius: 10, padding: "7px 10px", fontSize: 10.5, color: "#DC2626", fontWeight: 700, marginBottom: 6 }}>
+                            {isRTL ? "✕ تم رفض طلب النشر السابق من أحد الأطراف." : "✕ Demande précédente REFUSÉE (aucun post publié)."}
+                          </div>
+                        )}
                         <button
                           type="button"
-                          disabled={!isConfectionAdvanced}
+                          disabled={!isClientValidated}
                           onClick={() => setConvertingOrder(order)}
-                          title={!isConfectionAdvanced ? "Accessible vers la fin de fabrication ou après upload des photos" : ""}
+                          title={!isClientValidated ? "Disponible uniquement après validation de réception par le client" : ""}
                           style={{
                             width: "100%",
                             padding: "9px 12px",
                             borderRadius: 12,
-                            border: isConfectionAdvanced ? "1.5px solid var(--accent-warm)" : "1px dashed var(--border)",
-                            background: isConfectionAdvanced ? "rgba(184, 98, 63, 0.06)" : "rgba(0,0,0,0.02)",
-                            color: isConfectionAdvanced ? "var(--accent-warm)" : "var(--text-secondary)",
+                            border: isClientValidated ? "1.5px solid var(--accent-warm)" : "1px dashed var(--border)",
+                            background: isClientValidated ? "rgba(184, 98, 63, 0.06)" : "rgba(0,0,0,0.02)",
+                            color: isClientValidated ? "var(--accent-warm)" : "var(--text-secondary)",
                             fontWeight: 700,
                             fontSize: 11,
-                            cursor: isConfectionAdvanced ? "pointer" : "not-allowed",
+                            cursor: isClientValidated ? "pointer" : "not-allowed",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
                             gap: 6,
-                            marginTop: 4,
-                            opacity: isConfectionAdvanced ? 1 : 0.5,
+                            opacity: isClientValidated ? 1 : 0.55,
                           }}
                         >
                           <Sparkles size={14} />
                           <span>
-                            {isConfectionAdvanced
-                              ? (isRTL ? "✦ تحويل إلى منشور 'تحت الطلب'" : "✦ Transférer en post 'Sur Commande'")
-                              : (isRTL ? "تحويل للكتالوج (متاح بنهاية الصنع)" : "Transférer au catalogue (fin de confection)")}
+                            {isClientValidated
+                              ? (isRejected
+                                  ? (isRTL ? "✦ إعادة طلب الموافقة للنشر" : "✦ Renvoyer une demande d'accord")
+                                  : (isRTL ? "✦ طلب الموافقة لنشر هذا النموذج" : "✦ Demander l'accord de publication"))
+                              : (isRTL ? "طلب الموافقة (متاح بعد تأكيد الزبون الاستلام)" : "Demander l'accord (après validation réception client)")}
                           </span>
                         </button>
-                      );
-                    }
-
-                    return null;
+                      </div>
+                    );
                   })()}
 
                   {/* ─── CARTE RELANCE CLIENT POUR APPROBATION RÉCEPTION (RÈGLE ZIAD 11/09/2026) ─── */}
@@ -587,9 +670,9 @@ export const ArtisanHomeDashboardView: React.FC<Props> = ({
         <ConvertToCatalogModalSheet
           order={convertingOrder}
           onClose={() => setConvertingOrder(null)}
-          onSuccess={() => {
-            (convertingOrder as any).catalogPublishedAt = new Date().toISOString();
+          onSuccess={async () => {
             setConvertingOrder(null);
+            if (onConsentUpdated) await onConsentUpdated();
           }}
         />
       )}

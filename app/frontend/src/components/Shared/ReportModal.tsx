@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, X, CheckCircle2, ShieldAlert, Send } from 'lucide-react';
+import { authService } from '../../services/authService';
+import { API_BASE } from '../../services/apiConfig';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -63,11 +65,12 @@ export const ReportModal: React.FC<ReportModalProps> = ({
         reporterType,
       };
 
-      const res = await fetch('/api/reports', {
+      const token = authService.getToken() || '';
+      const res = await fetch(`${API_BASE}/reports`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
       });

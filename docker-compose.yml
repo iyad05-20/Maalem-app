@@ -48,6 +48,8 @@ services:
     build:
       context: ./artisan-app
       dockerfile: Dockerfile
+      args:
+        - VITE_BACKEND_URL=http://localhost:3001/api
     ports:
       - "3003:80"
     depends_on:

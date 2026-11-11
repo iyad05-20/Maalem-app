@@ -1,8 +1,23 @@
 import { eq, and, gte, or, isNull, sql } from "drizzle-orm";
 import { db } from "../../core/db/index.js";
-import { orders, vendorWarnings, vendorProfiles } from "../../core/db/schema.js";
-import { decrementProductStock, checkStockBeforeAccept } from "../../db/products.repository.js";
-import { createNotification } from "../../services/notificationService.js";
+import { orders, vendorWarnings, vendorProfiles, customRequests } from "../../core/db/schema.js";
+import {
+  decrementProductStock,
+  checkStockBeforeAccept,
+  createCatalogProduct,
+  withdrawOrDeleteCatalogProduct,
+} from "../../db/products.repository.js";
+import { createNotificationResilient, updateConsentNotificationsStatus } from "../../services/notificationService.js";
+import { closeCustomRequestOnMarket, safeJsonParse } from "../../services/customRequestState.js";
+import { loadProducts } from "../../services/recommendation.service.js";
+import { productsIndex } from "../../services/search/meilisearch.service.js";
+
+function isSameVendor(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const legacy = new Set(["artisan-1", "artisan_abdelkader"]);
+  return legacy.has(a) && legacy.has(b);
+}
 
 /**
  * 1. Acceptation par l'artisan (lance la fabrication / préparation)
@@ -59,27 +74,42 @@ export async function acceptOrder(orderId) {
       })
       .where(eq(orders.id, orderId));
 
+    // Synchroniser & retirer du Marché Public toute demande personnalisée liée à cette commande acceptée
+    const meta = safeJsonParse(order.orderMetadata, {});
+    const relatedReqId = meta.customRequestId || null;
+    if (relatedReqId) {
+      await closeCustomRequestOnMarket(tx, relatedReqId, {
+        status: "en_preparation",
+        chosenArtisanRef: order.artisanRef,
+        reason: "accepted_by_vendor",
+      });
+    } else if (order.id.startsWith("ord_")) {
+      const candidateReqId = `req_${order.id.split("_")[1]}`;
+      await closeCustomRequestOnMarket(tx, candidateReqId, {
+        status: "en_preparation",
+        chosenArtisanRef: order.artisanRef,
+        reason: "accepted_by_vendor",
+      });
+    }
+
     // Si la commande provient du Marché Public et est basée sur le modèle d'un autre artisan (Mode 2)
     // Notifier immédiatement le Vendeur Initial (propriétaire du modèle source)
-    if (order.sourceVendorId && order.sourceVendorId !== order.artisanRef) {
-      try {
-        await createNotification({
-          userId: order.sourceVendorId,
-          userType: "artisan",
-          type: "template_started_by_vendor",
-          title: "Un artisan a démarré la fabrication basée sur votre modèle",
-          titleAr: "بدأ صانع في تصنيع طلب مستوحى من تصميمك",
-          message: `L'artisan ${order.artisanName || 'partenaire'} a pris en charge la fabrication d'une commande personnalisée issue de votre modèle "${order.productTitle || 'Produit'}". Vous pouvez consulter son profil ou le contacter.`,
-          messageAr: `بدأ الصانع ${order.artisanName || 'الشريك'} في تحضير طلبية مستوحاة من منتجك "${order.productTitle || 'المنتج'}". يمكنك الاطلاع على حسابه الشخصي أو مراسلته.`,
-          linkUrl: `/artisan/vendor/${order.artisanRef}/profile`,
-          sourceId: orderId,
-          secondaryUserId: order.artisanRef,
-          secondaryUserName: order.artisanName,
-          metadata: { orderId, sourceProductId: order.sourceProductId, sourceVendorId: order.sourceVendorId },
-        });
-      } catch (notifErr) {
-        console.warn("[VORK-API] Failed to emit vendor delegation notification:", notifErr.message);
-      }
+    if (order.sourceVendorId && !isSameVendor(order.sourceVendorId, order.artisanRef)) {
+      await createNotificationResilient({
+        userId: order.sourceVendorId,
+        userType: "artisan",
+        type: "template_started_by_vendor",
+        title: "Un artisan a démarré la fabrication basée sur votre modèle",
+        titleAr: "بدأ صانع في تصنيع طلب مستوحى من تصميمك",
+        message: `L'artisan ${order.artisanName || 'partenaire'} a pris en charge la fabrication d'une commande personnalisée issue de votre modèle "${order.productTitle || 'Produit'}". Vous pouvez consulter son profil ou le contacter.`,
+        messageAr: `بدأ الصانع ${order.artisanName || 'الشريك'} في تحضير طلبية مستوحاة من منتجك "${order.productTitle || 'المنتج'}". يمكنك الاطلاع على حسابه الشخصي أو مراسلته.`,
+        linkUrl: `/artisan/vendor/${order.artisanRef}/profile`,
+        sourceId: orderId,
+        secondaryUserId: order.artisanRef,
+        secondaryUserName: order.artisanName,
+        idempotencyKey: `template-started:${orderId}:${order.sourceVendorId}`,
+        metadata: { orderId, sourceProductId: order.sourceProductId, sourceVendorId: order.sourceVendorId },
+      });
     }
 
     // Décrément du stock et masquage automatique du post si stock = 0 (Décision 27)
@@ -381,116 +411,477 @@ export async function shipOrder(orderId, deliveryData) {
 }
 
 /**
- * 12. Conversion d'une Commande Personnalisée vers un Post "Sur Commande" au Catalogue (Maâlem v2)
- * Règle stricte : accessible uniquement vers la fin de confection (fin de construction avec photo ou livré).
- * Exige une photo finale obligatoire, le marquage des tags et les informations produit.
+ * 12. Diagramme 5 (#post-accord) : Demande d'accord de publication en post "Sur Commande"
+ * - Accessible uniquement APRÈS validation de réception par le client (`valide` / `approved`).
+ * - Ne publie PAS immédiatement : envoie une notification interactive Accepter / Refuser :
+ *   * Au Client (toujours)
+ *   * Au Vendeur de base (VB) UNIQUEMENT si personnalisation issue de son produit (`from_post` avec sourceVendorId distinct)
+ *   * En `from_scratch`, le vendeur de base n'existe pas -> seul le Client est interrogé.
  */
-export async function convertOrderToCatalogProduct(orderId, artisanRef, payload = {}) {
+export async function requestCatalogPublicationConsent(orderId, artisanRef, payload = {}) {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order) throw new Error("commande_introuvable");
-  if (order.artisanRef !== artisanRef) throw new Error("non_autorise");
+  if (!isSameVendor(order.artisanRef, artisanRef)) throw new Error("non_autorise");
 
-  // Vérification stricte : le bouton n'est accessible que vers la fin de confection
-  const isFinishedOrAdvanced = ["livre", "valide"].includes(order.status) || 
-    (order.status === "en_preparation" && Boolean(order.prepPhotos)) ||
-    Boolean(order.shippedAt);
+  // Diagramme 5 : "Valide la réception" -> "Affiche le bouton Demander l'accord"
+  const isValidated =
+    ["valide", "complete", "auto_valide"].includes(order.status) ||
+    order.clientApprovalStatus === "approved" ||
+    order.receptionValidatedBy === "client";
 
-  if (!isFinishedOrAdvanced) {
-    throw new Error("conversion_impossible_confection_non_achevee");
+  if (!isValidated) {
+    throw new Error("commande_non_validee_par_client");
   }
 
-  const { title, description, category, price, image, tags = {}, manufacturingDays = 7 } = payload;
+  if (order.republicationConsentStatus === "granted" && order.publishedProductId) {
+    throw new Error("deja_publie_au_catalogue");
+  }
 
-  if (!image) {
+  const {
+    title,
+    description = "",
+    category = "Artisanat d'art",
+    price,
+    image,
+    photos = [],
+    tags = [],
+    sizes = [],
+    colors = [],
+    manufacturingDays = 7,
+    consentMessage = "",
+  } = payload;
+
+  const photoList = Array.isArray(photos)
+    ? photos.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const primaryImage = String(image || photoList[0] || "").trim();
+  if (!primaryImage) {
     throw new Error("image_reelle_confection_obligatoire");
   }
   if (!title || !price) {
     throw new Error("titre_et_prix_obligatoires");
   }
 
-  const now = new Date().toISOString();
-  const newProductId = `prd-custom-${Date.now()}`;
+  const allPhotos = photoList.length > 0 ? photoList : [primaryImage];
+  if (!allPhotos.includes(primaryImage)) allPhotos.unshift(primaryImage);
+
+  const normalizedTags = Array.isArray(tags)
+    ? tags.map((x) => String(x || "").trim()).filter(Boolean)
+    : (tags && typeof tags === "object" ? Object.values(tags).flat().map(String).filter(Boolean) : []);
+  const normalizedSizes = Array.isArray(sizes) ? sizes.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const normalizedColors = Array.isArray(colors) ? colors.map((x) => String(x || "").trim()).filter(Boolean) : [];
+
   const numNet = Number(price);
   const commissionHt = Math.round(numNet * 0.05);
   const tvaVal = Math.round(commissionHt * 0.20);
   const clientPrice = numNet + commissionHt + tvaVal;
 
-  const { supabase } = await import("../../db/supabase.client.js");
+  // Règle explicite : VB interrogé UNIQUEMENT si personnalisation issue du produit d'un autre vendeur (`from_post`)
+  const requiresSourceVendor =
+    order.customizationOrigin === "from_post" &&
+    Boolean(order.sourceVendorId) &&
+    !isSameVendor(order.sourceVendorId, artisanRef);
 
-  const productRow = {
-    id: newProductId,
+  const now = new Date().toISOString();
+  const consentRequestId = `consent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const finalMessage = String(consentMessage || "").trim() ||
+    `Bonjour, suite à la validation de la commande "${String(title).trim()}", je sollicite votre accord pour publier cette réalisation en modèle "Sur Commande" dans mon catalogue Vork.`;
+
+  const existingMeta = safeJsonParse(order.orderMetadata, {});
+  const draftProduct = {
     title: String(title).trim(),
+    description: String(description || order.productTitle || "").trim(),
     category: category || order.productTitle || "Artisanat d'art",
-    category_group: "artisanat",
-    price: clientPrice,
-    in_stock: true,
-    stock: null, // Produit sur commande
-    is_out_of_stock: false,
-    is_hidden: false,
-    personalization_mode: "accept_direct",
-    accept_customization: true,
-    allow_public_customization: false,
-    artisan_name: order.artisanName || "Maâlem",
-    image_url: image,
-    identity: {
-      category: category || "Artisanat d'art",
-      description: description || order.productTitle || "",
-      product_type: "sur_commande",
-      net_price: numNet,
-      commission_ht: commissionHt,
-      tva: tvaVal,
-      manufacturing_days: Number(manufacturingDays) || 7,
-      source_order_id: orderId,
-    },
-    rec_tags: typeof tags === "object" ? tags : {},
-    facets: {
-      artisan_ref: artisanRef,
-    },
-    created_at: now,
+    netPrice: numNet,
+    clientPrice,
+    image: primaryImage,
+    photos: allPhotos,
+    tags: normalizedTags,
+    sizes: normalizedSizes,
+    colors: normalizedColors,
+    manufacturingDays: Number(manufacturingDays) || 7,
   };
 
-  try {
-    await supabase.from("products").insert(productRow);
-  } catch (sbErr) {
-    console.warn("[VORK-API] Could not insert into Supabase products:", sbErr.message);
-  }
+  existingMeta.republicationRequest = {
+    requestId: consentRequestId,
+    requestedBy: artisanRef,
+    requestedByName: order.artisanName || "Maâlem",
+    requestedAt: now,
+    customMessage: finalMessage,
+    requiresClient: true,
+    requiresSourceVendor,
+    sourceVendorId: requiresSourceVendor ? order.sourceVendorId : null,
+    status: "pending",
+    decisions: {
+      client: "pending",
+      sourceVendor: requiresSourceVendor ? "pending" : "not_required",
+    },
+    draftProduct,
+  };
 
-  // Mettre à jour la commande avec la traçabilité
   await db.update(orders).set({
-    catalogPublishedAt: now,
-    publishedProductId: newProductId,
-    republicationConsentStatus: order.customizationOrigin === "from_scratch" ? "client_notified" : "not_required",
+    republicationConsentStatus: "pending",
+    republicationConsentParty: requiresSourceVendor ? "client_and_source_vendor" : "client",
+    orderMetadata: JSON.stringify(existingMeta),
     updatedAt: now,
   }).where(eq(orders.id, orderId));
 
-  // Si la commande était "From Scratch" (savoir-faire client), émettre la notification au client
-  if (order.customizationOrigin === "from_scratch") {
-    try {
-      await createNotification({
-        userId: order.clientRef,
-        userType: "client",
-        type: "from_scratch_published_to_catalog",
-        title: "Votre création sur-mesure est disponible au catalogue !",
-        titleAr: "إبداعك أصبح متوفراً الآن في كتالوج الصانع!",
-        message: `Le Maâlem ${order.artisanName || 'partenaire'} a ajouté votre modèle confectionné à son catalogue en produit Sur Commande.`,
-        messageAr: `أضاف الصانع ${order.artisanName || 'الشريك'} تصميمك المنفذ إلى كتالوجه كمنتج "تحت الطلب".`,
-        linkUrl: `/products/${newProductId}`,
-        sourceId: newProductId,
-        secondaryUserId: artisanRef,
-        secondaryUserName: order.artisanName,
-        metadata: { orderId, newProductId },
-      });
-    } catch (notifClientErr) {
-      console.warn("[VORK-API] Failed to emit client publication notification:", notifClientErr.message);
-    }
+  const sharedNotifMetadata = {
+    orderId,
+    consentRequestId,
+    customMessage: finalMessage,
+    consentStatus: "pending",
+    requiresSourceVendor,
+    customizationOrigin: order.customizationOrigin || "from_scratch",
+    draftPreview: {
+      title: draftProduct.title,
+      price: clientPrice,
+      netPrice: numNet,
+      image: primaryImage,
+      category: draftProduct.category,
+      manufacturingDays: draftProduct.manufacturingDays,
+      tags: normalizedTags,
+      sizes: normalizedSizes,
+      colors: normalizedColors,
+    },
+  };
+
+  // Notification interactive pour le Client (toujours)
+  await createNotificationResilient({
+    userId: order.clientRef,
+    userType: "client",
+    type: "republication_consent_request",
+    title: `Demande d'accord de publication — "${draftProduct.title}"`,
+    titleAr: `طلب موافقة على نشر إبداع "${draftProduct.title}"`,
+    message: finalMessage,
+    messageAr: finalMessage,
+    sourceId: orderId,
+    secondaryUserId: artisanRef,
+    secondaryUserName: order.artisanName || "Maâlem",
+    idempotencyKey: `consent-req:${consentRequestId}:client`,
+    actionStatus: "pending",
+    metadata: { ...sharedNotifMetadata, role: "client" },
+  });
+
+  // Notification interactive pour le Vendeur de Base (UNIQUEMENT si from_post avec sourceVendorId distinct)
+  if (requiresSourceVendor && order.sourceVendorId) {
+    await createNotificationResilient({
+      userId: order.sourceVendorId,
+      userType: "artisan",
+      type: "republication_consent_request",
+      title: `Accord Vendeur de Base requis — "${draftProduct.title}"`,
+      titleAr: `مطلوب موافقة البائع الأصلي — "${draftProduct.title}"`,
+      message: `${order.artisanName || "Un artisan"} demande votre accord (avec celui du client) pour publier une création issue de votre modèle : "${finalMessage}"`,
+      messageAr: `يطلب ${order.artisanName || "صانع"} موافقتك (مع الزبون) لنشر قطعة مستوحاة من منتجك الأصلي: "${finalMessage}"`,
+      sourceId: orderId,
+      secondaryUserId: artisanRef,
+      secondaryUserName: order.artisanName || "Maâlem",
+      idempotencyKey: `consent-req:${consentRequestId}:source_vendor`,
+      actionStatus: "pending",
+      metadata: { ...sharedNotifMetadata, role: "source_vendor" },
+    });
   }
 
   return {
     success: true,
+    pendingConsent: true,
+    consentStatus: "pending",
+    requiresSourceVendor,
+    consentRequestId,
+    message: requiresSourceVendor
+      ? "Demande d'accord envoyée au Client et au Vendeur de base. Le post sera publié dès que les deux auront accepté."
+      : "Demande d'accord envoyée au Client. Le post sera publié automatiquement après son acceptation.",
+    message_ar: requiresSourceVendor
+      ? "تم إرسال طلب الموافقة إلى الزبون والبائع الأصلي. سيتم النشر بعد موافقتهما معاً."
+      : "تم إرسال طلب الموافقة إلى الزبون. سيتم نشر المنشور فور قبوله.",
+  };
+}
+
+// Compatibilité ascendante avec l'ancien nom d'export utilisé par artisan.routes.js
+export const convertOrderToCatalogProduct = requestCatalogPublicationConsent;
+
+/**
+ * Réponse interactive (Accepter / Refuser) du Client ou du Vendeur de Base à une demande d'accord (Diagramme 5).
+ * Règle : 1 seul refus => Demande REFUSÉE ; Tous acceptent => Publication au catalogue + Notification ACCEPTÉE.
+ */
+export async function respondToPublicationConsent(orderId, actorUserId, { decision, role = null, reason = "" } = {}) {
+  if (!["accept", "refuse"].includes(decision)) {
+    throw new Error("decision_invalide");
+  }
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) throw new Error("commande_introuvable");
+
+  const meta = safeJsonParse(order.orderMetadata, {});
+  const reqData = meta.republicationRequest;
+  if (!reqData) {
+    throw new Error("demande_accord_introuvable");
+  }
+
+  // Résolution & contrôle d'autorisation strict du répondant
+  const isClientActor =
+    order.clientRef === actorUserId ||
+    (role === "client" && (order.clientRef === actorUserId || order.clientRef === "client-me"));
+  const isSourceVendorActor =
+    reqData.requiresSourceVendor &&
+    Boolean(reqData.sourceVendorId) &&
+    isSameVendor(actorUserId, reqData.sourceVendorId);
+
+  let respondentRole = null;
+  if (role === "source_vendor" && isSourceVendorActor) respondentRole = "sourceVendor";
+  else if (role === "client" && isClientActor) respondentRole = "client";
+  else if (isClientActor) respondentRole = "client";
+  else if (isSourceVendorActor) respondentRole = "sourceVendor";
+
+  if (!respondentRole) {
+    throw new Error("non_autorise");
+  }
+
+  // Si déjà clôturé (idempotence)
+  if (reqData.status === "granted" || reqData.status === "rejected" || reqData.status === "withdrawn") {
+    return {
+      success: true,
+      alreadyResolved: true,
+      consentStatus: reqData.status,
+      published: reqData.status === "granted",
+      productId: order.publishedProductId || reqData.publishedProductId || null,
+    };
+  }
+
+  const now = new Date().toISOString();
+
+  // CAS REFUS : une seule personne suffit -> rejet immédiat
+  if (decision === "refuse") {
+    reqData.decisions[respondentRole] = "rejected";
+    reqData.status = "rejected";
+    reqData.rejectedBy = respondentRole === "sourceVendor" ? "source_vendor" : "client";
+    reqData.rejectionReason = String(reason || "").trim() || null;
+    reqData.resolvedAt = now;
+    meta.republicationRequest = reqData;
+
+    await db.update(orders).set({
+      republicationConsentStatus: "rejected",
+      republicationConsentParty: reqData.rejectedBy,
+      orderMetadata: JSON.stringify(meta),
+      updatedAt: now,
+    }).where(eq(orders.id, orderId));
+
+    await updateConsentNotificationsStatus({
+      sourceId: orderId,
+      actionStatus: "rejected",
+      extraMetadata: { rejectedBy: reqData.rejectedBy },
+    });
+
+    const partyLabelFr = reqData.rejectedBy === "source_vendor" ? "le vendeur de base" : "le client";
+    const partyLabelAr = reqData.rejectedBy === "source_vendor" ? "البائع الأصلي" : "الزبون";
+
+    await createNotificationResilient({
+      userId: order.artisanRef,
+      userType: "artisan",
+      type: "republication_consent_refused",
+      title: `Demande REFUSÉE — "${reqData.draftProduct?.title || order.productTitle || "Création"}"`,
+      titleAr: `تم رفض الطلب — "${reqData.draftProduct?.title || order.productTitle || "المنتج"}"`,
+      message: `Votre demande d'accord pour publier « ${reqData.draftProduct?.title || order.productTitle} » a été refusée par ${partyLabelFr}. Aucun post n'a été publié.`,
+      messageAr: `تم رفض طلب نشر « ${reqData.draftProduct?.title || order.productTitle} » من طرف ${partyLabelAr}. لم يتم نشر أي منشور.`,
+      sourceId: orderId,
+      secondaryUserId: actorUserId,
+      idempotencyKey: `consent-refused:${reqData.requestId}`,
+      actionStatus: "rejected",
+      metadata: { orderId, consentRequestId: reqData.requestId, rejectedBy: reqData.rejectedBy },
+    });
+
+    return {
+      success: true,
+      consentStatus: "rejected",
+      published: false,
+      rejectedBy: reqData.rejectedBy,
+      message: "Refus enregistré. La demande a été clôturée sans publication.",
+    };
+  }
+
+  // CAS ACCEPTATION
+  reqData.decisions[respondentRole] = "accepted";
+  await updateConsentNotificationsStatus({
+    sourceId: orderId,
+    targetUserId: actorUserId,
+    actionStatus: "accepted",
+    extraMetadata: { acceptedByRole: respondentRole },
+  });
+
+  const clientAccepted = reqData.decisions.client === "accepted";
+  const sourceVendorAccepted = !reqData.requiresSourceVendor || reqData.decisions.sourceVendor === "accepted";
+
+  if (!clientAccepted || !sourceVendorAccepted) {
+    // En attente de l'autre signataire (Cas 2 from_post : Client + Vendeur de base)
+    meta.republicationRequest = reqData;
+    await db.update(orders).set({
+      republicationConsentStatus: "partially_granted",
+      orderMetadata: JSON.stringify(meta),
+      updatedAt: now,
+    }).where(eq(orders.id, orderId));
+
+    return {
+      success: true,
+      consentStatus: "partially_granted",
+      published: false,
+      waitingFor: !clientAccepted ? "client" : "source_vendor",
+      message: "Votre accord est enregistré. Publication en attente de la validation de l'autre partie.",
+    };
+  }
+
+  // TOUS ONT ACCEPTÉ -> Publication effective au catalogue en "Sur Commande"
+  const draft = reqData.draftProduct || {};
+  const newProductId = `prd-custom-${Date.now()}`;
+  const pubResult = await createCatalogProduct({
     productId: newProductId,
-    product: productRow,
-    message: "Produit 'Sur Commande' créé et publié avec succès dans votre catalogue.",
-    message_ar: "تم إنشاء ونشر منتجك 'تحت الطلب' بنجاح في كتالوجك.",
+    artisanRef: order.artisanRef,
+    artisanName: order.artisanName || "Maâlem",
+    title: draft.title || order.productTitle || "Création Sur-Mesure",
+    description: draft.description || "",
+    category: draft.category || "Artisanat d'art",
+    netPrice: draft.netPrice || Math.round(Number(order.totalPrice || 100) / 1.06),
+    productType: "sur_commande",
+    photos: draft.photos || [draft.image].filter(Boolean),
+    image: draft.image || "",
+    tags: draft.tags || [],
+    sizes: draft.sizes || [],
+    colors: draft.colors || [],
+    manufacturingDays: draft.manufacturingDays || 7,
+    personalizationMode: "accept_direct",
+    ipAuthenticityAccepted: true,
+    sourceOrderId: orderId,
+  });
+
+  // Indexation Meilisearch + rafraîchissement recommandations (non bloquants)
+  loadProducts().catch(() => {});
+  try {
+    await productsIndex.addDocuments([{ ...pubResult.supabaseRow, artisanName: order.artisanName || "Maâlem", imageUrl: pubResult.normalizedProduct.image }]);
+  } catch {}
+
+  reqData.status = "granted";
+  reqData.resolvedAt = now;
+  reqData.publishedProductId = newProductId;
+  meta.republicationRequest = reqData;
+
+  await db.update(orders).set({
+    catalogPublishedAt: now,
+    publishedProductId: newProductId,
+    republicationConsentStatus: "granted",
+    republicationConsentParty: reqData.requiresSourceVendor ? "client_and_source_vendor" : "client",
+    orderMetadata: JSON.stringify(meta),
+    updatedAt: now,
+  }).where(eq(orders.id, orderId));
+
+  // Notification au Vendeur réalisateur (V) : Demande ACCEPTÉE (Post publié)
+  await createNotificationResilient({
+    userId: order.artisanRef,
+    userType: "artisan",
+    type: "republication_consent_accepted",
+    title: `Demande ACCEPTÉE — Post publié`,
+    titleAr: `تمت الموافقة — تم نشر المنتج`,
+    message: `Votre demande d'accord pour « ${draft.title || order.productTitle} » a été acceptée ! Le post est désormais publié en "Sur Commande" au catalogue.`,
+    messageAr: `تم قبول طلب نشر « ${draft.title || order.productTitle} »! أصبح منشورك متاحاً الآن بالكتالوج كمنتج تحت الطلب.`,
+    linkUrl: `/products/${newProductId}`,
+    sourceId: newProductId,
+    idempotencyKey: `consent-accepted:${reqData.requestId}`,
+    actionStatus: "accepted",
+    metadata: { orderId, newProductId, consentRequestId: reqData.requestId },
+  });
+
+  // Notification au Client avec lien & droit de retrait (opt Retrait de l'accord)
+  await createNotificationResilient({
+    userId: order.clientRef,
+    userType: "client",
+    type: "from_scratch_published_to_catalog",
+    title: `Post publié — "${draft.title || order.productTitle}"`,
+    titleAr: `تم النشر في الكتالوج — "${draft.title || order.productTitle}"`,
+    message: `Le modèle « ${draft.title || order.productTitle} » est maintenant publié en Sur Commande chez ${order.artisanName || "le Maâlem"}. Vous pouvez consulter la fiche ou demander le retrait de votre accord à tout moment.`,
+    messageAr: `أصبح التصميم « ${draft.title || order.productTitle} » منشوراً الآن كمنتج تحت الطلب. يمكنك معاينة المنشور أو سحب موافقتك في أي وقت.`,
+    linkUrl: `/products/${newProductId}`,
+    sourceId: newProductId,
+    secondaryUserId: order.artisanRef,
+    secondaryUserName: order.artisanName,
+    idempotencyKey: `consent-published-client:${reqData.requestId}`,
+    actionStatus: "granted",
+    metadata: { orderId, newProductId, canWithdraw: true },
+  });
+
+  return {
+    success: true,
+    consentStatus: "granted",
+    published: true,
+    productId: newProductId,
+    product: pubResult.normalizedProduct,
+    message: "Accord complet validé ! Le post 'Sur Commande' est maintenant publié au catalogue.",
+  };
+}
+
+/**
+ * Retrait de l'accord après publication (Diagramme 5 - opt Retrait de l'accord)
+ * - Retire/masque le post du catalogue et notifie le vendeur de l'obligation de suppression.
+ * - Les commandes déjà en cours restent intactes.
+ */
+export async function withdrawPublicationConsent(orderId, actorUserId, { reason = "" } = {}) {
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) throw new Error("commande_introuvable");
+
+  const isClientActor = order.clientRef === actorUserId || (order.clientRef === "client-me" && Boolean(actorUserId));
+  const isBaseVendorActor = Boolean(order.sourceVendorId) && isSameVendor(actorUserId, order.sourceVendorId);
+  if (!isClientActor && !isBaseVendorActor) {
+    throw new Error("non_autorise");
+  }
+
+  if (!order.publishedProductId || order.republicationConsentStatus !== "granted") {
+    if (order.republicationConsentStatus === "withdrawn") {
+      return { success: true, alreadyWithdrawn: true, consentStatus: "withdrawn" };
+    }
+    throw new Error("aucun_post_publie_a_retirer");
+  }
+
+  const now = new Date().toISOString();
+  const meta = safeJsonParse(order.orderMetadata, {});
+  if (meta.republicationRequest) {
+    meta.republicationRequest.status = "withdrawn";
+    meta.republicationRequest.withdrawnAt = now;
+    meta.republicationRequest.withdrawnBy = actorUserId;
+    meta.republicationRequest.withdrawReason = String(reason || "").trim() || null;
+  }
+
+  await withdrawOrDeleteCatalogProduct(order.publishedProductId, "consent_withdrawn");
+  loadProducts().catch(() => {});
+
+  await db.update(orders).set({
+    republicationConsentStatus: "withdrawn",
+    republicationConsentParty: isBaseVendorActor ? "source_vendor" : "client",
+    orderMetadata: JSON.stringify(meta),
+    updatedAt: now,
+  }).where(eq(orders.id, orderId));
+
+  const title = meta.republicationRequest?.draftProduct?.title || order.productTitle || "Création";
+  await createNotificationResilient({
+    userId: order.artisanRef,
+    userType: "artisan",
+    type: "republication_consent_withdrawn",
+    title: `Retrait de l'accord — Supprimer le post "${title}"`,
+    titleAr: `سحب الموافقة — يجب حذف منشور "${title}"`,
+    message: `Le client (ou ayants droit) demande le retrait de l'accord pour le post « ${title} ». Obligation de supprimer ce post (les commandes déjà en cours continuent normalement).`,
+    messageAr: `تم طلب سحب الموافقة على نشر « ${title} ». يجب حذف المنشور من الكتالوج (تستمر الطلبيات الجارية بشكل عادي).`,
+    sourceId: order.publishedProductId,
+    secondaryUserId: actorUserId,
+    idempotencyKey: `consent-withdrawn:${orderId}:${order.publishedProductId}`,
+    actionStatus: "withdrawn",
+    metadata: {
+      orderId,
+      productId: order.publishedProductId,
+      actionRequired: "delete_post",
+    },
+  });
+
+  return {
+    success: true,
+    consentStatus: "withdrawn",
+    productId: order.publishedProductId,
+    message: "Retrait de l'accord enregistré. Le post a été retiré et le vendeur a été notifié (les commandes en cours se poursuivent).",
   };
 }
 

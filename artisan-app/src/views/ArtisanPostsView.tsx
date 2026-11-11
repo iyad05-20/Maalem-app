@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Layers, Eye, Edit2, Package, Plus, Tag } from "lucide-react";
+import { Layers, Eye, Trash2, Package, Plus, Tag } from "lucide-react";
 import type { ArtisanProduct } from "../types/artisanTypes";
 import { useI18n } from "../services/i18n";
 
@@ -8,10 +8,11 @@ interface Props {
   products: ArtisanProduct[];
   onOpenCreateModal: () => void;
   onUpdateProduct: (productData: any) => Promise<void>;
+  onDeleteProduct?: (productId: string) => Promise<void>;
 }
 
-export const ArtisanPostsView: React.FC<Props> = ({ products, onOpenCreateModal, onUpdateProduct }) => {
-  const { t } = useI18n();
+export const ArtisanPostsView: React.FC<Props> = ({ products, onOpenCreateModal, onUpdateProduct, onDeleteProduct }) => {
+  const { t, isRTL } = useI18n();
 
   const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
     active:       { label: t("posts_status_active"),       className: "badge-success" },
@@ -113,9 +114,22 @@ export const ArtisanPostsView: React.FC<Props> = ({ products, onOpenCreateModal,
                   </div>
 
                   {product.category && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
                       <Tag size={10} color="var(--text-secondary)" />
                       <span style={{ fontSize: 10, color: "var(--text-secondary)" }}>{product.category}</span>
+                      <span style={{ fontSize: 10, color: "var(--border)" }}>·</span>
+                      <span style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        padding: "1px 6px",
+                        borderRadius: 6,
+                        background: product.productType === "sur_commande" ? "rgba(212,175,55,0.16)" : "rgba(45,106,79,0.1)",
+                        color: product.productType === "sur_commande" ? "#8B6914" : "#2D6A4F",
+                      }}>
+                        {product.productType === "sur_commande"
+                          ? (isRTL ? "حسب الطلب · غير متوفر" : "Sur Commande · Hors stock")
+                          : (isRTL ? "متوفر · معياري" : "Standard · En stock")}
+                      </span>
                       {product.manufacturingDays && (
                         <>
                           <span style={{ fontSize: 10, color: "var(--border)" }}>·</span>
@@ -127,15 +141,28 @@ export const ArtisanPostsView: React.FC<Props> = ({ products, onOpenCreateModal,
                     </div>
                   )}
 
+                  {((product.tags && product.tags.length > 0) || (product.sizes && product.sizes.length > 0) || (product.colors && product.colors.length > 0)) && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                      {product.sizes && product.sizes.length > 0 && (
+                        <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 6, background: "rgba(26,42,58,0.06)", color: "var(--primary)", fontWeight: 700 }}>
+                          {isRTL ? "مقاسات:" : "Tailles:"} {product.sizes.join(", ")}
+                        </span>
+                      )}
+                      {product.colors && product.colors.length > 0 && (
+                        <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 6, background: "rgba(184,98,63,0.09)", color: "var(--accent-warm)", fontWeight: 700 }}>
+                          {isRTL ? "ألوان:" : "Couleurs:"} {product.colors.join(", ")}
+                        </span>
+                      )}
+                      {product.tags && product.tags.slice(0, 3).map((tag, idx) => (
+                        <span key={idx} style={{ fontSize: 9, padding: "1px 5px", borderRadius: 6, background: "rgba(0,0,0,0.05)", color: "var(--text-secondary)" }}>
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Actions */}
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      className="btn-outline"
-                      style={{ flex: 1, padding: "7px 10px", fontSize: 11, borderRadius: 12 }}
-                      onClick={() => onUpdateProduct(product)}
-                    >
-                      <Edit2 size={12} /> {t("posts_edit_btn")}
-                    </button>
                     <button
                       className="btn-outline"
                       style={{ flex: 1, padding: "7px 10px", fontSize: 11, borderRadius: 12, borderColor: product.status === "hidden" ? "rgba(45,106,79,0.4)" : "rgba(107,114,128,0.3)" }}
@@ -143,6 +170,19 @@ export const ArtisanPostsView: React.FC<Props> = ({ products, onOpenCreateModal,
                     >
                       <Eye size={12} /> {product.status === "hidden" ? t("posts_show_btn") : t("posts_hide_btn")}
                     </button>
+                    {onDeleteProduct && (
+                      <button
+                        className="btn-outline"
+                        style={{ padding: "7px 10px", fontSize: 11, borderRadius: 12, borderColor: "rgba(220,53,69,0.3)", color: "#DC2626" }}
+                        onClick={() => {
+                          if (window.confirm(isRTL ? "هل تريد حذف هذا المنشور؟ ستستمر الطلبيات الجارية." : "Supprimer ce post ? Les commandes en cours continueront normalement.")) {
+                            onDeleteProduct(product.id);
+                          }
+                        }}
+                      >
+                        <Trash2 size={12} /> {isRTL ? "حذف" : "Supprimer"}
+                      </button>
+                    )}
                   </div>
                 </div>
               </motion.div>

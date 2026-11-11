@@ -79,25 +79,54 @@ function App() {
   const [isAtelierModalOpen, setIsAtelierModalOpen] = useState(false);
   const [showNotificationsOverlay, setShowNotificationsOverlay] = useState(false);
   const [clientOrdersList, setClientOrdersList] = useState<ClientOrder[]>([]);
+  const [clientServerNotifs, setClientServerNotifs] = useState<any[]>([]);
+
+  const reloadDbProducts = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/products?limit=100`);
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setDbProducts(json.data);
+      }
+    } catch (err) {
+      console.error("Error loading products from db:", err);
+    }
+  };
+
+  const syncOrdersAndNotifs = async () => {
+    if (!currentUser?.id) return;
+    await Promise.all([
+      clientWalletAPI.fetchOrders(currentUser.id).then((orders) => setClientOrdersList(orders)).catch(() => {}),
+      clientWalletAPI.fetchServerNotifications(currentUser.id).then((sn) => setClientServerNotifs(sn)).catch(() => {}),
+    ]);
+  };
 
   useEffect(() => {
-    if (currentUser?.id) {
-      clientWalletAPI.fetchOrders(currentUser.id).then((orders) => {
-        setClientOrdersList(orders);
-      }).catch(() => {});
-    }
+    if (!currentUser?.id) return;
+    syncOrdersAndNotifs();
+    const timer = setInterval(syncOrdersAndNotifs, 8000);
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') syncOrdersAndNotifs();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [currentUser, view, showNotificationsOverlay]);
 
-  const hasUnreadNotifications = clientOrdersList.some((o) => {
-    if (["en_preparation", "en_cours_de_transport", "livre", "en_reclamation"].includes(o.status)) {
-      return true;
-    }
-    if (["acompte_verse", "payee_integralement"].includes(o.status)) {
-      const diffHours = (Date.now() - new Date(o.createdAt).getTime()) / (1000 * 60 * 60);
-      return diffHours >= 48;
-    }
-    return false;
-  });
+  const hasUnreadNotifications =
+    clientServerNotifs.some((n) => !n.isRead) ||
+    clientOrdersList.some((o) => {
+      if (["devis_recu", "en_preparation", "en_cours_de_transport", "livre", "en_reclamation"].includes(o.status)) {
+        return true;
+      }
+      if (["acompte_verse", "payee_integralement"].includes(o.status)) {
+        const diffHours = (Date.now() - new Date(o.createdAt).getTime()) / (1000 * 60 * 60);
+        return diffHours >= 48;
+      }
+      return false;
+    });
 
   const trending = resolve(MAALEM_DATA.collections.trending);
   const fallbackAiPicks = resolve(MAALEM_DATA.collections.aiPicks);
@@ -132,18 +161,7 @@ function App() {
 
   // Load products from Supabase on mount to build robust resolution catalog
   useEffect(() => {
-    const loadDbProducts = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/products?limit=100`);
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          setDbProducts(json.data);
-        }
-      } catch (err) {
-        console.error("Error loading products from db:", err);
-      }
-    };
-    loadDbProducts();
+    reloadDbProducts();
   }, []);
 
   // Reset activeOrderId and close overlays when user navigates to a new view
@@ -216,6 +234,8 @@ function App() {
       await recSession.logout(currentUser.id);
     }
     await authService.logout();
+    setClientOrdersList([]);
+    setActiveOrderId(null);
     setCurrentUser(null);
     setView('home');
   };
@@ -334,6 +354,22 @@ function App() {
           <NotificationsView
             key="notifications-overlay"
             orders={clientOrdersList}
+            currentUser={currentUser}
+            serverNotifications={clientServerNotifs}
+            onRefreshNotifications={syncOrdersAndNotifs}
+            onCatalogChanged={reloadDbProducts}
+            onOpenProduct={async (productId: string) => {
+              let found = dbProducts.find((p) => p.id === productId) || dynamicAiPicks.find((p) => p.id === productId);
+              if (!found) {
+                try {
+                  const res = await fetch(`${API_BASE}/products/${encodeURIComponent(productId)}`);
+                  const json = await res.json();
+                  if (json.success && json.data) found = json.data;
+                } catch {}
+              }
+              setShowNotificationsOverlay(false);
+              if (found) setSelectedProduct(found);
+            }}
             onClose={() => setShowNotificationsOverlay(false)}
             onSelectOrder={(orderId) => {
               setActiveOrderId(orderId);

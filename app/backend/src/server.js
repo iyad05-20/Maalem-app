@@ -24,13 +24,15 @@ import { startCronScheduler } from './services/cronService.js';
 import { loadProducts }       from './services/recommendation.service.js';
 import { initSearchIndex }  from './services/search/meilisearch.service.js';
 import { initAtelierVocab } from './services/llm/atelierPromptComposer.js';
-import { initSchema }       from './core/db/index.js';
+import { initSchema, db }   from './core/db/index.js';
+import { orders, customRequests } from './core/db/schema.js';
+import { eq } from 'drizzle-orm';
 import { seedDefaultAccounts } from './services/localAuth.service.js';
 
 
 (async () => {
   try {
-    initSchema();
+    await initSchema();
     await seedDefaultAccounts();
     await loadProducts();
     await initSearchIndex();
@@ -90,7 +92,6 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
 };
 
 app.use(cors(corsOptions));
@@ -123,6 +124,38 @@ app.use('/auth/login', loginLimiter);
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// ─── Media Lazy Endpoint (évite de transférer des Mo de base64 dans les listes JSON) ───
+async function serveMedia(req, res) {
+  const { kind, id } = req.params;
+  try {
+    let raw = null;
+    if (kind === 'custom-request') {
+      const [row] = await db.select({ proofImage: customRequests.proofImage }).from(customRequests).where(eq(customRequests.id, id));
+      raw = row?.proofImage;
+    } else if (kind === 'order') {
+      const [row] = await db.select({ productImage: orders.productImage }).from(orders).where(eq(orders.id, id));
+      raw = row?.productImage;
+    }
+    if (!raw) return res.status(404).end();
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      return res.redirect(302, raw);
+    }
+    const match = raw.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      const mime = match[1];
+      const buf = Buffer.from(match[2], 'base64');
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(buf);
+    }
+    return res.status(404).end();
+  } catch {
+    return res.status(500).end();
+  }
+}
+app.get('/api/public/media/:kind/:id', serveMedia);
+app.get('/public/media/:kind/:id', serveMedia);
 
 // ─── API Routes (MVC — controllers live in routes/) ───────────────────────────
 const apiRoutes = [

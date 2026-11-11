@@ -2,14 +2,72 @@ import { supabase } from './supabase.client.js';
 
 let cachedProducts = [];
 
-function normalizeProduct(p) {
+function normalizeStringList(val) {
+  if (Array.isArray(val)) {
+    return Array.from(new Set(val.map((x) => String(x || '').trim()).filter(Boolean)));
+  }
+  if (typeof val === 'string' && val.trim()) {
+    return Array.from(new Set(val.split(',').map((x) => x.trim()).filter(Boolean)));
+  }
+  return [];
+}
+
+export function extractNormalizedTags(p) {
+  if (!p) return [];
+  const tags = [];
+  if (Array.isArray(p.tags)) tags.push(...p.tags);
+  if (Array.isArray(p.identity?.tags)) tags.push(...p.identity.tags);
+  if (p.rec_tags && typeof p.rec_tags === 'object') {
+    for (const key of ['style', 'material', 'color_vibe', 'custom']) {
+      if (Array.isArray(p.rec_tags[key])) tags.push(...p.rec_tags[key]);
+      else if (typeof p.rec_tags[key] === 'string' && p.rec_tags[key].trim()) {
+        tags.push(p.rec_tags[key].trim());
+      }
+    }
+  }
+  return Array.from(new Set(tags.map((t) => String(t || '').trim()).filter(Boolean)));
+}
+
+export function normalizeProduct(p) {
   if (!p) return p;
+  const identity = p.identity && typeof p.identity === 'object' ? p.identity : {};
+  const rawType = identity.product_type || p.product_type || p.productType || 'standard';
+  const productType = rawType === 'sur_commande' ? 'sur_commande' : 'standard';
+  const photos = normalizeStringList(identity.photos || p.photos);
+  const primaryImage = photos[0] || p.image_url || p.imageUrl || p.image || '';
+  if (primaryImage && !photos.includes(primaryImage)) {
+    photos.unshift(primaryImage);
+  }
+  const sizes = normalizeStringList(identity.sizes || p.sizes);
+  const colors = normalizeStringList(identity.colors || p.colors);
+  const tags = extractNormalizedTags(p);
+  const isOutOfStock = Boolean(p.is_out_of_stock || p.isOutOfStock);
+
   return {
     ...p,
     artisanName: p.artisan_name || p.artisanName || 'Maâlem',
     artisan_name: p.artisan_name || p.artisanName || 'Maâlem',
-    imageUrl: p.image_url || p.imageUrl,
-    image_url: p.image_url || p.imageUrl,
+    artisanRef: p.facets?.artisan_ref || identity.artisan_id || p.artisanRef || null,
+    imageUrl: primaryImage,
+    image_url: primaryImage,
+    image: primaryImage,
+    photos,
+    tags,
+    sizes,
+    colors,
+    productType,
+    product_type: productType,
+    isOnDemand: productType === 'sur_commande',
+    availabilityMode: productType === 'sur_commande' ? 'hors_stock_sur_commande' : 'en_stock',
+    isOutOfStock,
+    manufacturingDays: identity.manufacturing_days || p.manufacturingDays || 5,
+    netPrice: identity.net_price ?? p.netPrice ?? p.price,
+    clientPrice: p.price ?? p.clientPrice,
+    shippingFee: identity.shipping_fee ?? p.shippingFee ?? 0,
+    shippingThreshold: identity.shipping_threshold ?? p.shippingThreshold ?? 1,
+    dimensions: identity.dimensions || p.dimensions || null,
+    personalizationMode: p.personalization_mode || identity.personalization_mode || p.personalizationMode || 'accept_direct',
+    ipAuthenticityAccepted: Boolean(identity.ip_authenticity_accepted ?? p.ipAuthenticityAccepted),
   };
 }
 
@@ -278,6 +336,207 @@ export async function updateProductStockAction(id, action, payload = {}) {
     return { success: true, product: data };
   } catch (err) {
     console.warn(`[VORK-API] ⚠️ Failed to update product action for ${id}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+export const artisanRamProducts = [];
+
+export function mapCategoryToGroup(cat = "") {
+  const c = String(cat).toLowerCase();
+  if (c.includes("céra") || c.includes("pot") || c.includes("فخار") || c.includes("خزف")) return "ceramique";
+  if (c.includes("cuir") || c.includes("maroquin") || c.includes("جلد")) return "maroquinerie";
+  if (c.includes("text") || c.includes("caftan") || c.includes("نسيج") || c.includes("قفطان")) return "textile";
+  if (c.includes("bois") || c.includes("zellige") || c.includes("خشب") || c.includes("زليج")) return "menuiserie";
+  if (c.includes("cuiv") || c.includes("métal") || c.includes("نحاس") || c.includes("معادن")) return "dinanderie";
+  if (c.includes("tapis") || c.includes("broder") || c.includes("زرابي") || c.includes("طرز")) return "broderie";
+  if (c.includes("bijou") || c.includes("حلي") || c.includes("إكسسوار")) return "bijouterie";
+  return "artisanat";
+}
+
+/**
+ * Construit, persiste dans Supabase + cache RAM (et indexe éventuellement dans Meilisearch) un post produit unifié.
+ */
+export async function createCatalogProduct({
+  productId = `prd-${Date.now()}`,
+  artisanRef,
+  artisanName = "Maâlem",
+  title,
+  description = "",
+  category = "Céramique & Poterie",
+  netPrice,
+  productType = "standard",
+  photos = [],
+  image = "",
+  tags = [],
+  sizes = [],
+  colors = [],
+  manufacturingDays = 5,
+  dimensions = null,
+  shippingFee = 0,
+  shippingThreshold = 1,
+  personalizationMode = "accept_direct",
+  stock = null,
+  stockPolicy = {},
+  ipAuthenticityAccepted = true,
+  sourceOrderId = null,
+}) {
+  const normalizedType = productType === "sur_commande" ? "sur_commande" : "standard";
+  const normalizedPhotos = normalizeStringList([...(Array.isArray(photos) ? photos : []), image]);
+  const primaryImage = normalizedPhotos[0] || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600";
+  const allPhotos = normalizedPhotos.length > 0 ? normalizedPhotos : [primaryImage];
+  const normalizedTags = normalizeStringList(tags);
+  const normalizedSizes = normalizeStringList(sizes);
+  const normalizedColors = normalizeStringList(colors);
+
+  const numNet = Number(netPrice);
+  const commissionHt = Math.round(numNet * 0.05);
+  const tvaVal = Math.round(commissionHt * 0.20);
+  const clientPrice = numNet + commissionHt + tvaVal;
+  const categoryGroup = mapCategoryToGroup(category);
+
+  // Sur Commande => Hors stock immédiat (stock: null, commandable à la confection)
+  const parsedStock = normalizedType === "sur_commande"
+    ? null
+    : (stock !== undefined && stock !== null && stock !== "" ? Math.max(0, parseInt(stock, 10)) : null);
+  const isOutOfStock = normalizedType === "standard" && parsedStock !== null ? parsedStock === 0 : false;
+  const isHidden = normalizedType === "standard" && parsedStock === 0;
+  const resolvedStockPolicy = normalizedType === "sur_commande"
+    ? { ...(stockPolicy && typeof stockPolicy === "object" ? stockPolicy : {}), allow_order_exceeding_stock: true }
+    : (stockPolicy && typeof stockPolicy === "object" ? stockPolicy : {});
+
+  const recTags = {
+    style: normalizedTags.length > 0 ? normalizedTags : ["traditionnel", "fait-main"],
+    material: [categoryGroup],
+    color_vibe: normalizedColors.length > 0 ? normalizedColors : ["authentique", "naturel"],
+    ...(normalizedTags.length > 0 ? { custom: normalizedTags } : {}),
+  };
+
+  const supabaseRow = {
+    id: productId,
+    title: String(title).trim(),
+    category: category || "Céramique & Poterie",
+    category_group: categoryGroup,
+    price: clientPrice,
+    in_stock: normalizedType === "sur_commande" ? true : (parsedStock !== null ? parsedStock > 0 : true),
+    stock: parsedStock,
+    initial_stock: parsedStock,
+    is_out_of_stock: isOutOfStock,
+    is_hidden: isHidden,
+    stock_policy: resolvedStockPolicy,
+    artisan_name: artisanName,
+    image_url: primaryImage,
+    personalization_mode: personalizationMode,
+    accept_customization: personalizationMode !== "disabled",
+    allow_public_customization: personalizationMode === "delegate_to_market",
+    identity: {
+      artisan_id: artisanRef,
+      category: category || "Céramique & Poterie",
+      category_group: categoryGroup,
+      description: String(description || "").trim(),
+      product_type: normalizedType,
+      availability_mode: normalizedType === "sur_commande" ? "hors_stock_sur_commande" : "en_stock",
+      net_price: numNet,
+      commission_ht: commissionHt,
+      tva: tvaVal,
+      manufacturing_days: Number(manufacturingDays) || 5,
+      shipping_fee: Number(shippingFee) || 0,
+      shipping_threshold: Number(shippingThreshold) || 1,
+      dimensions: dimensions || null,
+      photos: allPhotos,
+      tags: normalizedTags,
+      sizes: normalizedSizes,
+      colors: normalizedColors,
+      ip_authenticity_accepted: Boolean(ipAuthenticityAccepted),
+      personalization_mode: personalizationMode,
+      accept_customization: personalizationMode !== "disabled",
+      allow_public_customization: personalizationMode === "delegate_to_market",
+      ...(sourceOrderId ? { source_order_id: sourceOrderId } : {}),
+    },
+    rec_tags: recTags,
+    facets: {
+      origin: ["maroc"],
+      artisan_ref: artisanRef,
+      ...(normalizedSizes.length > 0 ? { sizes: normalizedSizes } : {}),
+      ...(normalizedColors.length > 0 ? { colors: normalizedColors } : {}),
+    },
+  };
+
+  let persisted = false;
+  try {
+    const { error: sbError } = await supabase.from("products").insert(supabaseRow);
+    if (sbError) {
+      console.warn("[VORK-API] ⚠️ Failed to insert product into Supabase:", sbError.message);
+    } else {
+      persisted = true;
+    }
+  } catch (err) {
+    console.warn("[VORK-API] ⚠️ Error writing product to Supabase:", err.message);
+  }
+
+  const normalizedProduct = normalizeProduct({
+    ...supabaseRow,
+    created_at: new Date().toISOString(),
+  });
+  // Conserver les champs historiques attendus par artisan-app (price = net artisan, clientPrice = TTC)
+  const artisanProduct = {
+    ...normalizedProduct,
+    price: numNet,
+    clientPrice,
+    status: isHidden ? "hidden" : (normalizedType === "sur_commande" ? "active" : "active"),
+    createdAt: normalizedProduct.created_at,
+  };
+
+  artisanRamProducts.unshift(artisanProduct);
+  if (!cachedProducts.some((p) => p.id === normalizedProduct.id)) {
+    cachedProducts.unshift(normalizedProduct);
+  }
+
+  return {
+    persisted,
+    supabaseRow,
+    normalizedProduct,
+    artisanProduct,
+  };
+}
+
+/**
+ * Masque ou supprime un post catalogue (ex: suppression vendeur ou retrait de l'accord Diagramme 5)
+ * sans affecter les commandes déjà en cours.
+ */
+export async function withdrawOrDeleteCatalogProduct(productId, reason = "consent_withdrawn") {
+  if (!productId) return { success: false };
+  const idx = artisanRamProducts.findIndex((p) => p.id === productId);
+  if (idx !== -1) {
+    artisanRamProducts.splice(idx, 1);
+  }
+  const cacheIdx = cachedProducts.findIndex((p) => p.id === productId);
+  if (cacheIdx !== -1) {
+    cachedProducts[cacheIdx].is_hidden = true;
+    cachedProducts[cacheIdx].identity = {
+      ...(cachedProducts[cacheIdx].identity || {}),
+      [reason]: true,
+    };
+  }
+
+  try {
+    const { data: existing } = await supabase.from("products").select("identity").eq("id", productId).single();
+    const updatedIdentity = {
+      ...(existing?.identity || {}),
+      [reason]: true,
+      removed_at: new Date().toISOString(),
+    };
+    await supabase
+      .from("products")
+      .update({
+        is_hidden: true,
+        identity: updatedIdentity,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", productId);
+    return { success: true };
+  } catch (err) {
+    console.warn(`[VORK-API] ⚠️ Failed to withdraw/delete product ${productId}:`, err.message);
     return { success: false, error: err.message };
   }
 }

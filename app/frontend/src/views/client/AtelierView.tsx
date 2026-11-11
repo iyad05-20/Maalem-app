@@ -18,7 +18,8 @@ import {
   Palette,
   Hammer
 } from 'lucide-react';
-import type { UserProfile } from '../../services/authService';
+import { authService, type UserProfile } from '../../services/authService';
+import { API_BASE } from '../../services/apiConfig';
 import type { View } from '../../types';
 
 interface AtelierViewProps {
@@ -142,22 +143,27 @@ export const AtelierView: React.FC<AtelierViewProps> = ({ currentUser, onNavigat
       clientRef: currentUser?.id || 'client-me',
       customizationOrigin: isFromPost ? 'from_post' : 'from_scratch',
       sourceProductId: templateProduct?.id || null,
-      sourceVendorId: templateProduct?.artisanRef || templateProduct?.artisan_ref || null,
+      sourceVendorId: templateProduct?.artisanRef || templateProduct?.artisan_ref || templateProduct?.facets?.artisan_ref || null,
       categoryName: selectedCategory,
       title: title.trim() || `Création sur-mesure (${selectedCategory})`,
       description: description.trim(),
       budget: budget ? Number(budget) : undefined,
       proofImage: imageUrl.trim() || imagePreview || null,
+      selectedSize: templateProduct?.selectedSize || null,
+      selectedColor: templateProduct?.selectedColor || null,
+      tags: Array.isArray(templateProduct?.tags) ? templateProduct.tags : [],
+      photos: Array.isArray(templateProduct?.photos) ? templateProduct.photos : [],
       safetyGuidelinesAccepted: true,
       transportProvider: 'vendeur',
     };
 
     try {
-      const res = await fetch('/api/client/custom-requests', {
+      const token = authService.getToken() || '';
+      const res = await fetch(`${API_BASE}/client/custom-requests`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
       });

@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Sparkles, Upload, CheckCircle2, AlertTriangle, ArrowRight, Camera, Info } from "lucide-react";
+import { X, Sparkles, Upload, CheckCircle2, AlertTriangle, Camera, Send, Users } from "lucide-react";
 import { useI18n } from "../services/i18n";
+import { artisanAuthService } from "../services/artisanAuthService";
+import { getBackendUrl } from "../services/artisanApi";
 
 interface ConvertToCatalogModalSheetProps {
   order: any;
@@ -25,15 +27,29 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
   onSuccess,
 }) => {
   const { lang, isRTL } = useI18n();
-  const [title, setTitle] = useState(order.productTitle || "");
+  const isFromPostWithBaseVendor =
+    order.customizationOrigin === "from_post" &&
+    Boolean(order.sourceVendorId) &&
+    order.sourceVendorId !== order.artisanRef;
+
+  const defaultTitle = order.productTitle || "";
+  const defaultConsentMsg = isRTL
+    ? `مرحباً، بعد مصادقتكم على استلام طلبية "${defaultTitle || "الإبداع"}"، أود طلب موافقتكم لنشر هذا النموذج في كتالوجي كمنتج "حسب الطلب".`
+    : `Bonjour, suite à la validation de la commande "${defaultTitle || "création sur-mesure"}", je souhaite solliciter votre accord pour publier cette réalisation en modèle "Sur Commande" dans ma vitrine Vork.`;
+
+  const [title, setTitle] = useState(defaultTitle);
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState(order.totalPrice ? String(Math.round(order.totalPrice / 1.06)) : "");
   const [category, setCategory] = useState(CATEGORIES[0].fr);
-  const [manufacturingDays, setManufacturingDays] = useState(7);
-  const [image, setImage] = useState("");
+  const [manufacturingDays, setManufacturingDays] = useState(order.estimatedTransportDays || 7);
+  const [image, setImage] = useState(order.productImage || "");
+  const [tagsText, setTagsText] = useState(Array.isArray(order.tags) ? order.tags.join(", ") : "");
+  const [sizesText, setSizesText] = useState(order.selectedSize || "");
+  const [colorsText, setColorsText] = useState(order.selectedColor || "");
+  const [consentMessage, setConsentMessage] = useState(defaultConsentMsg);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [successInfo, setSuccessInfo] = useState<{ message: string; requiresSourceVendor: boolean } | null>(null);
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -46,13 +62,15 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
     }
   };
 
+  const splitCsv = (str: string) => str.split(",").map(s => s.trim()).filter(Boolean);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!image.trim()) {
       setError(
         isRTL
-          ? "إضافة صورة حقيقية للقطعة المصنوعة إلزامية لنشرها كمنتج تحت الطلب."
-          : "Une photo réelle du produit confectionné est obligatoire pour la publication."
+          ? "إضافة صورة حقيقية للقطعة المصنوعة إلزامية."
+          : "Une photo réelle du produit confectionné est obligatoire."
       );
       return;
     }
@@ -69,12 +87,12 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
     setError(null);
 
     try {
-      const token = localStorage.getItem("token") || "";
-      const res = await fetch(`/api/artisan/orders/${order.id}/convert-to-catalog`, {
+      const token = artisanAuthService.getToken() || "";
+      const res = await fetch(`${getBackendUrl()}/artisan/orders/${order.id}/request-publication-consent`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           title: title.trim(),
@@ -82,26 +100,30 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
           category,
           price: Number(price),
           image: image.trim(),
+          photos: [image.trim()],
+          tags: splitCsv(tagsText),
+          sizes: splitCsv(sizesText),
+          colors: splitCsv(colorsText),
           manufacturingDays: Number(manufacturingDays) || 7,
-          tags: {
-            source_order_id: order.id,
-            customization_origin: order.customizationOrigin || "from_scratch",
-          },
+          consentMessage: consentMessage.trim(),
         }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Erreur lors de la conversion de la commande en produit.");
+        throw new Error(data.error || "Erreur lors de l'envoi de la demande d'accord.");
       }
 
-      setSuccess(true);
+      setSuccessInfo({
+        message: (isRTL && data.message_ar) ? data.message_ar : data.message,
+        requiresSourceVendor: Boolean(data.requiresSourceVendor),
+      });
       setTimeout(() => {
         onSuccess();
         onClose();
-      }, 2000);
+      }, 1800);
     } catch (err: any) {
-      setError(err.message || "Impossible de publier ce produit au catalogue.");
+      setError(err.message || "Impossible d'envoyer la demande d'accord.");
     } finally {
       setLoading(false);
     }
@@ -146,10 +168,10 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "var(--primary)" }}>
-                  {isRTL ? "تحويل إلى منشور 'تحت الطلب'" : "Publier en post 'Sur Commande'"}
+                  {isRTL ? "طلب الموافقة على النشر" : "Demander l'accord de publication"}
                 </h3>
                 <p style={{ margin: 0, fontSize: 11, color: "var(--text-secondary)" }}>
-                  {isRTL ? "إضافة إبداعك المنجز إلى كتالوج متجرك" : "Ajouter cette confection réussie à votre vitrine"}
+                  {isRTL ? "النشر كمنتج حسب الطلب بعد قبول الأطراف" : "Publier en 'Sur Commande' après acceptation"}
                 </p>
               </div>
             </div>
@@ -162,28 +184,25 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
             </button>
           </div>
 
-          {/* Success state */}
-          {success ? (
+          {successInfo ? (
             <div style={{ textAlign: "center", padding: "30px 10px" }}>
               <CheckCircle2 size={50} color="#16A34A" style={{ margin: "0 auto 12px auto" }} />
               <h4 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 800, color: "var(--primary)" }}>
-                {isRTL ? "تم النشر في كتالوجك بنجاح!" : "Création ajoutée à votre catalogue !"}
+                {isRTL ? "تم إرسال طلب الموافقة!" : "Demande d'accord envoyée !"}
               </h4>
               <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.45 }}>
-                {isRTL
-                  ? "أصبح المنشور متاحاً الآن للزبائن للطلب المباشر كمنتج تحت الطلب."
-                  : "Votre nouveau post 'Sur Commande' est désormais visible pour tous les clients Vork."}
+                {successInfo.message}
               </p>
             </div>
           ) : (
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* Note d'instruction et consentement externe */}
+              {/* Destinataires de la demande d'accord */}
               <div
                 style={{
-                  background: "rgba(212, 175, 55, 0.08)",
-                  border: "1px solid rgba(212, 175, 55, 0.3)",
+                  background: "rgba(212, 175, 55, 0.09)",
+                  border: "1px solid rgba(212, 175, 55, 0.35)",
                   borderRadius: 14,
-                  padding: "12px 14px",
+                  padding: "11px 13px",
                   fontSize: 11,
                   color: "#854D0E",
                   lineHeight: 1.45,
@@ -191,16 +210,39 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                   gap: 8,
                 }}
               >
-                <Info size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                <Users size={16} style={{ flexShrink: 0, marginTop: 2 }} />
                 <div>
-                  <strong>{isRTL ? "شروط التحويل :" : "Instruction de publication :"}</strong>{" "}
-                  {isRTL
-                    ? "يتطلب النشر صورة حقيقية للقطعة المنجزة داخل ورشتك. في حال كان التصميم نابعاً من فكرة خاصة للزبون، سيتلقى إشعاراً برابط المنشور، ويتم التوافق الودي بينكما مسبقاً."
-                    : "Une photo réelle du produit confectionné en atelier est obligatoire. Si le modèle est issu d'une idée client (From Scratch), le client recevra automatiquement une notification avec le lien du post."}
+                  <strong>
+                    {isFromPostWithBaseVendor
+                      ? (isRTL ? "موافقة ثنائية مطلوبة :" : "Double accord requis (Produit inspiré d'un modèle) :")
+                      : (isRTL ? "موافقة الزبون فقط :" : "Accord Client uniquement (Création From Scratch) :")}
+                  </strong>{" "}
+                  {isFromPostWithBaseVendor
+                    ? (isRTL
+                        ? "سيتم إشعار الزبون والبائع الأصلي للموافقة أو الرفض. رفض طرف واحد يكفي لإلغاء النشر."
+                        : "Le Client ET le Vendeur du produit de base recevront une notification Accepter / Refuser. Un seul refus suffit à bloquer la publication.")
+                    : (isRTL
+                        ? "لا يوجد بائع أصلي، سيتم استشارة الزبون وحده قبل نشر المنشور."
+                        : "Aucun vendeur de base externe : seul le Client recevra votre demande. Le post sera publié automatiquement dès son accord.")}
                 </div>
               </div>
 
-              {/* Photo obligatoire de confection */}
+              {/* Pop-up Message pré-rédigé modifiable */}
+              <div>
+                <label className="form-label" style={{ fontSize: 11, fontWeight: 800, color: "var(--primary)" }}>
+                  {isRTL ? "رسالة طلب الموافقة (قابلة للتعديل) *" : "Message de demande d'accord (pré-rédigé, modifiable) *"}
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={consentMessage}
+                  onChange={(e) => setConsentMessage(e.target.value)}
+                  className="form-input"
+                  style={{ fontSize: 12, lineHeight: 1.45, background: "#FFFDF9", border: "1.5px solid rgba(212, 175, 55, 0.45)" }}
+                />
+              </div>
+
+              {/* Photo obligatoire */}
               <div>
                 <label className="form-label" style={{ fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
                   <Camera size={14} color="var(--accent-warm)" />
@@ -208,7 +250,7 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                 </label>
 
                 {image ? (
-                  <div style={{ position: "relative", height: 160, borderRadius: 14, overflow: "hidden", border: "1.5px solid var(--border)" }}>
+                  <div style={{ position: "relative", height: 140, borderRadius: 14, overflow: "hidden", border: "1.5px solid var(--border)" }}>
                     <img src={image} alt="Confection" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     <button
                       type="button"
@@ -226,7 +268,7 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                         cursor: "pointer",
                       }}
                     >
-                      Changer
+                      {isRTL ? "تغيير" : "Changer"}
                     </button>
                   </div>
                 ) : (
@@ -237,7 +279,7 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                       alignItems: "center",
                       justifyContent: "center",
                       gap: 8,
-                      padding: "20px 14px",
+                      padding: "16px 14px",
                       borderRadius: 14,
                       border: "2px dashed var(--accent-warm)",
                       background: "rgba(184, 98, 63, 0.04)",
@@ -245,11 +287,10 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                       textAlign: "center",
                     }}
                   >
-                    <Upload size={24} color="var(--accent-warm)" />
+                    <Upload size={22} color="var(--accent-warm)" />
                     <span style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>
                       {isRTL ? "انقر لتحميل صورة حقيقية للقطعة" : "Importer la photo du produit fini"}
                     </span>
-                    <span style={{ fontSize: 10, color: "var(--text-secondary)" }}>JPG, PNG (obligatoire)</span>
                     <input type="file" accept="image/*" onChange={handleImageFileChange} style={{ display: "none" }} />
                   </label>
                 )}
@@ -258,7 +299,7 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
               {/* Titre */}
               <div>
                 <label className="form-label" style={{ fontSize: 11, fontWeight: 700 }}>
-                  {isRTL ? "عنوان المنشور في الكتالوج" : "Titre du post au catalogue"} *
+                  {isRTL ? "عنوان المنشور في الكتالوج *" : "Titre du post au catalogue *"}
                 </label>
                 <input
                   type="text"
@@ -305,10 +346,54 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                 </div>
               </div>
 
+              {/* Tags, Tailles, Couleurs */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: 10.5, fontWeight: 700 }}>
+                    {isRTL ? "المقاسات (مفصولة بفاصلة)" : "Tailles (séparées par ,)"}
+                  </label>
+                  <input
+                    type="text"
+                    value={sizesText}
+                    onChange={(e) => setSizesText(e.target.value)}
+                    placeholder="S, M, L"
+                    className="form-input"
+                    style={{ fontSize: 11.5 }}
+                  />
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontSize: 10.5, fontWeight: 700 }}>
+                    {isRTL ? "الألوان (مفصولة بفاصلة)" : "Couleurs (séparées par ,)"}
+                  </label>
+                  <input
+                    type="text"
+                    value={colorsText}
+                    onChange={(e) => setColorsText(e.target.value)}
+                    placeholder="Terracotta, Bleu Fassi"
+                    className="form-input"
+                    style={{ fontSize: 11.5 }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: 10.5, fontWeight: 700 }}>
+                  {isRTL ? "الوسوم (Tags)" : "Tags du post (séparés par ,)"}
+                </label>
+                <input
+                  type="text"
+                  value={tagsText}
+                  onChange={(e) => setTagsText(e.target.value)}
+                  placeholder="Fait main, Traditionnel, Sur-mesure"
+                  className="form-input"
+                  style={{ fontSize: 11.5 }}
+                />
+              </div>
+
               {/* Prix Net */}
               <div>
                 <label className="form-label" style={{ fontSize: 11, fontWeight: 700 }}>
-                  {isRTL ? "سعرك الصافي (درهم مغربي)" : "Votre prix NET artisan (MAD)"} *
+                  {isRTL ? "سعرك الصافي (درهم مغربي) *" : "Votre prix NET artisan (MAD) *"}
                 </label>
                 <input
                   type="number"
@@ -327,14 +412,10 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                   {isRTL ? "وصف ومميزات القطعة" : "Description et finitions de la pièce"}
                 </label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder={
-                    isRTL
-                      ? "وضح المواد، طريقة الصنع التقليدية، إمكانية تخصيص الأبعاد..."
-                      : "Détails techniques, matière, fabrication artisanale à la main..."
-                  }
+                  placeholder={isRTL ? "وضح المواد وطريقة الصنع..." : "Détails techniques, matière, fabrication artisanale..."}
                   className="form-input"
                   style={{ fontSize: 12, resize: "none" }}
                 />
@@ -399,10 +480,10 @@ export const ConvertToCatalogModalSheet: React.FC<ConvertToCatalogModalSheetProp
                     boxShadow: "0 4px 14px rgba(184, 98, 63, 0.25)",
                   }}
                 >
-                  <Sparkles size={14} />
+                  <Send size={14} />
                   {loading
-                    ? isRTL ? "جارٍ النشر..." : "Publication..."
-                    : isRTL ? "نشر في الكتالوج" : "Ajouter au catalogue"}
+                    ? isRTL ? "جارٍ الإرسال..." : "Envoi en cours..."
+                    : isRTL ? "إرسال طلب الموافقة" : "Envoyer la demande d'accord"}
                 </button>
               </div>
             </form>

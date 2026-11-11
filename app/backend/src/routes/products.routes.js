@@ -12,9 +12,12 @@ router.get('/', async (req, res, next) => {
 
     const products = await getAllProducts();
 
-    let filtered = filter
-      ? products.filter(p => p.category_group?.toLowerCase() === filter.toLowerCase())
-      : products;
+    let filtered = products.filter(
+      (p) => !p.identity?.deleted_by_vendor && !p.identity?.consent_withdrawn && !p.is_hidden
+    );
+    if (filter) {
+      filtered = filtered.filter(p => p.category_group?.toLowerCase() === filter.toLowerCase());
+    }
 
     const total  = filtered.length;
     const offset = (page - 1) * limit;
@@ -30,7 +33,9 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const product = await getProductById(req.params.id);
-    if (!product) return res.status(404).json({ success: false, error: 'Product not found' });
+    if (!product || product.identity?.deleted_by_vendor || product.identity?.consent_withdrawn) {
+      return res.status(404).json({ success: false, error: 'Product not found or withdrawn' });
+    }
     res.json({ success: true, data: product });
   } catch (error) {
     // getProductById single() throws an error if not found, we can catch it

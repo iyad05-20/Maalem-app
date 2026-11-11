@@ -1591,6 +1591,7 @@ export async function submitCustomRequest({
     preservedProperties: spec.preservedProperties || [],
     product: spec.product || null,
     category: spec.product?.category || anchor?.category || 'Sur-mesure',
+    tags: Array.isArray(spec.tags) ? spec.tags : [],
     isPublicMarket: isScratch,
     summary: session.history[session.history.length - 1]?.content || 'Demande de création personnalisée',
     anchorProduct: anchor ? {
@@ -1603,6 +1604,7 @@ export async function submitCustomRequest({
   });
 
   const proofImage = generatedImageUrl || session.generatedImageUrl || null;
+  const sourceVendorId = anchor?.facets?.artisan_ref || anchor?.artisanRef || anchor?.artisanId || anchor?.identity?.artisan_id || null;
 
   const requestRecord = {
     id: requestId,
@@ -1612,6 +1614,10 @@ export async function submitCustomRequest({
     productType,
     transportProvider: 'vendeur',
     status: 'en_attente_artisan',
+    marketType: isScratch ? 'public' : 'private',
+    customizationOrigin: isScratch ? 'from_scratch' : 'from_post',
+    sourceProductId: anchor?.id || null,
+    sourceVendorId,
     createdAt: now,
     updatedAt: now,
     proofImage,

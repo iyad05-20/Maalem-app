@@ -4,11 +4,15 @@ import {
   X, 
   ChevronRight,
   ExternalLink,
-  Flag
+  Flag,
+  CheckCircle,
+  XCircle,
+  Ban
 } from "lucide-react";
 import type { ClientOrder } from "../../types/clientPayment";
 import { useClientI18n } from "../../services/i18n";
 import { ReportModal } from "../../components/Shared/ReportModal";
+import { clientWalletAPI } from "../../services/clientWalletApi";
 
 interface NotificationsViewProps {
   orders: ClientOrder[];
@@ -16,6 +20,10 @@ interface NotificationsViewProps {
   onSelectOrder: (orderId: string) => void;
   currentUser?: any;
   onNavigate?: (view: any) => void;
+  serverNotifications?: any[];
+  onRefreshNotifications?: () => Promise<void> | void;
+  onCatalogChanged?: () => Promise<void> | void;
+  onOpenProduct?: (productId: string) => Promise<void> | void;
 }
 
 export interface AppNotification {
@@ -24,6 +32,9 @@ export interface AppNotification {
   title: string;
   message: string;
   type: "urgent" | "warning" | "info" | "success";
+  rawType?: string;
+  actionStatus?: string | null;
+  metadata?: any;
   isRead: boolean;
   createdAt: string;
   badgeText?: string;
@@ -32,26 +43,32 @@ export interface AppNotification {
   secondaryUserId?: string;
 }
 
-export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, onClose, onSelectOrder, currentUser }) => {
+export const NotificationsView: React.FC<NotificationsViewProps> = ({
+  orders,
+  onClose,
+  onSelectOrder,
+  currentUser,
+  serverNotifications = [],
+  onRefreshNotifications,
+  onCatalogChanged,
+  onOpenProduct,
+}) => {
   const { lang, t } = useClientI18n();
   const [filter, setFilter] = useState<"all" | "unread" | "urgent">("all");
-  const [serverNotifs, setServerNotifs] = useState<any[]>([]);
+  const [serverNotifs, setServerNotifs] = useState<any[]>(serverNotifications);
   const [reportTarget, setReportTarget] = useState<any | null>(null);
+  const [busyActionKey, setBusyActionKey] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    const fetchServerNotifs = async () => {
-      try {
-        const uid = currentUser?.id || "client-me";
-        const res = await fetch(`/api/notifications?userId=${uid}`);
-        const data = await res.json();
-        if (data.success && Array.isArray(data.notifications)) {
-          setServerNotifs(data.notifications);
-        }
-      } catch (err) {
-        console.warn("Could not fetch server notifications:", err);
-      }
-    };
-    fetchServerNotifs();
+    setServerNotifs(serverNotifications);
+  }, [serverNotifications]);
+
+  useEffect(() => {
+    const uid = currentUser?.id || "client-me";
+    clientWalletAPI.fetchServerNotifications(uid).then((list) => {
+      if (Array.isArray(list)) setServerNotifs(list);
+    }).catch(() => {});
   }, [currentUser]);
 
   // Génération dynamique et professionnelle des notifications basées sur les CGV
@@ -59,15 +76,29 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
 
   // Ajouter les notifications persistantes du serveur
   serverNotifs.forEach((sn) => {
+    const isConsentReq = sn.type === "republication_consent_request";
+    const isPublished = sn.type === "from_scratch_published_to_catalog";
+    const isQuote = sn.type === "custom_quote_received";
+    const status = sn.actionStatus || sn.metadata?.consentStatus || null;
+
     notifications.push({
       id: sn.id,
-      orderId: sn.metadata?.orderId || '',
+      orderId: sn.metadata?.orderId || (isConsentReq ? sn.sourceId : ''),
       title: (lang === 'ar' && sn.titleAr) ? sn.titleAr : sn.title,
       message: (lang === 'ar' && sn.messageAr) ? sn.messageAr : sn.message,
-      type: sn.type === 'from_scratch_published_to_catalog' ? 'info' : 'info',
+      type: isConsentReq ? 'warning' : (isPublished || isQuote) ? 'success' : 'info',
+      rawType: sn.type,
+      actionStatus: status,
+      metadata: sn.metadata || {},
       isRead: Boolean(sn.isRead),
       createdAt: sn.createdAt,
-      badgeText: sn.type === 'from_scratch_published_to_catalog' ? (lang === 'ar' ? 'نشر في الكتالوج' : 'NOUVEAU POST') : undefined,
+      badgeText: isConsentReq
+        ? (lang === 'ar' ? 'مطلوب موافقة' : 'ACCORD REQUIS')
+        : isPublished
+          ? (lang === 'ar' ? 'نشر في الكتالوج' : 'NOUVEAU POST')
+          : isQuote
+            ? (lang === 'ar' ? 'عرض جديد' : 'DEVIS REÇU')
+            : undefined,
       linkUrl: sn.linkUrl,
       sourceId: sn.sourceId,
       secondaryUserId: sn.secondaryUserId,
@@ -473,6 +504,21 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
           </button>
         </div>
 
+        {actionFeedback && (
+          <div style={{
+            marginBottom: 10,
+            padding: "9px 12px",
+            borderRadius: 12,
+            fontSize: 11.5,
+            fontWeight: 700,
+            background: actionFeedback.type === "success" ? "rgba(45,106,79,0.1)" : "rgba(220,53,69,0.1)",
+            color: actionFeedback.type === "success" ? "#2D6A4F" : "#DC2626",
+            border: `1px solid ${actionFeedback.type === "success" ? "rgba(45,106,79,0.3)" : "rgba(220,53,69,0.3)"}`,
+          }}>
+            {actionFeedback.text}
+          </div>
+        )}
+
         {/* Liste des Notifications Colorées */}
         <div style={{ flex: 1, overflowY: "auto", paddingRight: 2, paddingBottom: 24, display: "flex", flexDirection: "column", gap: 10, scrollbarWidth: "none" }}>
           {filteredNotifications.length > 0 ? (
@@ -511,6 +557,11 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
                   key={n.id}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => {
+                    if (n.id.startsWith("notif-") && !n.isRead) {
+                      setServerNotifs(prev => prev.map(s => s.id === n.id ? { ...s, isRead: true } : s));
+                      clientWalletAPI.markNotificationRead(n.id, currentUser?.id || "client-me").catch(() => {});
+                    }
+                    if (n.rawType === "republication_consent_request") return;
                     onClose();
                     if (n.orderId) onSelectOrder(n.orderId);
                   }}
@@ -572,27 +623,206 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ orders, on
                       {n.message}
                     </p>
 
-                    {/* Action buttons si publication ou lien externe */}
+                    {/* Diagramme 5 : Aperçu + Boutons Accepter / Refuser pour Demande d'accord */}
+                    {n.rawType === "republication_consent_request" && n.orderId && (
+                      <div style={{ marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
+                        {n.metadata?.draftPreview && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '8px 10px',
+                            borderRadius: 10,
+                            background: 'rgba(255,255,255,0.85)',
+                            border: '1px solid rgba(212,175,55,0.3)',
+                            marginBottom: 8,
+                          }}>
+                            {n.metadata.draftPreview.image && (
+                              <img src={n.metadata.draftPreview.image} alt={n.metadata.draftPreview.title} style={{ width: 42, height: 42, borderRadius: 8, objectFit: 'cover' }} />
+                            )}
+                            <div style={{ fontSize: '0.74rem' }}>
+                              <div style={{ fontWeight: 700, color: 'var(--primary)' }}>{n.metadata.draftPreview.title}</div>
+                              <div style={{ color: 'var(--text-secondary)', fontSize: '0.68rem' }}>
+                                {n.metadata.draftPreview.category} · {n.metadata.draftPreview.price} MAD
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {(!n.actionStatus || n.actionStatus === "pending") ? (
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              type="button"
+                              disabled={busyActionKey === `${n.id}:accept`}
+                              onClick={async () => {
+                                setBusyActionKey(`${n.id}:accept`);
+                                setActionFeedback(null);
+                                try {
+                                  const res = await clientWalletAPI.respondPublicationConsent(n.orderId!, "accept", currentUser?.id || "client-me");
+                                  setServerNotifs(prev => prev.map(s => s.id === n.id ? { ...s, actionStatus: "accepted", isRead: true } : s));
+                                  setActionFeedback({
+                                    type: "success",
+                                    text: res.published
+                                      ? (lang === "ar" ? "✓ تمت الموافقة وتم نشر المنشور بالكتالوج." : "✓ Accord validé ! Le post a été publié au catalogue.")
+                                      : (lang === "ar" ? "✓ تم تسجيل موافقتك. بانتظار موافقة البائع الأصلي." : "✓ Votre accord est enregistré. En attente du vendeur de base."),
+                                  });
+                                  if (onRefreshNotifications) await onRefreshNotifications();
+                                  if (res.published && onCatalogChanged) await onCatalogChanged();
+                                } catch (err: any) {
+                                  setActionFeedback({ type: "error", text: err.message });
+                                } finally {
+                                  setBusyActionKey(null);
+                                }
+                              }}
+                              style={{
+                                flex: 1,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 5,
+                                padding: '7px 10px',
+                                borderRadius: 10,
+                                border: 'none',
+                                background: '#2D6A4F',
+                                color: '#FFFFFF',
+                                fontSize: '0.74rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <CheckCircle size={13} />
+                              {lang === "ar" ? "قبول" : "Accepter"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyActionKey === `${n.id}:refuse`}
+                              onClick={async () => {
+                                setBusyActionKey(`${n.id}:refuse`);
+                                setActionFeedback(null);
+                                try {
+                                  await clientWalletAPI.respondPublicationConsent(n.orderId!, "refuse", currentUser?.id || "client-me");
+                                  setServerNotifs(prev => prev.map(s => s.id === n.id ? { ...s, actionStatus: "rejected", isRead: true } : s));
+                                  setActionFeedback({
+                                    type: "success",
+                                    text: lang === "ar" ? "✕ تم رفض طلب النشر." : "✕ Demande refusée. Aucun post ne sera publié.",
+                                  });
+                                  if (onRefreshNotifications) await onRefreshNotifications();
+                                } catch (err: any) {
+                                  setActionFeedback({ type: "error", text: err.message });
+                                } finally {
+                                  setBusyActionKey(null);
+                                }
+                              }}
+                              style={{
+                                flex: 1,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 5,
+                                padding: '7px 10px',
+                                borderRadius: 10,
+                                border: '1px solid rgba(220,53,69,0.35)',
+                                background: 'rgba(220,53,69,0.08)',
+                                color: '#DC2626',
+                                fontSize: '0.74rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <XCircle size={13} />
+                              {lang === "ar" ? "رفض" : "Refuser"}
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: n.actionStatus === "accepted" ? "#2D6A4F" : "#DC2626" }}>
+                            {n.actionStatus === "accepted"
+                              ? (lang === "ar" ? "✓ تم قبول هذا الطلب" : "✓ Demande acceptée")
+                              : (lang === "ar" ? "✕ تم رفض هذا الطلب" : "✕ Demande refusée")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Action buttons si publication + Retrait de l'accord (Diagramme 5) */}
                     {n.linkUrl && (
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
-                        <a
-                          href={n.linkUrl}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prodId = n.sourceId || (n.linkUrl ? n.linkUrl.split('/').pop() || '' : '');
+                            if (onOpenProduct && prodId) {
+                              onOpenProduct(prodId);
+                            } else if (n.linkUrl) {
+                              window.location.href = n.linkUrl;
+                            }
+                          }}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 4,
                             padding: '4px 10px',
                             borderRadius: 8,
+                            border: 'none',
                             background: '#1A2A3A',
                             color: '#FFFFFF',
                             fontSize: '0.72rem',
                             fontWeight: 600,
-                            textDecoration: 'none',
+                            cursor: 'pointer',
                           }}
                         >
                           <ExternalLink size={12} />
                           Voir la création
-                        </a>
+                        </button>
+
+                        {n.rawType === "from_scratch_published_to_catalog" && n.orderId && (
+                          n.actionStatus === "withdrawn" ? (
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#DC2626', padding: '4px 6px' }}>
+                              ✓ Accord retiré · Vendeur notifié
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busyActionKey === `${n.id}:withdraw`}
+                              onClick={async () => {
+                                if (!window.confirm(lang === "ar" ? "هل تريد سحب موافقتك؟ سيتم إلزام الصانع بحذف المنشور دون إلغاء الطلبات الجارية." : "Demander le retrait de votre accord ? Le vendeur devra supprimer ce post (les commandes en cours continuent).")) {
+                                  return;
+                                }
+                                setBusyActionKey(`${n.id}:withdraw`);
+                                setActionFeedback(null);
+                                try {
+                                  await clientWalletAPI.withdrawPublicationConsent(n.orderId!, currentUser?.id || "client-me");
+                                  setServerNotifs(prev => prev.map(s => s.id === n.id ? { ...s, actionStatus: "withdrawn" } : s));
+                                  setActionFeedback({
+                                    type: "success",
+                                    text: lang === "ar" ? "تم سحب الموافقة وإشعار البائع لحذف المنشور." : "Accord retiré : le post a été masqué et le vendeur notifié.",
+                                  });
+                                  if (onRefreshNotifications) await onRefreshNotifications();
+                                  if (onCatalogChanged) await onCatalogChanged();
+                                } catch (err: any) {
+                                  setActionFeedback({ type: "error", text: err.message });
+                                } finally {
+                                  setBusyActionKey(null);
+                                }
+                              }}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '4px 9px',
+                                borderRadius: 8,
+                                background: 'rgba(212, 175, 55, 0.14)',
+                                border: '1px solid rgba(212, 175, 55, 0.4)',
+                                color: '#8B6914',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <Ban size={12} />
+                              {lang === "ar" ? "سحب الموافقة" : "Retirer l'accord"}
+                            </button>
+                          )
+                        )}
 
                         <button
                           onClick={() => {

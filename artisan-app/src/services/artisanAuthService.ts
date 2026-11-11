@@ -203,10 +203,18 @@ class ArtisanAuthService {
       }
     } catch (err) {
       console.warn("[ARTISAN-AUTH] Network error during session check, keeping cached user:", err);
-      return this.getStoredUser();
+      const cached = this.getStoredUser();
+      if (cached && !sessionStorage.getItem(TOKEN_KEY)) {
+        this.saveSession(token, cached);
+      }
+      return cached;
     }
 
-    return this.getStoredUser();
+    const fallback = this.getStoredUser();
+    if (fallback && !sessionStorage.getItem(TOKEN_KEY)) {
+      this.saveSession(token, fallback);
+    }
+    return fallback;
   }
 }
 

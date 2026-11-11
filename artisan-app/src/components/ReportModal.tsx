@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertTriangle, X, CheckCircle2, ShieldAlert, Send } from 'lucide-react';
 import { useI18n } from '../services/i18n';
+import { artisanAuthService } from '../services/artisanAuthService';
+import { getBackendUrl } from '../services/artisanApi';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -57,7 +59,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token') || '';
+      const token = artisanAuthService.getToken() || '';
       const payload = {
         targetType,
         targetId,
@@ -70,11 +72,11 @@ export const ReportModal: React.FC<ReportModalProps> = ({
         reporterType,
       };
 
-      const res = await fetch('/api/reports', {
+      const res = await fetch(`${getBackendUrl()}/reports`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify(payload),
       });

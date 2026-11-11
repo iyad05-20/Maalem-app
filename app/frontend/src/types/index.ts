@@ -31,6 +31,14 @@ export interface Product {
   artisanRef?: string;
   artisanName?: string;
   images?: string[];     // gallery
+  photos?: string[];     // gallery photos
+  tags?: string[];
+  sizes?: string[];
+  colors?: string[];
+  productType?: "standard" | "personnalise" | "sur_commande";
+  isOnDemand?: boolean;
+  manufacturingDays?: number;
+  ipAuthenticityAccepted?: boolean;
   stock?: number;
   occasionCategory?: 'cadeaux' | 'maison' | 'cuisine';
   region?: 'Fès' | 'Marrakech' | 'Chefchaouen' | 'Safi';

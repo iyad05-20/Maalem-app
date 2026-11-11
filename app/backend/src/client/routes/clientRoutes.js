@@ -7,8 +7,11 @@ import { MockCmiProvider } from "../../core/paymentProviders/MockCmiProvider.js"
 import { cancelOrder, deliverOrder } from "../services/clientPaymentService.js";
 import { requestReturn } from "../services/clientReturnService.js";
 import { getClientWalletDetails, requestClientWithdrawal, creditClientWallet, debitClientWallet, getOrCreateClientWallet } from "../services/clientWalletService.js";
-import { getProductStockInfo } from "../../db/products.repository.js";
+import { getProductStockInfo, getProductById } from "../../db/products.repository.js";
 import { optionalAuthMiddleware } from "../../middleware/auth.middleware.js";
+import { createNotificationResilient } from "../../services/notificationService.js";
+import { closeCustomRequestOnMarket, safeJsonParse } from "../../services/customRequestState.js";
+import { withdrawPublicationConsent } from "../services/artisanOrderService.js";
 
 const router = Router();
 router.use(optionalAuthMiddleware);
@@ -26,6 +29,10 @@ const createOrderSchema = z.object({
   quantity: z.number().int().positive().optional(),
   transportProvider: z.enum(["sendit", "vendeur", "direct", "transporteur"]).optional(),
   clientSignature: z.string().optional(),
+  selectedSize: z.string().optional().nullable(),
+  selectedColor: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional(),
+  productPhotos: z.array(z.string()).optional(),
 });
 
 const returnSchema = z.object({
@@ -46,27 +53,95 @@ router.get("/orders", async (req, res) => {
   console.log(`\n[VORK-API] 📥 GET /orders - Fetching for client: ${clientRef}`);
 
   try {
-    // 1. Récupérer les commandes fermes
-    const orderCondition = clientRef === "client-me"
-      ? or(eq(orders.clientRef, "client-me"), eq(orders.clientRef, clientRef))
-      : eq(orders.clientRef, clientRef);
+    // 1. Conditions isolées par client (sans fuite de "client-me" vers d'autres clients)
+    const orderCondition = eq(orders.clientRef, clientRef);
+    const customCondition = eq(customRequests.clientRef, clientRef);
 
-    const rawList = await db.select().from(orders).where(orderCondition).orderBy(desc(orders.createdAt));
+    const origin = `${req.protocol}://${req.get("host") || "localhost:3001"}`;
+
+    // Exécution parallèle pour réduire la latence de chargement de "Mes Commandes" (images base64 servies via media URL)
+    const [rawList, rawCustoms] = await Promise.all([
+      db.select({
+        id: orders.id,
+        clientRef: orders.clientRef,
+        artisanRef: orders.artisanRef,
+        artisanName: orders.artisanName,
+        totalPrice: orders.totalPrice,
+        productType: orders.productType,
+        productTitle: orders.productTitle,
+        productId: orders.productId,
+        quantity: orders.quantity,
+        transportProvider: orders.transportProvider,
+        status: orders.status,
+        prepPhotos: orders.prepPhotos,
+        estimatedTransportDays: orders.estimatedTransportDays,
+        acceptedAt: orders.acceptedAt,
+        shippedAt: orders.shippedAt,
+        deliveredAt: orders.deliveredAt,
+        clientApprovalStatus: orders.clientApprovalStatus,
+        clientApprovalRequestedAt: orders.clientApprovalRequestedAt,
+        nonReceptionClaimedAt: orders.nonReceptionClaimedAt,
+        notReceivedReportedAt: orders.notReceivedReportedAt,
+        escrowReleasedAt: orders.escrowReleasedAt,
+        withdrawalExpiresAt: orders.withdrawalExpiresAt,
+        customizationOrigin: orders.customizationOrigin,
+        sourceProductId: orders.sourceProductId,
+        sourceVendorId: orders.sourceVendorId,
+        catalogPublishedAt: orders.catalogPublishedAt,
+        publishedProductId: orders.publishedProductId,
+        republicationConsentStatus: orders.republicationConsentStatus,
+        republicationConsentParty: orders.republicationConsentParty,
+        orderMetadata: orders.orderMetadata,
+        createdAt: orders.createdAt,
+        updatedAt: orders.updatedAt,
+        productImageMeta: sql`CASE WHEN ${orders.productImage} LIKE 'http%' THEN ${orders.productImage} WHEN ${orders.productImage} IS NOT NULL AND length(${orders.productImage}) > 0 THEN '__MEDIA__' ELSE NULL END`,
+      }).from(orders).where(orderCondition).orderBy(desc(orders.createdAt)),
+      db.select({
+        id: customRequests.id,
+        clientRef: customRequests.clientRef,
+        artisanRef: customRequests.artisanRef,
+        productType: customRequests.productType,
+        marketType: customRequests.marketType,
+        totalPrice: customRequests.totalPrice,
+        transportProvider: customRequests.transportProvider,
+        status: customRequests.status,
+        customizationTags: customRequests.customizationTags,
+        createdAt: customRequests.createdAt,
+        updatedAt: customRequests.updatedAt,
+        proofImageMeta: sql`CASE WHEN ${customRequests.proofImage} LIKE 'http%' THEN ${customRequests.proofImage} WHEN ${customRequests.proofImage} IS NOT NULL AND length(${customRequests.proofImage}) > 0 THEN '__MEDIA__' ELSE NULL END`,
+      }).from(customRequests).where(customCondition).orderBy(desc(customRequests.createdAt)),
+    ]);
+
     // Élimination des commandes annulées avant acceptation de la vue active client (Décision 28)
-    const list = rawList.filter(o => o.status !== "annule_avant_acceptation");
-
-    // 2. Récupérer les demandes sur-mesure de l'Atelier
-    const customCondition = or(
-      eq(customRequests.clientRef, "client-me"),
-      eq(customRequests.clientRef, clientRef)
-    );
-
-    const rawCustoms = await db.select().from(customRequests)
-      .where(customCondition)
-      .orderBy(desc(customRequests.createdAt));
+    const list = rawList
+      .filter(o => o.status !== "annule_avant_acceptation")
+      .map(o => {
+        const productImage = o.productImageMeta === "__MEDIA__"
+          ? `${origin}/api/public/media/order/${o.id}`
+          : (o.productImageMeta || null);
+        const { productImageMeta, ...rest } = o;
+        let prepPhotos = [];
+        try {
+          prepPhotos = typeof o.prepPhotos === "string" ? JSON.parse(o.prepPhotos) : (Array.isArray(o.prepPhotos) ? o.prepPhotos : []);
+        } catch {}
+        const parsedMeta = safeJsonParse(o.orderMetadata, {});
+        return {
+          ...rest,
+          orderMetadata: parsedMeta,
+          selectedSize: parsedMeta.selectedSize || null,
+          selectedColor: parsedMeta.selectedColor || null,
+          tags: Array.isArray(parsedMeta.tags) ? parsedMeta.tags : [],
+          productPhotos: Array.isArray(parsedMeta.productPhotos) ? parsedMeta.productPhotos : [],
+          productSizes: Array.isArray(parsedMeta.productSizes) ? parsedMeta.productSizes : [],
+          productColors: Array.isArray(parsedMeta.productColors) ? parsedMeta.productColors : [],
+          manufacturingDays: parsedMeta.manufacturingDays || null,
+          productImage,
+          prepPhotos,
+        };
+      });
 
     const pendingCustoms = rawCustoms
-      .filter(cr => cr.status !== "annulee")
+      .filter(cr => !["annulee", "offre_choisie", "supprimee_admin"].includes(cr.status))
       .map(cr => {
         let tags = {};
         try {
@@ -74,25 +149,43 @@ router.get("/orders", async (req, res) => {
         } catch (e) {}
         const quotes = Array.isArray(tags.quotes) ? tags.quotes : [];
         const hasQuotes = quotes.length > 0;
-        const title = tags.summary ? tags.summary.split("\n")[0].replace(/^[•\s*]+/, "") : (tags.title || "Création sur-mesure");
+        const title = tags.title || (tags.summary ? tags.summary.split("\n")[0].replace(/^[•\s*]+/, "") : "Création sur-mesure");
 
         // Si la demande a déjà été acceptée et convertie en commande, ne pas faire de doublon
-        const alreadyConverted = list.some(o => o.id.includes(cr.id.replace(/^req_/, '')) || o.id === cr.id);
+        const alreadyConverted = Boolean(tags.chosenQuote?.orderId) || list.some(o => o.id.includes(cr.id.replace(/^req_/, '')) || o.id === cr.id);
         if (alreadyConverted) return null;
+
+        const minPrice = hasQuotes
+          ? Math.min(...quotes.map(q => Number(q.proposedPrice) || 0).filter(p => p > 0))
+          : (Number(cr.totalPrice) || 0);
+
+        const isPublicMarket = cr.marketType === "public" || cr.artisanRef === "artisan-open";
+        const displayArtisanName = hasQuotes
+          ? (quotes.length === 1 ? (quotes[0].artisanName || "Maâlem") : `${quotes.length} offres reçues`)
+          : (isPublicMarket ? "Marché Public (En attente)" : "Maâlem Assigné");
+
+        const resolvedProof = cr.proofImageMeta === "__MEDIA__"
+          ? `${origin}/api/public/media/custom-request/${cr.id}`
+          : cr.proofImageMeta;
 
         return {
           id: cr.id,
           clientRef: cr.clientRef,
           artisanRef: quotes[0]?.artisanRef || cr.artisanRef,
-          artisanName: quotes[0]?.artisanName || (cr.artisanRef === "artisan-open" ? "Marché Public (En attente)" : "Maâlem Assigné"),
-          totalPrice: quotes[0]?.proposedPrice || Number(cr.totalPrice) || 0,
-          productType: cr.productType || "sur_commande",
+          artisanName: displayArtisanName,
+          totalPrice: Number.isFinite(minPrice) ? minPrice : 0,
+          productType: cr.productType || "personnalise",
           productTitle: title,
-          productImage: cr.proofImage || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
+          productImage: resolvedProof || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
           transportProvider: cr.transportProvider || "vendeur",
           status: hasQuotes ? "devis_recu" : (cr.status || "en_attente_artisan"),
+          marketType: isPublicMarket ? "public" : "private",
           quotes: quotes,
           customizationTags: tags,
+          selectedSize: tags.selectedSize || null,
+          selectedColor: tags.selectedColor || null,
+          tags: Array.isArray(tags.tags) ? tags.tags : [],
+          productPhotos: Array.isArray(tags.photos) ? tags.photos : [],
           isCustomRequest: true,
           createdAt: cr.createdAt,
           updatedAt: cr.updatedAt,
@@ -162,14 +255,17 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
     }
 
     const targetQuote = artisanRef 
-      ? quotes.find(q => q.artisanRef === artisanRef) || quotes[quoteIndex] || quotes[0]
+      ? quotes.find(q => q.artisanRef === artisanRef)
       : (quotes[quoteIndex] || quotes[0]);
+    if (!targetQuote) {
+      return res.status(404).json({ success: false, error: "Devis correspondant introuvable pour cet artisan." });
+    }
 
     const quotePrice = Number(targetQuote.proposedPrice);
     const clientRef = req.userId || request.clientRef || "client-me";
     const now = new Date().toISOString();
     const orderId = `ord_${request.id.replace(/^req_/, '')}_${Date.now().toString(36).slice(-4)}`;
-    const title = tags.summary ? tags.summary.split("\n")[0].replace(/^[•\s*]+/, "") : (tags.title || "Création sur-mesure");
+    const title = tags.title || (tags.summary ? tags.summary.split("\n")[0].replace(/^[•\s*]+/, "") : "Création sur-mesure");
 
     // Gestion du paiement et du delta via Wallet (Décision 38)
     const wallet = await getOrCreateClientWallet(clientRef);
@@ -183,6 +279,21 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
         artisanRef: targetQuote.artisanRef,
       });
     }
+
+    const resolvedOrigin = request.customizationOrigin || "from_scratch";
+    const resolvedSourceProductId = request.sourceProductId || tags.sourceProductId || tags.anchorProduct?.id || null;
+    const resolvedSourceVendorId = request.sourceVendorId || tags.sourceVendorId || tags.anchorProduct?.artisanId || null;
+    const orderMeta = {
+      customRequestId: id,
+      marketType: request.marketType || "public",
+      selectedSize: tags.selectedSize || null,
+      selectedColor: tags.selectedColor || null,
+      tags: Array.isArray(tags.tags) ? tags.tags : [],
+      productPhotos: Array.isArray(tags.photos) ? tags.photos : [],
+      modifications: Array.isArray(tags.modifications) ? tags.modifications : [],
+      anchorProduct: tags.anchorProduct || null,
+      manufacturingDays: Number(targetQuote.confectionDays) || 14,
+    };
 
     // Création de la commande liée (personnalisée, acceptée d'office suite à l'accord sur devis)
     const newOrder = {
@@ -198,14 +309,17 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
       status: "en_preparation",
       acceptedAt: now,
       estimatedTransportDays: Number(targetQuote.confectionDays) || 14,
+      customizationOrigin: resolvedOrigin,
+      sourceProductId: resolvedSourceProductId,
+      sourceVendorId: resolvedSourceVendorId,
+      orderMetadata: JSON.stringify(orderMeta),
       createdAt: now,
       updatedAt: now,
     };
 
     await db.insert(orders).values(newOrder);
 
-    // Mettre à jour la custom_request avec l'offre choisie
-    tags.chosenQuote = {
+    const chosenQuoteObj = {
       orderId,
       artisanRef: targetQuote.artisanRef,
       artisanName: targetQuote.artisanName || "Maâlem",
@@ -215,15 +329,47 @@ router.post("/custom-requests/:id/accept-quote", async (req, res) => {
       chosenAt: now,
     };
 
-    await db.update(customRequests)
-      .set({
-        status: "offre_choisie",
-        artisanRef: targetQuote.artisanRef,
-        totalPrice: quotePrice,
-        customizationTags: JSON.stringify(tags),
-        updatedAt: now,
-      })
-      .where(eq(customRequests.id, id));
+    // Retirer immédiatement la demande du Marché Public (DB + RAM)
+    await closeCustomRequestOnMarket(db, id, {
+      status: "offre_choisie",
+      chosenQuote: chosenQuoteObj,
+      chosenArtisanRef: targetQuote.artisanRef,
+      totalPrice: quotePrice,
+      reason: "quote_accepted",
+    });
+
+    if (targetQuote.artisanRef) {
+      await createNotificationResilient({
+        userId: targetQuote.artisanRef,
+        userType: "artisan",
+        type: "quote_accepted",
+        title: `Devis accepté — "${title}"`,
+        titleAr: `تم قبول عرضك — "${title}"`,
+        message: `Le client a retenu votre devis (${quotePrice} MAD). La commande personnalisée #${orderId} est lancée dans vos commandes actuelles.`,
+        messageAr: `اختار الزبون عرضك (${quotePrice} درهم). تم إطلاق الطلب المخصص #${orderId} في قائمة طلباتك الجارية.`,
+        sourceId: orderId,
+        secondaryUserId: clientRef,
+        idempotencyKey: `quote-accepted:${id}:${targetQuote.artisanRef}`,
+        metadata: { orderId, customRequestId: id, totalPrice: quotePrice },
+      });
+    }
+
+    // Notifier les autres artisans non retenus que l'offre a été attribuée et retirée du Marché Public
+    const otherBidders = quotes.filter((q) => q.artisanRef && q.artisanRef !== targetQuote.artisanRef);
+    for (const other of otherBidders) {
+      await createNotificationResilient({
+        userId: other.artisanRef,
+        userType: "artisan",
+        type: "custom_request_closed",
+        title: `Demande attribuée — "${title}"`,
+        titleAr: `تم إسناد الطلب — "${title}"`,
+        message: `Le client a retenu une autre proposition pour "${title}". Cette demande a été retirée du Marché Public.`,
+        messageAr: `اختار الزبون عرضاً آخر لطلب "${title}". تم سحب الطلب من السوق المفتوح.`,
+        sourceId: id,
+        idempotencyKey: `quote-closed:${id}:${other.artisanRef}`,
+        metadata: { customRequestId: id },
+      });
+    }
 
     console.log(`[VORK-API] ✅ Quote accepted! Order ${orderId} placed (Wallet: ${paidFromWallet} MAD, Delta: ${deltaCardAmount} MAD)`);
 
@@ -363,6 +509,10 @@ router.post("/custom-requests", async (req, res) => {
     description,
     budget,
     proofImage,
+    selectedSize = null,
+    selectedColor = null,
+    tags: incomingTags = [],
+    photos: incomingPhotos = [],
     safetyGuidelinesAccepted = true,
     transportProvider = "vendeur",
   } = req.body;
@@ -419,6 +569,10 @@ router.post("/custom-requests", async (req, res) => {
     customizationOrigin,
     sourceProductId: sourceProductId || null,
     sourceVendorId: sourceVendorId || null,
+    selectedSize: selectedSize || null,
+    selectedColor: selectedColor || null,
+    tags: Array.isArray(incomingTags) ? incomingTags.filter(Boolean) : [],
+    photos: Array.isArray(incomingPhotos) ? incomingPhotos.filter(Boolean) : [],
   };
 
   const newRecord = {
@@ -444,6 +598,21 @@ router.post("/custom-requests", async (req, res) => {
 
   try {
     await db.insert(customRequests).values(newRecord);
+    if (finalMarketType === "private" && targetArtisanRef && targetArtisanRef !== "artisan-open") {
+      await createNotificationResilient({
+        userId: targetArtisanRef,
+        userType: "artisan",
+        type: "private_custom_request",
+        title: `Nouvelle demande personnalisée directe — "${finalTitle}"`,
+        titleAr: `طلب تفصيل خاص مباشر — "${finalTitle}"`,
+        message: `Un client sollicite une personnalisation directe basée sur votre modèle (${budget ? `${budget} MAD` : "Sur devis"}).`,
+        messageAr: `طلب زبون تخصيصاً مباشراً استناداً إلى نموذجك (${budget ? `${budget} درهم` : "حسب العرض"}).`,
+        sourceId: id,
+        secondaryUserId: clientRef,
+        idempotencyKey: `private-req:${id}:${targetArtisanRef}`,
+        metadata: { customRequestId: id, sourceProductId },
+      });
+    }
     return res.status(201).json({
       success: true,
       message: finalMarketType === "public"
@@ -509,6 +678,29 @@ router.post("/orders", async (req, res) => {
   // Si Produit Personnalisé ou Sur Commande -> transport exclusivement Vendeur (Art. 8, 9, 10)
   const transportProvider = productType === "standard" ? (parsed.data.transportProvider ?? "sendit") : "vendeur";
 
+  // Hydratation des spécifications produit (tags, photos, tailles, couleurs, mode) pour la vue commande Client & Vendeur
+  let sourceProduct = null;
+  if (parsed.data.productId) {
+    try {
+      sourceProduct = await getProductById(parsed.data.productId);
+    } catch {}
+  }
+
+  const orderMeta = {
+    selectedSize: parsed.data.selectedSize || null,
+    selectedColor: parsed.data.selectedColor || null,
+    tags: (Array.isArray(parsed.data.tags) && parsed.data.tags.length > 0)
+      ? parsed.data.tags
+      : (Array.isArray(sourceProduct?.tags) ? sourceProduct.tags : []),
+    productPhotos: (Array.isArray(parsed.data.productPhotos) && parsed.data.productPhotos.length > 0)
+      ? parsed.data.productPhotos
+      : (Array.isArray(sourceProduct?.photos) ? sourceProduct.photos : []),
+    productSizes: Array.isArray(sourceProduct?.sizes) ? sourceProduct.sizes : [],
+    productColors: Array.isArray(sourceProduct?.colors) ? sourceProduct.colors : [],
+    manufacturingDays: sourceProduct?.manufacturingDays || null,
+    availabilityMode: productType === "sur_commande" ? "hors_stock_sur_commande" : "en_stock",
+  };
+
   await db.insert(orders)
     .values({
       id,
@@ -523,6 +715,10 @@ router.post("/orders", async (req, res) => {
       quantity: String(parsed.data.quantity || 1),
       transportProvider,
       clientSignature: parsed.data.clientSignature || null,
+      customizationOrigin: productType === "personnalise" ? "from_scratch" : "from_post",
+      sourceProductId: parsed.data.productId || null,
+      sourceVendorId: parsed.data.artisanRef || null,
+      orderMetadata: JSON.stringify(orderMeta),
       status: "en_attente_paiement",
       createdAt: now,
       updatedAt: now,
@@ -530,7 +726,17 @@ router.post("/orders", async (req, res) => {
 
   const [order] = await db.select().from(orders).where(eq(orders.id, id));
   console.log(`[VORK-API] ✅ Order created successfully (ID: ${id}, Type: ${productType}, Transport: ${transportProvider})`);
-  res.json(order);
+  res.json({
+    ...order,
+    orderMetadata: orderMeta,
+    selectedSize: orderMeta.selectedSize,
+    selectedColor: orderMeta.selectedColor,
+    tags: orderMeta.tags,
+    productPhotos: orderMeta.productPhotos,
+    productSizes: orderMeta.productSizes,
+    productColors: orderMeta.productColors,
+    manufacturingDays: orderMeta.manufacturingDays,
+  });
 });
 
 /**
@@ -614,6 +820,21 @@ router.post("/orders/:id/pay", async (req, res) => {
 router.post("/orders/:id/cancel", async (req, res) => {
   console.log(`\n[VORK-API] 📥 POST /orders/${req.params.id}/cancel - Requesting cancellation`);
   try {
+    // Vérifier d'abord s'il s'agit d'une demande sur-mesure non convertie en commande
+    const [existingOrder] = await db.select().from(orders).where(eq(orders.id, req.params.id));
+    if (!existingOrder) {
+      const [cr] = await db.select().from(customRequests).where(eq(customRequests.id, req.params.id));
+      if (cr) {
+        if (cr.status === "offre_choisie") {
+          return res.status(409).json({ error: "Cette demande a déjà été acceptée et convertie en commande." });
+        }
+        await db.update(customRequests)
+          .set({ status: "annulee", updatedAt: new Date().toISOString() })
+          .where(eq(customRequests.id, req.params.id));
+        return res.json({ success: true, status: "annulee", refunded: false, message: "Demande retirée du marché avec succès." });
+      }
+    }
+
     const cancelTime = req.body?.cancelTime ? String(req.body.cancelTime) : undefined;
     const result = await cancelOrder(db, req.params.id, cancelTime);
     console.log(`[VORK-API] ✅ Order cancelled successfully:`, result);
@@ -948,6 +1169,23 @@ router.post("/orders/:id/validate-delivery", async (req, res) => {
     message: "Réception validée avec succès. Les fonds ont été libérés pour le Maâlem.",
     message_ar: "تمت المصادقة على الاستلام بنجاح. تم تحويل المستحقات للصانع." 
   });
+});
+
+/**
+ * [CLIENT API] Retrait de l'accord de publication d'un post catalogue (Diagramme 5 - opt Retrait de l'accord)
+ */
+router.post("/orders/:id/withdraw-publication-consent", async (req, res) => {
+  const { id } = req.params;
+  const { reason = "", userId: bodyUserId } = req.body || {};
+  const actorUserId = req.userId || bodyUserId || "client-me";
+
+  try {
+    const result = await withdrawPublicationConsent(id, actorUserId, { reason });
+    return res.json(result);
+  } catch (err) {
+    const status = err.message === "non_autorise" ? 403 : err.message === "commande_introuvable" ? 404 : 400;
+    return res.status(status).json({ success: false, error: err.message });
+  }
 });
 
 /**

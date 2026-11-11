@@ -1,5 +1,5 @@
 import express from "express";
-import { eq, desc, and, or, sql } from "drizzle-orm";
+import { eq, desc, and, or, sql, inArray, notInArray } from "drizzle-orm";
 import { db } from "../core/db/index.js";
 import { 
   orders, 
@@ -11,11 +11,26 @@ import {
   returnRequests,
   customRequests 
 } from "../core/db/schema.js";
-import { getAllProducts, getProductStockInfo, updateProductStockAction } from "../db/products.repository.js";
+import {
+  getAllProducts,
+  getProductStockInfo,
+  updateProductStockAction,
+  artisanRamProducts,
+  createCatalogProduct,
+  withdrawOrDeleteCatalogProduct,
+  normalizeProduct,
+} from "../db/products.repository.js";
 import { supabase } from "../db/supabase.client.js";
 import { loadProducts } from "../services/recommendation.service.js";
 import { productsIndex } from "../services/search/meilisearch.service.js";
 import { requireAuth, optionalAuth } from "../middleware/localAuth.middleware.js";
+import { createNotificationResilient } from "../services/notificationService.js";
+import {
+  memoryCustomRequests,
+  OPEN_MARKET_STATUSES,
+  isRequestOpenOnMarket,
+  safeJsonParse,
+} from "../services/customRequestState.js";
 import { 
   acceptOrder, 
   uploadPrepPhotos, 
@@ -29,7 +44,8 @@ import {
   nudgeClientApproval,
   contestWarningForceMajeure,
   shipOrder,
-  convertOrderToCatalogProduct
+  convertOrderToCatalogProduct,
+  requestCatalogPublicationConsent
 } from "../client/services/artisanOrderService.js";
 import { creditClientWallet } from "../client/services/clientWalletService.js";
 
@@ -81,6 +97,19 @@ export const getArtisanOrderCondition = (artisanRef) => {
   return eq(orders.artisanRef, artisanRef);
 };
 
+async function verifyOrderOwnership(req, orderId) {
+  const artisanRef = getArtisanRef(req);
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+  if (!order) return { errorStatus: 404, error: "Commande introuvable." };
+  if (req.userRole === "admin") return { order, artisanRef };
+  const isLegacyOwner = (artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1")
+    && (order.artisanRef === "artisan_abdelkader" || order.artisanRef === "artisan-1");
+  if (order.artisanRef !== artisanRef && !isLegacyOwner) {
+    return { errorStatus: 403, error: "Accès refusé : cette commande est assignée à un autre artisan." };
+  }
+  return { order, artisanRef };
+}
+
 /**
  * GET /api/artisan/orders
  * Récupère les commandes assignées à l'artisan.
@@ -93,8 +122,42 @@ artisanRouter.get("/orders", async (req, res) => {
     }
 
     const condition = getArtisanOrderCondition(artisanRef);
+    const origin = `${req.protocol}://${req.get("host") || "localhost:3001"}`;
 
-    const list = await db.select().from(orders)
+    const list = await db.select({
+      id: orders.id,
+      clientRef: orders.clientRef,
+      artisanRef: orders.artisanRef,
+      artisanName: orders.artisanName,
+      totalPrice: orders.totalPrice,
+      productType: orders.productType,
+      productTitle: orders.productTitle,
+      productId: orders.productId,
+      quantity: orders.quantity,
+      transportProvider: orders.transportProvider,
+      status: orders.status,
+      prepPhotos: orders.prepPhotos,
+      senditDeliveryCode: orders.senditDeliveryCode,
+      estimatedTransportDays: orders.estimatedTransportDays,
+      acceptedAt: orders.acceptedAt,
+      shippedAt: orders.shippedAt,
+      deliveredAt: orders.deliveredAt,
+      escrowReleasedAt: orders.escrowReleasedAt,
+      clientApprovalStatus: orders.clientApprovalStatus,
+      refusedByArtisan: orders.refusedByArtisan,
+      refusalReason: orders.refusalReason,
+      customizationOrigin: orders.customizationOrigin,
+      sourceProductId: orders.sourceProductId,
+      sourceVendorId: orders.sourceVendorId,
+      catalogPublishedAt: orders.catalogPublishedAt,
+      publishedProductId: orders.publishedProductId,
+      republicationConsentStatus: orders.republicationConsentStatus,
+      republicationConsentParty: orders.republicationConsentParty,
+      orderMetadata: orders.orderMetadata,
+      createdAt: orders.createdAt,
+      updatedAt: orders.updatedAt,
+      productImageMeta: sql`CASE WHEN ${orders.productImage} LIKE 'http%' THEN ${orders.productImage} WHEN ${orders.productImage} IS NOT NULL AND length(${orders.productImage}) > 0 THEN '__MEDIA__' ELSE NULL END`,
+    }).from(orders)
       .where(condition)
       .orderBy(desc(orders.createdAt));
 
@@ -103,8 +166,19 @@ artisanRouter.get("/orders", async (req, res) => {
       try {
         prepPhotos = typeof o.prepPhotos === 'string' ? JSON.parse(o.prepPhotos) : (Array.isArray(o.prepPhotos) ? o.prepPhotos : []);
       } catch {}
+      const parsedMeta = safeJsonParse(o.orderMetadata, {});
+      const productImage = o.productImageMeta === "__MEDIA__"
+        ? `${origin}/api/public/media/order/${o.id}`
+        : (o.productImageMeta || null);
+      const { productImageMeta, ...rest } = o;
       return {
-        ...o,
+        ...rest,
+        orderMetadata: parsedMeta,
+        selectedSize: parsedMeta.selectedSize || null,
+        selectedColor: parsedMeta.selectedColor || null,
+        tags: Array.isArray(parsedMeta.tags) ? parsedMeta.tags : [],
+        productPhotos: Array.isArray(parsedMeta.productPhotos) ? parsedMeta.productPhotos : [],
+        productImage,
         prepPhotos,
       };
     });
@@ -126,6 +200,10 @@ artisanRouter.get("/orders", async (req, res) => {
 artisanRouter.post("/orders/:id/accept", async (req, res) => {
   const { id } = req.params;
   try {
+    const check = await verifyOrderOwnership(req, id);
+    if (check.errorStatus) {
+      return res.status(check.errorStatus).json({ success: false, error: check.error });
+    }
     const result = await acceptOrder(id);
     const [updated] = await db.select().from(orders).where(eq(orders.id, id));
 
@@ -199,8 +277,11 @@ artisanRouter.post("/orders/:id/refuse", async (req, res) => {
   const { category = "autre", reason = "" } = req.body;
 
   try {
-    const [order] = await db.select().from(orders).where(eq(orders.id, id));
-    if (!order) return res.status(404).json({ success: false, error: "Commande introuvable." });
+    const check = await verifyOrderOwnership(req, id);
+    if (check.errorStatus) {
+      return res.status(check.errorStatus).json({ success: false, error: check.error });
+    }
+    const order = check.order;
 
     const now = new Date().toISOString();
     const finalReason = String(reason || category).trim();
@@ -364,12 +445,12 @@ artisanRouter.post("/orders/:id/complete-delivery", async (req, res) => {
  * Accessible uniquement vers la fin de confection (photos fournies, prêt, expédié, livré).
  * Requiert obligatoirement une vraie photo du produit confectionné, titre, prix, catégorie, tags.
  */
-artisanRouter.post("/orders/:id/convert-to-catalog", async (req, res) => {
+async function handleRequestPublicationConsent(req, res) {
   const { id } = req.params;
   const artisanRef = getArtisanRef(req);
 
   try {
-    const result = await convertOrderToCatalogProduct(id, artisanRef, req.body);
+    const result = await requestCatalogPublicationConsent(id, artisanRef, req.body);
     return res.json(result);
   } catch (err) {
     if (err.message === "image_reelle_confection_obligatoire") {
@@ -379,16 +460,26 @@ artisanRouter.post("/orders/:id/convert-to-catalog", async (req, res) => {
         error_ar: "صورة حقيقية للمنتج المصنوع إلزامية للنشر." 
       });
     }
-    if (err.message === "commande_non_achevee") {
+    if (err.message === "commande_non_validee_par_client" || err.message === "commande_non_achevee") {
       return res.status(400).json({ 
         success: false, 
-        error: "La commande doit être finalisée ou en fin de confection avant de pouvoir être ajoutée au catalogue.",
-        error_ar: "يجب إتمام الطلب أو الوصول لمرحلة نهاية التصنيع قبل إضافته للكتالوج." 
+        error: "La demande d'accord n'est disponible qu'après validation de la réception par le client.",
+        error_ar: "طلب الموافقة متاح فقط بعد تأكيد الزبون لاستلام الطلبية." 
+      });
+    }
+    if (err.message === "deja_publie_au_catalogue") {
+      return res.status(409).json({
+        success: false,
+        error: "Ce modèle est déjà publié dans votre catalogue.",
+        error_ar: "هذا التصميم منشور بالفعل في كتالوجك.",
       });
     }
     return res.status(400).json({ success: false, error: err.message });
   }
-});
+}
+
+artisanRouter.post("/orders/:id/convert-to-catalog", handleRequestPublicationConsent);
+artisanRouter.post("/orders/:id/request-publication-consent", handleRequestPublicationConsent);
 
 /**
  * POST /api/artisan/orders/:id/escrow-choice
@@ -453,11 +544,13 @@ artisanRouter.get("/returns", async (req, res) => {
   try {
     const artisanRef = getArtisanRef(req);
     const condition = getArtisanOrderCondition(artisanRef);
-    const myOrders = await db.select().from(orders).where(condition);
+    const [myOrders, allReturns] = await Promise.all([
+      db.select().from(orders).where(condition),
+      db.select().from(returnRequests).orderBy(desc(returnRequests.createdAt)),
+    ]);
     const myOrderIds = new Set(myOrders.map(o => o.id));
     const ordersMap = new Map(myOrders.map(o => [o.id, o]));
 
-    const allReturns = await db.select().from(returnRequests).orderBy(desc(returnRequests.createdAt));
     const myReturns = allReturns.filter(r => myOrderIds.has(r.orderId));
 
     const enriched = myReturns.map(r => ({
@@ -515,11 +608,13 @@ artisanRouter.get("/disputes", async (req, res) => {
   try {
     const artisanRef = getArtisanRef(req);
     const condition = getArtisanOrderCondition(artisanRef);
-    const myOrders = await db.select().from(orders).where(condition);
+    const [myOrders, allDisputes] = await Promise.all([
+      db.select().from(orders).where(condition),
+      db.select().from(disputes).orderBy(desc(disputes.createdAt)),
+    ]);
     const myOrderIds = new Set(myOrders.map(o => o.id));
     const ordersMap = new Map(myOrders.map(o => [o.id, o]));
 
-    const allDisputes = await db.select().from(disputes).orderBy(desc(disputes.createdAt));
     const myDisputes = allDisputes.filter(d => myOrderIds.has(d.orderId));
 
     const enriched = myDisputes.map(d => ({
@@ -569,8 +664,15 @@ artisanRouter.get("/wallet", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
     const condition = getArtisanOrderCondition(artisanRef);
-    const allOrders = await db.select().from(orders).where(condition);
-    const allWithdrawals = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
+    const [allOrders, allWithdrawals] = await Promise.all([
+      db.select({
+        id: orders.id,
+        totalPrice: orders.totalPrice,
+        status: orders.status,
+        escrowReleasedAt: orders.escrowReleasedAt,
+      }).from(orders).where(condition),
+      db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef)),
+    ]);
 
     let availableBalance = 0;
     let lockedEscrow = 0;
@@ -756,60 +858,70 @@ artisanRouter.get("/profile/health", async (req, res) => {
  * GET /api/artisan/products & POST /api/artisan/products
  * Gestion du Catalogue de l'Artisan (Art. 4).
  */
-// Catalogue en mémoire — vide par défaut, les produits sont chargés depuis Supabase ou créés par les artisans
-let artisanProductsList = [];
-
-function mapCategoryToGroup(cat = "") {
-  const c = String(cat).toLowerCase();
-  if (c.includes("céra") || c.includes("pot") || c.includes("فخار") || c.includes("خزف")) return "ceramique";
-  if (c.includes("cuir") || c.includes("maroquin") || c.includes("جلد")) return "maroquinerie";
-  if (c.includes("text") || c.includes("caftan") || c.includes("نسيج") || c.includes("قفطان")) return "textile";
-  if (c.includes("bois") || c.includes("zellige") || c.includes("خشب") || c.includes("زليج")) return "menuiserie";
-  if (c.includes("cuiv") || c.includes("métal") || c.includes("نحاس") || c.includes("معادن")) return "dinanderie";
-  if (c.includes("tapis") || c.includes("broder") || c.includes("زرابي") || c.includes("طرز")) return "broderie";
-  if (c.includes("bijou") || c.includes("حلي") || c.includes("إكسسوار")) return "bijouterie";
-  return "artisanat";
-}
-
 artisanRouter.get("/products", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   if (!artisanRef) {
     return res.status(401).json({ success: false, error: "Identité artisan introuvable. Reconnectez-vous." });
   }
 
-  try {
-    // 1. Produits RAM créés lors de cette session (filtrés par artisan)
-    let combined = artisanProductsList.filter(p => !p.artisanRef || p.artisanRef === artisanRef);
+  const isLegacyAbdelkader = artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1";
 
-    // 2. Produits Supabase persistés — filtrés par artisan_ref dans facets
+  try {
+    // 1. Produits RAM créés lors de cette session (isolation stricte par artisan)
+    let combined = artisanRamProducts.filter(
+      (p) =>
+        !p.identity?.deleted_by_vendor &&
+        (p.artisanRef === artisanRef ||
+          (isLegacyAbdelkader && (!p.artisanRef || p.artisanRef === "artisan_abdelkader" || p.artisanRef === "artisan-1")))
+    );
+
+    // 2. Produits Supabase persistés — filtrés côté SQL pour performance maximale
     try {
-      const { data: dbData, error: dbError } = await supabase
+      let query = supabase
         .from("products")
-        .select("*")
+        .select("id, title, category, category_group, price, in_stock, stock, initial_stock, is_out_of_stock, is_hidden, personalization_mode, artisan_name, image_url, identity, rec_tags, facets, created_at")
         .order("created_at", { ascending: false });
+
+      if (!isLegacyAbdelkader) {
+        query = query.contains("facets", { artisan_ref: artisanRef });
+      }
+
+      const { data: dbData, error: dbError } = await query;
 
       if (!dbError && Array.isArray(dbData)) {
         for (const p of dbData) {
-          // Filtrage : on n'inclut que les produits appartenant à cet artisan
-          const prodArtisanRef = p.facets?.artisan_ref || null;
-          if (prodArtisanRef && prodArtisanRef !== artisanRef) continue;
+          if (p.identity?.deleted_by_vendor) continue;
+          const prodArtisanRef = p.facets?.artisan_ref || p.identity?.artisan_id || null;
+          if (prodArtisanRef) {
+            if (isLegacyAbdelkader) {
+              if (prodArtisanRef !== "artisan_abdelkader" && prodArtisanRef !== "artisan-1") continue;
+            } else if (prodArtisanRef !== artisanRef) {
+              continue;
+            }
+          } else if (!isLegacyAbdelkader) {
+            continue;
+          }
 
           if (!combined.some((item) => item.id === p.id)) {
+            const norm = normalizeProduct(p);
             combined.push({
-              id: p.id,
+              ...norm,
               artisanRef: prodArtisanRef,
-              title: p.title,
               description: p.identity?.description || "",
-              price: p.identity?.net_price || p.price,
-              clientPrice: p.price,
-              productType: p.identity?.product_type || "standard",
-              category: p.category,
-              image: p.image_url || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
-              artisanName: p.artisan_name || "",
+              price: norm.netPrice ?? p.price,
+              clientPrice: norm.clientPrice ?? p.price,
+              image: norm.image || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
               rating: 5.0,
               reviewCount: 0,
               inStock: p.in_stock ?? true,
-              manufacturingDays: p.identity?.manufacturing_days || 5,
+              status: p.identity?.consent_withdrawn
+                ? "hidden"
+                : p.is_hidden
+                  ? "hidden"
+                  : p.is_out_of_stock && norm.productType !== "sur_commande"
+                    ? "out_of_stock"
+                    : "active",
+              consentWithdrawn: Boolean(p.identity?.consent_withdrawn),
               createdAt: p.created_at || new Date().toISOString(),
             });
           }
@@ -831,22 +943,36 @@ artisanRouter.post("/products", async (req, res) => {
     return res.status(401).json({ success: false, error: "Identité artisan introuvable. Reconnectez-vous." });
   }
 
-  const { 
-    title, 
-    description, 
-    price, 
-    productType = "standard", 
-    category, 
-    image, 
+  const {
+    title,
+    description = "",
+    price,
+    productType = "standard",
+    category,
+    image = "",
+    photos = [],
+    tags = [],
+    sizes = [],
+    colors = [],
+    dimensions = null,
     manufacturingDays = 5,
     stock,
     stockPolicy,
     shippingFee,
     shippingThreshold,
+    ipAuthenticityAccepted,
   } = req.body;
 
   if (!title || !price) {
     return res.status(400).json({ success: false, error: "Le titre et le prix net sont obligatoires." });
+  }
+
+  if (ipAuthenticityAccepted === false) {
+    return res.status(400).json({
+      success: false,
+      error: "Vous devez certifier l'authenticité et le respect de la propriété intellectuelle.",
+      error_ar: "يجب التصديق على الأصالة واحترام حقوق الملكية الفكرية.",
+    });
   }
 
   // Décision 33 : Seuil de transport obligatoire si frais de livraison définis
@@ -860,140 +986,78 @@ artisanRouter.post("/products", async (req, res) => {
     });
   }
 
-  const numNet = Number(price);
-  const commissionHt = Math.round(numNet * 0.05);
-  const tvaVal = Math.round(commissionHt * 0.20);
-  const clientPrice = numNet + commissionHt + tvaVal;
-  const productId = `prd-${Date.now()}`;
-  const prodTitle = String(title).trim();
-  const prodDesc = String(description || "").trim();
-  const prodImg = image || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600";
-  const categoryGroup = mapCategoryToGroup(category);
-  // Identité artisan dérivée exclusivement du JWT (Anti-IDOR)
   const artisanName = req.user?.fullName || req.body.artisanName || "Maâlem";
-
-  const numStock = stock !== undefined && stock !== null && stock !== "" ? Math.max(0, parseInt(stock)) : null;
-
   const personalizationMode = req.body.personalizationMode || req.body.personalization_mode || "accept_direct";
 
-  // 1. Prepare Supabase row conforming to database schema
-  const supabaseRow = {
-    id: productId,
-    title: prodTitle,
-    category: category || "Céramique & Poterie",
-    category_group: categoryGroup,
-    price: clientPrice,
-    in_stock: numStock !== null ? numStock > 0 : true,
-    stock: numStock,
-    initial_stock: numStock,
-    is_out_of_stock: numStock === 0,
-    is_hidden: numStock === 0,
-    stock_policy: stockPolicy || {},
-    artisan_name: artisanName,
-    image_url: prodImg,
-    personalization_mode: personalizationMode,
-    accept_customization: personalizationMode !== "disabled",
-    allow_public_customization: personalizationMode === "delegate_to_market",
-    identity: {
-      category: category || "Céramique & Poterie",
-      category_group: categoryGroup,
-      description: prodDesc,
-      product_type: productType,
-      net_price: numNet,
-      commission_ht: commissionHt,
-      tva: tvaVal,
-      manufacturing_days: Number(manufacturingDays) || 5,
-      shipping_fee: numShippingFee,
-      shipping_threshold: numShippingThreshold || 1,
-      personalization_mode: personalizationMode,
-      accept_customization: personalizationMode !== "disabled",
-      allow_public_customization: personalizationMode === "delegate_to_market",
-    },
-    rec_tags: {
-      style: ["traditionnel", "fait-main"],
-      material: [categoryGroup],
-      color_vibe: ["authentique", "naturel"],
-    },
-    facets: {
-      origin: ["maroc"],
-      artisan_ref: getArtisanRef(req),
-    },
-  };
-
-  // 2. Insert into Supabase (Persist to shared DB so client app and recommendations see it)
-  try {
-    const { error: sbError } = await supabase.from("products").insert(supabaseRow);
-    if (sbError) {
-      console.warn("[VORK-API] ⚠️ Failed to insert product into Supabase:", sbError.message);
-    } else {
-      console.log(`[VORK-API] ✅ Product "${prodTitle}" (${productId}) successfully persisted to Supabase!`);
-      // Trigger background update of recommendation engine memory catalog
-      loadProducts().catch(() => {});
-      // Trigger instant Meilisearch indexation
-      try {
-        const meiliDoc = {
-          ...supabaseRow,
-          artisanName: artisanName,
-          imageUrl: prodImg,
-        };
-        await productsIndex.addDocuments([meiliDoc]);
-        console.log(`[MEILI] ✅ Product "${prodTitle}" (${productId}) indexed into Meilisearch!`);
-      } catch (mErr) {
-        console.warn("[MEILI] ⚠️ Failed to auto-index product into Meilisearch:", mErr.message);
-      }
-    }
-  } catch (err) {
-    console.warn("[VORK-API] ⚠️ Error writing product to Supabase:", err.message);
-  }
-
-  // 3. Keep in RAM cache for instantaneous local artisan UI response
-  const newProduct = {
-    id: productId,
-    artisanRef,  // Lier le produit à l'artisan connecté
-    title: prodTitle,
-    description: prodDesc,
-    price: numNet,
-    clientPrice,
-    productType,
-    personalizationMode,
-    personalization_mode: personalizationMode,
-    acceptCustomization: personalizationMode !== "disabled",
-    allowPublicCustomization: personalizationMode === "delegate_to_market",
-    category: category || "Céramique & Poterie",
-    image: prodImg,
+  const { persisted, supabaseRow, artisanProduct } = await createCatalogProduct({
+    artisanRef,
     artisanName,
-    rating: 5.0,
-    reviewCount: 0,
-    inStock: true,
-    manufacturingDays: Number(manufacturingDays) || 5,
-    createdAt: new Date().toISOString(),
-  };
+    title,
+    description,
+    category,
+    netPrice: price,
+    productType,
+    photos,
+    image,
+    tags,
+    sizes,
+    colors,
+    dimensions,
+    manufacturingDays,
+    shippingFee: numShippingFee,
+    shippingThreshold: numShippingThreshold || 1,
+    personalizationMode,
+    stock,
+    stockPolicy,
+    ipAuthenticityAccepted: ipAuthenticityAccepted !== false,
+  });
 
-  artisanProductsList.unshift(newProduct);
+  if (persisted) {
+    loadProducts().catch(() => {});
+    try {
+      await productsIndex.addDocuments([{
+        ...supabaseRow,
+        artisanName,
+        imageUrl: supabaseRow.image_url,
+      }]);
+    } catch (mErr) {
+      console.warn("[MEILI] ⚠️ Failed to auto-index product into Meilisearch:", mErr.message);
+    }
+  }
 
   return res.status(201).json({
     success: true,
     message: "Création publiée au catalogue Vork avec succès !",
-    product: newProduct,
+    product: artisanProduct,
   });
 });
 
 artisanRouter.put("/products/:id", async (req, res) => {
   const { id } = req.params;
   const updates = req.body;
-  const index = artisanProductsList.findIndex(p => p.id === id);
+  const index = artisanRamProducts.findIndex(p => p.id === id);
 
   if (index !== -1) {
-    artisanProductsList[index] = { ...artisanProductsList[index], ...updates };
+    artisanRamProducts[index] = { ...artisanRamProducts[index], ...updates };
   }
 
   try {
     const sbUpdates = {};
     if (updates.title) sbUpdates.title = updates.title;
     if (updates.price) sbUpdates.price = updates.price;
-    if (updates.description) {
-      sbUpdates.identity = { description: updates.description };
-    }
+    if (updates.status === "hidden") sbUpdates.is_hidden = true;
+    else if (updates.status === "active") sbUpdates.is_hidden = false;
+
+    const { data: existing } = await supabase.from("products").select("identity").eq("id", id).single();
+    const nextIdentity = { ...(existing?.identity || {}) };
+    if (updates.description !== undefined) nextIdentity.description = updates.description;
+    if (Array.isArray(updates.tags)) nextIdentity.tags = updates.tags;
+    if (Array.isArray(updates.sizes)) nextIdentity.sizes = updates.sizes;
+    if (Array.isArray(updates.colors)) nextIdentity.colors = updates.colors;
+    if (Array.isArray(updates.photos)) nextIdentity.photos = updates.photos;
+    if (updates.productType) nextIdentity.product_type = updates.productType;
+    sbUpdates.identity = nextIdentity;
+
     const mode = updates.personalizationMode || updates.personalization_mode;
     if (mode) {
       sbUpdates.personalization_mode = mode;
@@ -1002,6 +1066,7 @@ artisanRouter.put("/products/:id", async (req, res) => {
     }
     if (Object.keys(sbUpdates).length > 0) {
       await supabase.from("products").update(sbUpdates).eq("id", id);
+      loadProducts().catch(() => {});
     }
   } catch (e) {
     console.warn("[VORK-API] Failed to update product in Supabase:", e.message);
@@ -1010,8 +1075,39 @@ artisanRouter.put("/products/:id", async (req, res) => {
   return res.json({
     success: true,
     message: "Produit mis à jour avec succès !",
-    product: index !== -1 ? artisanProductsList[index] : updates,
+    product: index !== -1 ? artisanRamProducts[index] : updates,
   });
+});
+
+artisanRouter.delete("/products/:id", async (req, res) => {
+  const { id } = req.params;
+  const artisanRef = getArtisanRef(req);
+  if (!artisanRef) {
+    return res.status(401).json({ success: false, error: "Identité artisan introuvable." });
+  }
+
+  try {
+    const { data: prod } = await supabase.from("products").select("id, facets").eq("id", id).single();
+    const ownerRef = prod?.facets?.artisan_ref || artisanRamProducts.find(p => p.id === id)?.artisanRef;
+    const isOwner = ownerRef === artisanRef || ((artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1") && (!ownerRef || ownerRef === "artisan_abdelkader" || ownerRef === "artisan-1"));
+    if (ownerRef && !isOwner && req.userRole !== "admin") {
+      return res.status(403).json({ success: false, error: "Accès refusé pour supprimer ce post." });
+    }
+
+    await withdrawOrDeleteCatalogProduct(id, "deleted_by_vendor");
+    loadProducts().catch(() => {});
+    try {
+      await productsIndex.deleteDocument(id);
+    } catch {}
+
+    return res.json({
+      success: true,
+      message: "Post supprimé du catalogue. Les commandes déjà en cours restent inchangées.",
+      message_ar: "تم حذف المنشور من الكتالوج. تستمر الطلبيات الجارية دون تغيير.",
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /**
@@ -1153,11 +1249,38 @@ artisanRouter.get("/notifications", async (req, res) => {
   const lang = req.query.lang === "ar" || req.headers["accept-language"]?.includes("ar") ? "ar" : "fr";
   try {
     const condition = getArtisanOrderCondition(artisanRef);
-    const allOrders = await db.select().from(orders).where(condition);
+    const [allOrders, rawDisputes, rawReturns, allWithdrawals] = await Promise.all([
+      db.select({
+        id: orders.id,
+        status: orders.status,
+        totalPrice: orders.totalPrice,
+        createdAt: orders.createdAt,
+        updatedAt: orders.updatedAt,
+        acceptedAt: orders.acceptedAt,
+        shippedAt: orders.shippedAt,
+        deliveredAt: orders.deliveredAt,
+        escrowReleasedAt: orders.escrowReleasedAt,
+        refusedByArtisan: orders.refusedByArtisan,
+        refusalReason: orders.refusalReason,
+        senditDeliveryCode: orders.senditDeliveryCode,
+      }).from(orders).where(condition),
+      db.select({
+        id: disputes.id,
+        orderId: disputes.orderId,
+        artisanResponse: disputes.artisanResponse,
+        createdAt: disputes.createdAt,
+      }).from(disputes),
+      db.select({
+        id: returnRequests.id,
+        orderId: returnRequests.orderId,
+        status: returnRequests.status,
+        createdAt: returnRequests.createdAt,
+      }).from(returnRequests),
+      db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef)),
+    ]);
     const myOrderIds = new Set(allOrders.map(o => o.id));
-    const allDisputes = (await db.select().from(disputes)).filter(d => myOrderIds.has(d.orderId));
-    const allReturns = (await db.select().from(returnRequests)).filter(r => myOrderIds.has(r.orderId));
-    const allWithdrawals = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, artisanRef));
+    const allDisputes = rawDisputes.filter(d => myOrderIds.has(d.orderId));
+    const allReturns = rawReturns.filter(r => myOrderIds.has(r.orderId));
 
     const notifications = [];
 
@@ -1484,7 +1607,7 @@ artisanRouter.get("/stats", async (req, res) => {
   const artisanRef = getArtisanRef(req);
   try {
     const condition = getArtisanOrderCondition(artisanRef);
-    const allOrders = await db.select().from(orders).where(condition);
+    const allOrders = await db.select({ id: orders.id, status: orders.status }).from(orders).where(condition);
 
     const totalOrders = allOrders.length;
     const acceptedOrders = allOrders.filter(o => o.status !== "annulee").length;
@@ -1509,108 +1632,125 @@ artisanRouter.get("/stats", async (req, res) => {
   }
 });
 
-/**
- * In-memory Custom Order Requests (Marché Sur-Mesure Vendeur)
- */
-let memoryCustomRequests = [
-  {
-    id: "req-101",
-    clientName: "Laila Bennani",
-    category: "Céramique & Poterie",
-    title: "Ensemble de 12 assiettes Zellige Bleu Fassi",
-    description: "Je recherche un ensemble personnalisé de 12 grandes assiettes de service avec motifs géométriques bleus traditionnels de Fès.",
-    budget: "1 800 MAD",
-    deliveryCity: "Casablanca",
-    createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-    image: "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600",
-    quotes: [
-      {
-        artisanName: "Maâlem Abdelkader",
-        proposedPrice: 1650,
-        confectionDays: 8,
-        note: "Réalisable à la main dans notre atelier de Fès avec cuisson traditionnelle.",
-        createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-      }
-    ]
-  },
-  {
-    id: "req-102",
-    clientName: "Karim Tazi",
-    category: "Cuir & Maroquinerie",
-    title: "Pouf en cuir naturel teinté terracotta sur-mesure",
-    description: "Recherche artisan maroquinier pour réaliser un pouf rond de 60cm de diamètre en cuir véritable teinté à la main.",
-    budget: "900 MAD",
-    deliveryCity: "Rabat",
-    createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-    image: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=600",
-    quotes: []
-  },
-  {
-    id: "req-103",
-    clientName: "Sofia El Amrani",
-    category: "Textile & Caftans",
-    title: "Selham Royal en laine blanche tressé fil d'or",
-    description: "Commande spéciale pour un événement familial. Selham traditionnel cousu main avec Sfifa d'or.",
-    budget: "3 500 MAD",
-    deliveryCity: "Marrakech",
-    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-    image: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=600",
-    quotes: []
+function isQuoteOwnedByArtisan(quote, artisanRef) {
+  if (!quote || !quote.artisanRef || !artisanRef) return false;
+  if (quote.artisanRef === artisanRef) return true;
+  if ((artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1")
+    && (quote.artisanRef === "artisan_abdelkader" || quote.artisanRef === "artisan-1")) {
+    return true;
   }
-];
+  return false;
+}
 
 artisanRouter.get("/custom-requests", async (req, res) => {
   try {
+    const artisanRef = getArtisanRef(req);
     const { category } = req.query;
-    // Filtrer les requêtes en mémoire dont l'offre n'a pas encore été acceptée
-    let list = memoryCustomRequests.filter(r => r.status !== "offre_choisie" && r.status !== "en_preparation" && r.status !== "annulee");
 
-    // Interroger la table custom_requests pour les projets créés depuis l'Atelier
+    // 1. Filtrer les requêtes en mémoire uniquement si toujours ouvertes sur le marché
+    let list = memoryCustomRequests
+      .filter(r => isRequestOpenOnMarket(r))
+      .map(r => {
+        const allQuotes = Array.isArray(r.quotes) ? r.quotes : [];
+        const myQuote = allQuotes.find(q => isQuoteOwnedByArtisan(q, artisanRef)) || null;
+        return {
+          ...r,
+          quotes: allQuotes,
+          quotesCount: allQuotes.length,
+          myQuote,
+          isDirectPrivateRequest: false,
+        };
+      });
+
+    // 2. Interroger la table custom_requests : liste blanche stricte des demandes ouvertes
     try {
+      const origin = `${req.protocol}://${req.get("host") || "localhost:3001"}`;
+      const marketCondition = (artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1")
+        ? or(eq(customRequests.artisanRef, "artisan-open"), eq(customRequests.artisanRef, "artisan_abdelkader"), eq(customRequests.artisanRef, "artisan-1"))
+        : or(eq(customRequests.artisanRef, "artisan-open"), eq(customRequests.artisanRef, artisanRef));
+
       const dbRequests = await db.select({
         id: customRequests.id,
         clientRef: customRequests.clientRef,
         artisanRef: customRequests.artisanRef,
         productType: customRequests.productType,
+        marketType: customRequests.marketType,
+        proofImageMeta: sql`CASE WHEN ${customRequests.proofImage} LIKE 'http%' THEN ${customRequests.proofImage} WHEN ${customRequests.proofImage} IS NOT NULL AND length(${customRequests.proofImage}) > 0 THEN '__MEDIA__' ELSE NULL END`,
         totalPrice: customRequests.totalPrice,
         status: customRequests.status,
         customizationTags: customRequests.customizationTags,
         createdAt: customRequests.createdAt,
         updatedAt: customRequests.updatedAt,
       }).from(customRequests)
-        .where(or(eq(customRequests.artisanRef, "artisan-open"), eq(customRequests.productType, "sur_commande")))
+        .where(and(
+          marketCondition,
+          inArray(customRequests.status, OPEN_MARKET_STATUSES)
+        ))
         .orderBy(desc(customRequests.createdAt))
         .limit(40);
 
+      // Recueillir les commandes liées déjà acceptées/réalisées pour éviter toute fuite sur le marché public
+      const activeOrRealizedCustomReqIds = new Set();
+      try {
+        const recentOrders = await db.select({ id: orders.id, status: orders.status, acceptedAt: orders.acceptedAt, orderMetadata: orders.orderMetadata }).from(orders);
+        for (const o of recentOrders) {
+          if (["annulee", "annule_avant_acceptation"].includes(o.status)) continue;
+          const meta = safeJsonParse(o.orderMetadata, {});
+          if (meta.customRequestId) {
+            activeOrRealizedCustomReqIds.add(meta.customRequestId);
+          }
+          if (o.id.startsWith("ord_")) {
+            activeOrRealizedCustomReqIds.add(`req_${o.id.split("_")[1]}`);
+          }
+        }
+      } catch {}
+
       const formatted = dbRequests
         .filter(r => {
-          let tags = {};
-          try { tags = typeof r.customizationTags === 'string' ? JSON.parse(r.customizationTags) : (r.customizationTags || {}); } catch(e) {}
-          // Exclure toute commande personnalisée acceptée par le client (retirée du marché public)
-          if (r.status === "offre_choisie" || r.status === "en_preparation" || r.status === "annulee" || tags.chosenQuote) {
+          const tags = safeJsonParse(r.customizationTags, {});
+          if (!isRequestOpenOnMarket(r, tags)) {
             return false;
+          }
+          if (activeOrRealizedCustomReqIds.has(r.id)) {
+            return false;
+          }
+          const isPrivate = r.marketType === "private" || (r.artisanRef && r.artisanRef !== "artisan-open");
+          if (isPrivate) {
+            const isMine = r.artisanRef === artisanRef || ((artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1") && (r.artisanRef === "artisan_abdelkader" || r.artisanRef === "artisan-1"));
+            if (!isMine) return false;
           }
           return true;
         })
         .map(r => {
-          let tags = {};
-          try { tags = typeof r.customizationTags === 'string' ? JSON.parse(r.customizationTags) : (r.customizationTags || {}); } catch(e) {}
+          const tags = safeJsonParse(r.customizationTags, {});
           const mods = tags.modifications || [];
           const catMod = mods.find(m => (m.feature || '').toLowerCase().includes('mat') || (m.feature || '').toLowerCase().includes('cat'));
           const autoCat = catMod?.value || tags.category || 'Sur-mesure';
-          const listImage = tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600";
+          const resolvedProofImage = r.proofImageMeta === "__MEDIA__"
+            ? `${origin}/api/public/media/custom-request/${r.id}`
+            : r.proofImageMeta;
+          const listImage = resolvedProofImage || tags.anchorProduct?.imageUrl || "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=600";
+          const allQuotes = Array.isArray(tags.quotes) ? tags.quotes : [];
+          const myQuote = allQuotes.find(q => isQuoteOwnedByArtisan(q, artisanRef)) || null;
+          const isPrivate = r.marketType === "private" || (r.artisanRef && r.artisanRef !== "artisan-open");
 
           return {
             id: r.id,
             clientName: r.clientRef || "Client Vork",
             category: autoCat,
-            title: tags.summary ? tags.summary.split('\n')[0].replace(/^[•\s*]+/, '') : "Création sur mesure",
+            title: tags.title || (tags.summary ? tags.summary.split('\n')[0].replace(/^[•\s*]+/, '') : "Création sur mesure"),
             description: tags.summary || "Demande de création artisanale personnalisée.",
             budget: r.totalPrice ? `${r.totalPrice} DH` : "Sur devis",
             deliveryCity: "Maroc",
             createdAt: r.createdAt,
             image: listImage,
-            quotes: Array.isArray(tags.quotes) ? tags.quotes : []
+            quotes: allQuotes,
+            quotesCount: allQuotes.length,
+            myQuote,
+            isDirectPrivateRequest: isPrivate,
+            tags: Array.isArray(tags.tags) ? tags.tags : [],
+            selectedSize: tags.selectedSize || null,
+            selectedColor: tags.selectedColor || null,
           };
         });
 
@@ -1632,16 +1772,22 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
   const { id } = req.params;
   const { proposedPrice, confectionDays, note } = req.body;
 
-  if (!proposedPrice || !confectionDays) {
+  if (!proposedPrice || !confectionDays || Number(proposedPrice) <= 0 || Number(confectionDays) <= 0) {
     return res.status(400).json({ success: false, error: "Le prix et le délai de confection sont obligatoires." });
   }
 
-  const artisanRef = getArtisanRef(req) || "artisan_abdelkader";
-  const artisanName = req.user?.fullName || req.userProfile?.full_name || req.userId || "Maâlem";
+  const artisanRef = getArtisanRef(req);
+  if (!artisanRef) {
+    return res.status(401).json({ success: false, error: "Identité artisan introuvable." });
+  }
+
+  const profile = getMemoryProfile(artisanRef, req.user);
+  const artisanName = req.user?.fullName || profile?.artisanName || req.user?.email?.split("@")[0] || "Maâlem";
 
   const newQuote = {
     artisanName,
     artisanRef,
+    artisanCity: req.user?.city || profile?.pickupAddress || "",
     proposedPrice: Number(proposedPrice),
     confectionDays: Number(confectionDays),
     note: note || "",
@@ -1650,11 +1796,11 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
 
   const reqItem = memoryCustomRequests.find(r => r.id === id);
   if (reqItem) {
+    if (!isRequestOpenOnMarket(reqItem)) {
+      return res.status(409).json({ success: false, error: "Cette demande a déjà été attribuée à un artisan." });
+    }
     if (!Array.isArray(reqItem.quotes)) reqItem.quotes = [];
-    const existingIdx = reqItem.quotes.findIndex(q => 
-      (q.artisanRef && q.artisanRef === artisanRef) || 
-      (q.artisanName && q.artisanName.toLowerCase() === artisanName.toLowerCase())
-    );
+    const existingIdx = reqItem.quotes.findIndex(q => isQuoteOwnedByArtisan(q, artisanRef));
     if (existingIdx >= 0) {
       reqItem.quotes[existingIdx] = newQuote;
     } else {
@@ -1666,28 +1812,61 @@ artisanRouter.post("/custom-requests/:id/quote", async (req, res) => {
   try {
     const [dbReq] = await db.select().from(customRequests).where(eq(customRequests.id, id));
     if (dbReq) {
-      let tags = {};
-      try {
-        tags = typeof dbReq.customizationTags === 'string' ? JSON.parse(dbReq.customizationTags) : (dbReq.customizationTags || {});
-      } catch (e) {}
+      const tags = safeJsonParse(dbReq.customizationTags, {});
+
+      if (!isRequestOpenOnMarket(dbReq, tags)) {
+        return res.status(409).json({
+          success: false,
+          error: "Cette demande a déjà été attribuée à un artisan ou clôturée par le client.",
+        });
+      }
+
+      const isPrivate = dbReq.marketType === "private" || (dbReq.artisanRef && dbReq.artisanRef !== "artisan-open");
+      const isMine = dbReq.artisanRef === artisanRef || ((artisanRef === "artisan_abdelkader" || artisanRef === "artisan-1") && (dbReq.artisanRef === "artisan_abdelkader" || dbReq.artisanRef === "artisan-1"));
+      if (isPrivate && !isMine) {
+        return res.status(403).json({
+          success: false,
+          error: "Accès refusé : cette demande personnalisée privée est adressée à un autre Maâlem.",
+        });
+      }
+
       if (!Array.isArray(tags.quotes)) {
         tags.quotes = [];
       }
-      const existingIdx = tags.quotes.findIndex(q => 
-        (q.artisanRef && q.artisanRef === artisanRef) || 
-        (q.artisanName && q.artisanName.toLowerCase() === artisanName.toLowerCase())
-      );
+      const existingIdx = tags.quotes.findIndex(q => isQuoteOwnedByArtisan(q, artisanRef));
       if (existingIdx >= 0) {
         tags.quotes[existingIdx] = newQuote;
       } else {
         tags.quotes.push(newQuote);
       }
+
       await db.update(customRequests)
         .set({
           customizationTags: JSON.stringify(tags),
+          status: dbReq.status === "en_attente_artisan" ? "devis_recu" : dbReq.status,
           updatedAt: new Date().toISOString()
         })
         .where(eq(customRequests.id, id));
+
+      // Notifier le client de la nouvelle proposition de manière résiliente
+      if (dbReq.clientRef) {
+        await createNotificationResilient({
+          userId: dbReq.clientRef,
+          userType: "client",
+          type: "custom_quote_received",
+          title: `Nouveau devis de ${artisanName}`,
+          titleAr: `عرض سعر جديد من ${artisanName}`,
+          message: `${artisanName} propose ${newQuote.proposedPrice} MAD (délai ${newQuote.confectionDays} jours) pour votre création sur-mesure.`,
+          messageAr: `اقترح ${artisanName} مبلغ ${newQuote.proposedPrice} درهم (مدة الإنجاز ${newQuote.confectionDays} أيام) لطلبك المخصص.`,
+          sourceId: id,
+          secondaryUserId: artisanRef,
+          secondaryUserName: artisanName,
+          idempotencyKey: `quote:${id}:${artisanRef}:${newQuote.proposedPrice}:${newQuote.confectionDays}`,
+          metadata: { orderId: id, proposedPrice: newQuote.proposedPrice, confectionDays: newQuote.confectionDays },
+        });
+      }
+    } else if (!reqItem) {
+      return res.status(404).json({ success: false, error: "Demande sur-mesure introuvable." });
     }
   } catch (err) {
     console.warn("[ARTISAN-ROUTES] ⚠️ Could not persist quote to DB custom_request:", err.message);

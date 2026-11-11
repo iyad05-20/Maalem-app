@@ -105,15 +105,15 @@ function saveWallet(wallet: ClientWallet): void {
 export const clientWalletAPI = {
   async fetchOrders(_clientRef = "client-me"): Promise<ClientOrder[]> {
     try {
-      const res = await fetch(`${API_BASE}/client/orders?clientRef=${_clientRef}`, {
+      const res = await fetch(`${API_BASE}/client/orders?clientRef=${encodeURIComponent(_clientRef)}`, {
         headers: getHeaders()
       });
       if (res.ok) {
-        const data = await res.json() as ClientOrder[];
-        if (data && data.length > 0) return data;
+        const data = await res.json();
+        if (Array.isArray(data)) return data as ClientOrder[];
       }
     } catch {
-      // Fallback local dev
+      // Fallback local dev uniquement si réseau indisponible
     }
     return getStoredOrders();
   },
@@ -160,18 +160,33 @@ export const clientWalletAPI = {
     clientRef: string,
     artisanRef: string,
     totalPrice: number,
-    productType: "standard" | "personnalise" = "standard",
+    productType: "standard" | "personnalise" | "sur_commande" = "standard",
     productTitle?: string,
     productImage?: string,
     artisanName?: string,
     productId?: string,
-    quantity?: number
+    quantity?: number,
+    specs?: { selectedSize?: string; selectedColor?: string; tags?: string[]; productPhotos?: string[] }
   ): Promise<ClientOrder> {
     try {
       const res = await fetch(`${API_BASE}/client/orders`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({ clientRef, artisanRef, artisanName, totalPrice, productType, productTitle, productImage, productId, quantity }),
+        body: JSON.stringify({
+          clientRef,
+          artisanRef,
+          artisanName,
+          totalPrice,
+          productType,
+          productTitle,
+          productImage,
+          productId,
+          quantity,
+          selectedSize: specs?.selectedSize || null,
+          selectedColor: specs?.selectedColor || null,
+          tags: specs?.tags || [],
+          productPhotos: specs?.productPhotos || [],
+        }),
       });
       if (res.ok) {
         const backendOrder = await res.json() as ClientOrder;
@@ -179,6 +194,10 @@ export const clientWalletAPI = {
         backendOrder.productTitle = productTitle;
         backendOrder.productImage = productImage;
         backendOrder.artisanName = artisanName;
+        if (specs?.selectedSize) backendOrder.selectedSize = specs.selectedSize;
+        if (specs?.selectedColor) backendOrder.selectedColor = specs.selectedColor;
+        if (specs?.tags) backendOrder.tags = specs.tags;
+        if (specs?.productPhotos) backendOrder.productPhotos = specs.productPhotos;
 
         const current = getStoredOrders();
         current.unshift(backendOrder);
@@ -207,6 +226,10 @@ export const clientWalletAPI = {
       productImage,
       totalPrice,
       productType,
+      selectedSize: specs?.selectedSize || null,
+      selectedColor: specs?.selectedColor || null,
+      tags: specs?.tags || [],
+      productPhotos: specs?.productPhotos || [],
       status: "en_attente_paiement",
       createdAt: new Date().toISOString(),
       tranche: "total_100",
@@ -723,5 +746,57 @@ export const clientWalletAPI = {
   async getCronStatus(): Promise<any> {
     const res = await fetch(`${BACKEND_ROOT}/api/cron/status`);
     return res.json();
-  }
+  },
+
+  async fetchServerNotifications(userId: string = "client-me"): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/notifications?userId=${encodeURIComponent(userId)}&userType=client`, {
+        headers: getHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.success && Array.isArray(data.notifications) ? data.notifications : [];
+      }
+    } catch {}
+    return [];
+  },
+
+  async markNotificationRead(notificationId: string, userId: string = "client-me"): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/notifications/${notificationId}/read`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ userId }),
+      });
+      return await res.json();
+    } catch {
+      return { success: false };
+    }
+  },
+
+  async respondPublicationConsent(orderId: string, decision: "accept" | "refuse", userId: string = "client-me", reason?: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/notifications/consent/${orderId}/respond`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ decision, role: "client", userId, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Erreur lors du traitement de votre réponse.");
+    }
+    return data;
+  },
+
+  async withdrawPublicationConsent(orderId: string, userId: string = "client-me", reason?: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/notifications/consent/${orderId}/withdraw`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ userId, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || "Erreur lors du retrait de l'accord.");
+    }
+    return data;
+  },
 };

@@ -32,9 +32,17 @@ export const sql = postgres(connectionString, {
 export const db = drizzle(sql, { schema });
 
 /**
- * No-op helper for backward compatibility with existing server bootstrap.
- * PostgreSQL schema is managed via Supabase / migrations.
+ * Ensures lightweight idempotent column additions on existing PostgreSQL tables.
  */
 export async function initSchema() {
-  return true;
+  try {
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_metadata text`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS idempotency_key text`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS action_status text`;
+    await sql`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS updated_at text`;
+    return true;
+  } catch (err) {
+    console.warn("[DB-INIT] ⚠️ Idempotent schema check warning:", err.message);
+    return false;
+  }
 }

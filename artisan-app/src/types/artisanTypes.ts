@@ -29,9 +29,17 @@ export interface ArtisanOrder {
   j2RelanceSentAt?: string | null;
   shippedAt?: string | null;
   customizationOrigin?: "from_post" | "from_scratch" | null;
+  sourceProductId?: string | null;
+  sourceVendorId?: string | null;
   catalogPublishedAt?: string | null;
   publishedProductId?: string | null;
   republicationConsentStatus?: string | null;
+  republicationConsentParty?: string | null;
+  selectedSize?: string | null;
+  selectedColor?: string | null;
+  tags?: string[];
+  productPhotos?: string[];
+  orderMetadata?: any;
 }
 
 export interface ArtisanReturn {
@@ -94,8 +102,18 @@ export interface ArtisanProduct {
   title: string;
   description: string;
   price: number;
+  clientPrice?: number;
   productType: "standard" | "personnalise" | "sur_commande";
   image: string;
+  photos?: string[];
+  tags?: string[];
+  sizes?: string[];
+  colors?: string[];
+  isOnDemand?: boolean;
+  availabilityMode?: string;
+  ipAuthenticityAccepted?: boolean;
+  consentWithdrawn?: boolean;
+  personalizationMode?: string;
   artisanName: string;
   category: string;
   rating?: number;
@@ -125,6 +143,12 @@ export interface CustomOrderRequest {
   createdAt: string;
   image: string;
   quotes: CustomOrderQuote[];
+  quotesCount?: number;
+  myQuote?: CustomOrderQuote | null;
+  isDirectPrivateRequest?: boolean;
+  tags?: string[];
+  selectedSize?: string | null;
+  selectedColor?: string | null;
 }
 
 export interface ArtisanNotification {
@@ -140,6 +164,12 @@ export interface ArtisanNotification {
   read: boolean;
   linkTab: string;
   orderId?: string;
+  sourceId?: string;
+  secondaryUserId?: string;
+  secondaryUserName?: string;
+  linkUrl?: string;
+  actionStatus?: string | null;
+  metadata?: any;
 }
 
 export interface ArtisanProfileDetails {

@@ -78,8 +78,9 @@ export const orders = pgTable("orders", {
   customizationOrigin: text("customization_origin").default("from_post"), // 'from_post' | 'from_scratch'
   catalogPublishedAt: text("catalog_published_at"),
   publishedProductId: text("published_product_id"),
-  republicationConsentStatus: text("republication_consent_status").default("not_required"), // 'not_required' | 'pending' | 'granted' | 'rejected'
+  republicationConsentStatus: text("republication_consent_status").default("not_required"), // 'not_required' | 'pending' | 'partially_granted' | 'granted' | 'rejected' | 'withdrawn'
   republicationConsentParty: text("republication_consent_party"), // 'source_vendor' | 'client'
+  orderMetadata: text("order_metadata"), // JSON: { selectedSize, selectedColor, tags, productPhotos, customRequestId, republicationRequest }
 });
 
 export const formalRequests = pgTable("formal_requests", {
@@ -285,6 +286,9 @@ export const notifications = pgTable("notifications", {
   secondaryUserName: text("secondary_user_name"),
   isRead: numeric("is_read").default("0"),
   metadata: text("metadata"), // JSON string
+  idempotencyKey: text("idempotency_key"),
+  actionStatus: text("action_status"), // 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'info'
+  updatedAt: text("updated_at"),
   createdAt: text("created_at").notNull(),
 });
 

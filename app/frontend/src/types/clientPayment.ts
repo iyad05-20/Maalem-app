@@ -70,6 +70,22 @@ export interface ClientOrder {
   refusalReason?: string | null;
 
   senditDeliveryCode?: string | null;
+
+  // Spécifications & Options produit + traçabilité Diagramme 5
+  selectedSize?: string | null;
+  selectedColor?: string | null;
+  tags?: string[];
+  productPhotos?: string[];
+  productSizes?: string[];
+  productColors?: string[];
+  manufacturingDays?: number | null;
+  orderMetadata?: any;
+  customizationOrigin?: "from_post" | "from_scratch" | null;
+  sourceProductId?: string | null;
+  sourceVendorId?: string | null;
+  publishedProductId?: string | null;
+  catalogPublishedAt?: string | null;
+  republicationConsentStatus?: string | null;
 }
 
 export interface WalletTransaction {

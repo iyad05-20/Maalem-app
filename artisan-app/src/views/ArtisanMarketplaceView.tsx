@@ -9,10 +9,11 @@ import { getCurrentArtisanRef } from "../services/artisanApi";
 
 interface Props {
   customRequests: CustomOrderRequest[];
+  artisanRef?: string;
   onSubmitQuote: (requestId: string, price: number, days: number, note: string) => Promise<void>;
 }
 
-export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubmitQuote }) => {
+export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, artisanRef, onSubmitQuote }) => {
   const { isRTL, t } = useI18n();
   const [category, setCategory] = useState("all");
   const [submittingId, setSubmittingId] = useState<string | null>(null);
@@ -21,8 +22,21 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
   const [reportTarget, setReportTarget] = useState<{ id: string; title: string } | null>(null);
 
   const storedUser = artisanAuthService.getStoredUser();
-  const currentArtisanRef = getCurrentArtisanRef();
-  const currentArtisanName = storedUser?.fullName || storedUser?.workshopName;
+  const activeArtisanRef = artisanRef || storedUser?.id || getCurrentArtisanRef();
+
+  const findMyQuote = (r: CustomOrderRequest) => {
+    if (r.myQuote !== undefined) return r.myQuote;
+    // Isolation stricte par identifiant vendeur uniquement (jamais par nom pour éviter toute collision entre artisans)
+    return r.quotes?.find(q => {
+      if (!q.artisanRef || !activeArtisanRef) return false;
+      if (q.artisanRef === activeArtisanRef) return true;
+      if ((activeArtisanRef === "artisan_abdelkader" || activeArtisanRef === "artisan-1")
+        && (q.artisanRef === "artisan_abdelkader" || q.artisanRef === "artisan-1")) {
+        return true;
+      }
+      return false;
+    }) || null;
+  };
 
   const CATEGORIES = [
     { id: "all", label: t("market_cat_all") },
@@ -41,10 +55,7 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
 
   const handleOpenQuoteForm = (r: CustomOrderRequest) => {
     setActiveQuoteId(r.id);
-    const existing = r.quotes?.find(q =>
-      (q.artisanRef && (q.artisanRef === currentArtisanRef || q.artisanRef === storedUser?.id)) ||
-      (currentArtisanName && q.artisanName && q.artisanName.toLowerCase() === currentArtisanName.toLowerCase())
-    );
+    const existing = findMyQuote(r);
     if (existing) {
       setQuoteForm({
         price: String(existing.proposedPrice || ""),
@@ -99,11 +110,9 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {filtered.map((req, i) => {
-            const myQuote = req.quotes?.find(q =>
-              (q.artisanRef && (q.artisanRef === currentArtisanRef || q.artisanRef === storedUser?.id)) ||
-              (currentArtisanName && q.artisanName && q.artisanName.toLowerCase() === currentArtisanName.toLowerCase())
-            );
+            const myQuote = findMyQuote(req);
             const hasAlreadyQuoted = Boolean(myQuote);
+            const totalQuotesCount = req.quotesCount ?? req.quotes?.length ?? 0;
             const isExpanded = activeQuoteId === req.id;
 
             return (
@@ -133,8 +142,13 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
                     <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 14, color: "var(--primary)", marginBottom: 4, lineHeight: 1.3 }}>
                       {req.title}
                     </div>
-                    <div style={{ display: "flex", gap: 10, marginBottom: 4 }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
                       <span className="badge badge-info"><Tag size={9} /> {req.category}</span>
+                      {req.isDirectPrivateRequest && (
+                        <span className="badge" style={{ background: "rgba(184, 98, 63, 0.14)", color: "#B8623F", fontWeight: 700 }}>
+                          {isRTL ? "طلب مباشر لك" : "Demande Directe"}
+                        </span>
+                      )}
                       {req.deliveryCity && (
                         <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                           <MapPin size={10} color="var(--text-secondary)" />
@@ -159,20 +173,41 @@ export const ArtisanMarketplaceView: React.FC<Props> = ({ customRequests, onSubm
                   </div>
                 </div>
 
-                {/* Description */}
-                {req.description && (
+                {/* Description & Specs (Taille / Couleur / Tags) */}
+                {(req.description || req.selectedSize || req.selectedColor || (Array.isArray(req.tags) && req.tags.length > 0)) && (
                   <div style={{ paddingInlineStart: 14, paddingInlineEnd: 14, paddingBottom: 10 }}>
-                    <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5, margin: 0 }}>
-                      {req.description}
-                    </p>
+                    {req.description && (
+                      <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5, margin: 0 }}>
+                        {req.description}
+                      </p>
+                    )}
+                    {(req.selectedSize || req.selectedColor || (Array.isArray(req.tags) && req.tags.length > 0)) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                        {req.selectedSize && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "rgba(26,42,58,0.07)", color: "var(--primary)" }}>
+                            {isRTL ? "المقاس:" : "Taille:"} {req.selectedSize}
+                          </span>
+                        )}
+                        {req.selectedColor && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "rgba(184,98,63,0.1)", color: "var(--accent-warm)" }}>
+                            {isRTL ? "اللون:" : "Couleur:"} {req.selectedColor}
+                          </span>
+                        )}
+                        {Array.isArray(req.tags) && req.tags.map((tg, tidx) => (
+                          <span key={tidx} style={{ fontSize: 9.5, padding: "2px 6px", borderRadius: 6, background: "rgba(212,175,55,0.12)", color: "#8B6914", fontWeight: 600 }}>
+                            #{tg}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Existing quotes count & my active quote summary */}
                 <div style={{ paddingInlineStart: 14, paddingInlineEnd: 14, paddingBottom: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {req.quotes?.length > 0 && (
+                  {totalQuotesCount > 0 && (
                     <span className="badge badge-gold">
-                      <CheckCircle size={9} /> {req.quotes.length} {t("market_quotes_count")}
+                      <CheckCircle size={9} /> {totalQuotesCount} {t("market_quotes_count")}
                     </span>
                   )}
                   {hasAlreadyQuoted && myQuote && (

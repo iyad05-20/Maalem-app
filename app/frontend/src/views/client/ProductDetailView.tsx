@@ -31,17 +31,25 @@ const getFallbackImage = (category_group?: string) => {
   return (category_group && images[category_group]) || 'https://images.unsplash.com/photo-1549490349-8643362247b5?w=500&q=80';
 };
 
+const normalizeList = (val: any): string[] => {
+  if (Array.isArray(val)) return Array.from(new Set(val.map((x) => String(x || '').trim()).filter(Boolean)));
+  if (typeof val === 'string' && val.trim()) return Array.from(new Set(val.split(',').map((x) => x.trim()).filter(Boolean)));
+  return [];
+};
+
 const extractProductTags = (p: any): string[] => {
   const tags: string[] = [];
   if (Array.isArray(p.tags)) tags.push(...p.tags);
+  if (Array.isArray(p.identity?.tags)) tags.push(...p.identity.tags);
   if (p.rec_tags) {
     if (Array.isArray(p.rec_tags.style)) tags.push(...p.rec_tags.style);
     if (Array.isArray(p.rec_tags.material)) tags.push(...p.rec_tags.material);
     if (Array.isArray(p.rec_tags.color_vibe)) tags.push(...p.rec_tags.color_vibe);
+    if (Array.isArray(p.rec_tags.custom)) tags.push(...p.rec_tags.custom);
   }
   if (p.category_group) tags.push(p.category_group);
   if (p.identity?.category_group) tags.push(p.identity.category_group);
-  return Array.from(new Set(tags));
+  return Array.from(new Set(tags.map((t) => String(t || '').trim()).filter(Boolean)));
 };
 
 export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
@@ -70,13 +78,32 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
     : (product.price as any || 450);
 
   const pAny = product as any;
+  const photos = normalizeList([
+    ...(normalizeList(pAny.photos || pAny.images || pAny.identity?.photos)),
+    product.image || pAny.image_url || pAny.imageUrl || getFallbackImage(product.category),
+  ]);
+  const sizes = normalizeList(pAny.sizes || pAny.identity?.sizes || pAny.facets?.sizes);
+  const colors = normalizeList(pAny.colors || pAny.identity?.colors || pAny.facets?.colors);
+
+  const [activePhotoIdx, setActivePhotoIdx] = useState(0);
+  const [selectedSize, setSelectedSize] = useState<string>(sizes[0] || '');
+  const [selectedColor, setSelectedColor] = useState<string>(colors[0] || '');
+
+  useEffect(() => {
+    setActivePhotoIdx(0);
+    setSelectedSize(sizes[0] || '');
+    setSelectedColor(colors[0] || '');
+  }, [product.id]);
+
   const currentStock = typeof pAny.stock === 'number' ? pAny.stock : undefined;
   const initialStock = typeof pAny.initialStock === 'number' ? pAny.initialStock : (typeof pAny.initial_stock === 'number' ? pAny.initial_stock : currentStock);
   const isOutOfStock = Boolean(pAny.isOutOfStock || pAny.is_out_of_stock || (typeof currentStock === 'number' && currentStock <= 0));
   const stockPolicy = pAny.stockPolicy || pAny.stock_policy || {};
   const allowOrderExceedingStock = Boolean(stockPolicy.allowOrderExceedingStock ?? stockPolicy.allow_order_exceeding_stock ?? true);
-  const isStrictOutOfStock = isOutOfStock && !allowOrderExceedingStock;
-  const isOnDemandOrder = isOutOfStock && allowOrderExceedingStock;
+  const isOnDemandProductType = Boolean(pAny.isOnDemand || pAny.productType === 'sur_commande' || pAny.identity?.product_type === 'sur_commande');
+  const isStrictOutOfStock = !isOnDemandProductType && isOutOfStock && !allowOrderExceedingStock;
+  const isOnDemandOrder = isOnDemandProductType || (isOutOfStock && allowOrderExceedingStock);
+  const manufacturingDays = pAny.manufacturingDays || pAny.identity?.manufacturing_days || 5;
 
   const [showReportModal, setShowReportModal] = useState(false);
   const personalizationMode = pAny.personalization_mode || pAny.personalizationMode || pAny.identity?.personalization_mode || (pAny.accept_customization === false ? 'disabled' : 'accept_direct');
@@ -121,16 +148,26 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
       const artisanName = product.artisanName || pAny.artisan_name || "Maâlem Abdelkader";
       const productImage = product.image || pAny.image_url || getFallbackImage(product.category);
 
+      const orderProductType = (isOnDemandOrder || pAny.productType === "sur_commande" || pAny.identity?.product_type === "sur_commande")
+        ? "sur_commande"
+        : "standard";
+
       const newOrder = await clientWalletAPI.createOrder(
         clientRef,
         artisanRef,
         priceVal,
-        "standard",
+        orderProductType,
         product.title,
-        productImage,
+        photos[0] || productImage,
         artisanName,
         product.id,
-        1
+        1,
+        {
+          selectedSize: selectedSize || undefined,
+          selectedColor: selectedColor || undefined,
+          tags,
+          productPhotos: photos,
+        }
       );
 
       console.log(`[DETAIL] Order initialized for ${product.title} (ID: ${newOrder.id})`);
@@ -255,15 +292,15 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
         {/* Scrollable Content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 170px 20px' }}>
           
-          {/* Main Product Image */}
-          <div style={{ margin: '20px 0', borderRadius: 24, overflow: 'hidden', height: 280, position: 'relative', boxShadow: 'var(--shadow-md)' }}>
+          {/* Main Product Image & Multi-photo Gallery */}
+          <div style={{ margin: '20px 0 10px 0', borderRadius: 24, overflow: 'hidden', height: 280, position: 'relative', boxShadow: 'var(--shadow-md)' }}>
             <img
-              src={product.image || getFallbackImage(product.category)}
+              src={photos[activePhotoIdx] || product.image || getFallbackImage(product.category)}
               alt={product.title}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
             {/* Sceau / Badge de stock de luxe Vork */}
-            <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 2 }}>
+            <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 2, display: 'flex', flexDirection: 'column', gap: 6 }}>
               <LuxuryStockBadge
                 stock={currentStock}
                 initialStock={initialStock}
@@ -271,6 +308,23 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 stockPolicy={stockPolicy}
                 variant="card"
               />
+              {isOnDemandOrder && currentStock === undefined && (
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '4px 10px',
+                  borderRadius: 20,
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid rgba(212, 175, 55, 0.5)',
+                  color: '#8B6914',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  boxShadow: 'var(--shadow-sm)',
+                }}>
+                  ✦ Sur Commande · Hors stock ({manufacturingDays}j)
+                </span>
+              )}
             </div>
             {product.badge && !isOutOfStock && (
               <span
@@ -292,8 +346,33 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
             )}
           </div>
 
+          {photos.length > 1 && (
+            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, marginBottom: 14 }}>
+              {photos.map((src, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setActivePhotoIdx(idx)}
+                  style={{
+                    width: 58,
+                    height: 58,
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                    padding: 0,
+                    flexShrink: 0,
+                    border: activePhotoIdx === idx ? '2.5px solid var(--accent-warm)' : '1px solid var(--border)',
+                    cursor: 'pointer',
+                    background: '#FFF',
+                  }}
+                >
+                  <img src={src} alt={`photo-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Product Meta */}
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 20 }}>
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '1.45rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1.25, marginBottom: 8, textAlign: 'left' }}>
               {product.title}
             </h1>
@@ -310,14 +389,110 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 />
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'rgba(233, 230, 225, 0.6)', padding: '3px 8px', borderRadius: 8 }}>
-                {product.category ? product.category.toUpperCase() : 'ARTISANAT'}
-              </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'rgba(233, 230, 225, 0.6)', padding: '3px 8px', borderRadius: 8 }}>
+                  {product.category ? product.category.toUpperCase() : 'ARTISANAT'}
+                </span>
+                <span style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  padding: '3px 8px',
+                  borderRadius: 8,
+                  background: isOnDemandOrder ? 'rgba(212, 175, 55, 0.14)' : 'rgba(45, 106, 79, 0.1)',
+                  color: isOnDemandOrder ? '#8B6914' : '#2D6A4F',
+                }}>
+                  {isOnDemandOrder ? `Sur Commande · Hors stock (${manufacturingDays}j)` : 'Standard · En stock'}
+                </span>
+              </div>
               <span style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--accent-warm)' }}>
                 {priceVal.toLocaleString('fr-FR')} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>MAD</span>
               </span>
             </div>
+
+            {/* Tags du post */}
+            {tags.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+                {tags.map((tag, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                      padding: '3px 9px',
+                      borderRadius: 99,
+                      background: 'rgba(26, 42, 58, 0.06)',
+                      color: 'var(--primary)',
+                    }}
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Sélecteurs Tailles & Couleurs */}
+            {(sizes.length > 0 || colors.length > 0) && (
+              <div style={{ background: '#FFFFFF', border: '1px solid var(--border)', borderRadius: 18, padding: 14, marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {sizes.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', margin: '0 0 6px 0', textAlign: 'left' }}>
+                      Taille / Format souhaité :
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {sizes.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setSelectedSize(s)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 10,
+                            border: selectedSize === s ? '1.5px solid var(--accent-warm)' : '1px solid var(--border)',
+                            background: selectedSize === s ? 'var(--accent-warm)' : '#FAF8F5',
+                            color: selectedSize === s ? '#FFFFFF' : 'var(--primary)',
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {colors.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', margin: '0 0 6px 0', textAlign: 'left' }}>
+                      Couleur souhaitée :
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {colors.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setSelectedColor(c)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 10,
+                            border: selectedColor === c ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                            background: selectedColor === c ? 'var(--primary)' : '#FAF8F5',
+                            color: selectedColor === c ? '#FFFFFF' : 'var(--primary)',
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Guarantee Box */}
@@ -488,6 +663,10 @@ export const ProductDetailView: React.FC<ProductDetailViewProps> = ({
                 sessionStorage.setItem('vork_atelier_template_product', JSON.stringify({
                   ...product,
                   personalizationMode,
+                  selectedSize: selectedSize || undefined,
+                  selectedColor: selectedColor || undefined,
+                  tags,
+                  photos,
                 }));
                 onNavigate('atelier');
                 onClose();
